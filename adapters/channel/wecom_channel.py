@@ -165,7 +165,7 @@ class WeComChannelAdapter(ChannelPort):
             if self._brain:
                 from adapters.stream.collector_stream import CollectorStreamAdapter
                 collector = CollectorStreamAdapter()
-                original_stream = self._brain._stream
+                original_stream = self._brain.stream
                 self._brain.set_stream(collector)
                 try:
                     await self._brain.process(session_id, text)

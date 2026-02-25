@@ -114,7 +114,7 @@ class TelegramChannelAdapter(ChannelPort):
         """调用 Brain 并收集完整响应文本。"""
         from adapters.stream.collector_stream import CollectorStreamAdapter
         collector = CollectorStreamAdapter()
-        original_stream = self._brain._stream
+        original_stream = self._brain.stream
         self._brain.set_stream(collector)
         try:
             await self._brain.process(session_id, user_input)

@@ -19,8 +19,10 @@
 import asyncio
 import json
 import os
+import tempfile
 import threading
 import time
+from pathlib import Path
 from typing import Callable, Awaitable
 
 from ports.channel_port import ChannelPort
@@ -57,6 +59,14 @@ class FeishuChannelAdapter(ChannelPort):
         """启动 SDK 长连接客户端（在独立线程中运行）。"""
         if self._running:
             return
+
+        # 清除代理环境变量，避免飞书 SDK 连接时 SSL 失败
+        # 必须在 SDK 初始化前清除，否则 urllib3 会缓存代理设置
+        _proxy_keys = ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy")
+        _saved_proxies = {k: os.environ.pop(k) for k in _proxy_keys if k in os.environ}
+        if _saved_proxies:
+            logger.info(f"飞书: 已临时清除代理环境变量: {list(_saved_proxies.keys())}")
+
         try:
             import lark_oapi as lark
 
@@ -120,27 +130,34 @@ class FeishuChannelAdapter(ChannelPort):
             if len(self._processed_msg_ids) > 1000:
                 self._processed_msg_ids = set(list(self._processed_msg_ids)[-500:])
 
-            # 只处理文本消息
-            if msg_type != "text":
-                return
-
-            content = json.loads(message.content or "{}")
-            text = content.get("text", "").strip()
-            if not text:
-                return
-
             sender = event.sender
             user_id = sender.sender_id.open_id if sender and sender.sender_id else "unknown"
             session_id = f"feishu_{user_id}"
+            content = json.loads(message.content or "{}")
 
-            logger.info(f"飞书: 收到消息 from={user_id} chat_type={chat_type} len={len(text)}")
-
-            # 调度到主事件循环执行异步处理
-            if self._loop and self._loop.is_running():
-                asyncio.run_coroutine_threadsafe(
-                    self._process_and_reply(session_id, text, msg_id),
-                    self._loop,
-                )
+            if msg_type == "text":
+                text = content.get("text", "").strip()
+                if not text:
+                    return
+                logger.info(f"飞书: 收到文本消息 from={user_id} chat_type={chat_type} len={len(text)}")
+                if self._loop and self._loop.is_running():
+                    asyncio.run_coroutine_threadsafe(
+                        self._process_and_reply(session_id, text, msg_id),
+                        self._loop,
+                    )
+            elif msg_type == "audio":
+                file_key = content.get("file_key", "")
+                if not file_key:
+                    return
+                logger.info(f"飞书: 收到语音消息 from={user_id} file_key={file_key}")
+                if self._loop and self._loop.is_running():
+                    asyncio.run_coroutine_threadsafe(
+                        self._handle_audio_message(session_id, msg_id, file_key),
+                        self._loop,
+                    )
+            else:
+                logger.debug(f"飞书: 忽略消息类型 {msg_type} from={user_id}")
+                return
         except Exception as e:
             logger.error(f"飞书: 解析消息事件失败: {e}")
 
@@ -218,6 +235,129 @@ class FeishuChannelAdapter(ChannelPort):
                 )
         except Exception as e:
             logger.error(f"飞书: 发送消息失败: {e}")
+
+    async def _download_message_resource(self, message_id: str, file_key: str, ext: str = "opus") -> str | None:
+        """下载飞书消息中的文件资源，返回本地临时文件路径。"""
+        token = await self._get_tenant_token()
+        if not token:
+            return None
+        try:
+            import httpx
+            url = f"https://open.feishu.cn/open-apis/im/v1/messages/{message_id}/resources/{file_key}"
+            async with httpx.AsyncClient(timeout=60) as client:
+                resp = await client.get(
+                    url,
+                    headers={"Authorization": f"Bearer {token}"},
+                    params={"type": "file"},
+                )
+                if resp.status_code != 200:
+                    logger.error(f"飞书: 下载资源失败: status={resp.status_code}")
+                    return None
+                tmp_dir = Path(tempfile.gettempdir()) / "lucidmind_feishu"
+                tmp_dir.mkdir(exist_ok=True)
+                tmp_path = tmp_dir / f"{file_key}.{ext}"
+                tmp_path.write_bytes(resp.content)
+                logger.info(f"飞书: 语音文件已下载: {tmp_path} ({len(resp.content)} bytes)")
+                return str(tmp_path)
+        except Exception as e:
+            logger.error(f"飞书: 下载资源异常: {e}")
+            return None
+
+    async def _handle_audio_message(self, session_id: str, message_id: str, file_key: str):
+        """处理语音消息：下载音频 → STT 转文字 → 交给 Brain。"""
+        try:
+            # 1. 下载语音文件
+            audio_path = await self._download_message_resource(message_id, file_key, "opus")
+            if not audio_path:
+                await self._reply_message(message_id, "❌ 无法下载语音文件，请检查应用权限 im:message:resource")
+                return
+
+            # 2. 语音转文字
+            text = await self._speech_to_text(audio_path)
+            if not text:
+                await self._reply_message(message_id, "❌ 语音识别失败，请发送文本消息")
+                return
+
+            logger.info(f"飞书: 语音识别结果: {text[:80]}")
+
+            # 3. 交给 Brain 处理
+            await self._process_and_reply(session_id, text, message_id)
+
+        except Exception as e:
+            logger.error(f"飞书: 处理语音消息失败: {e}")
+            await self._reply_message(message_id, f"❌ 语音处理出错: {e}")
+        finally:
+            # 清理临时文件
+            try:
+                if audio_path and Path(audio_path).exists():
+                    Path(audio_path).unlink()
+            except Exception:
+                pass
+
+    _whisper_model = None
+    _whisper_checked = False
+
+    async def _speech_to_text(self, audio_path: str) -> str:
+        """语音转文字 — 优先用 openai-whisper，降级用飞书 API。"""
+        if not FeishuChannelAdapter._whisper_checked:
+            FeishuChannelAdapter._whisper_checked = True
+            try:
+                import whisper
+                FeishuChannelAdapter._whisper_model = whisper.load_model("base")
+                logger.info("飞书: Whisper 模型已加载 (base)")
+            except ImportError:
+                logger.info("飞书: whisper 未安装，将使用飞书语音识别 API")
+            except Exception as e:
+                logger.warning(f"飞书: Whisper 加载失败: {e}")
+
+        if FeishuChannelAdapter._whisper_model:
+            try:
+                result = await asyncio.to_thread(
+                    FeishuChannelAdapter._whisper_model.transcribe, audio_path, language="zh"
+                )
+                return result.get("text", "").strip()
+            except Exception as e:
+                logger.warning(f"飞书: whisper 识别失败: {e}，尝试飞书 API")
+
+        # 降级: 飞书语音识别 API (需要 PCM 格式，仅支持 60 秒以内)
+        try:
+            token = await self._get_tenant_token()
+            if not token:
+                return ""
+            # 用 ffmpeg 转换为 PCM
+            import subprocess
+            pcm_path = audio_path + ".pcm"
+            proc = await asyncio.to_thread(
+                subprocess.run,
+                ["ffmpeg", "-y", "-i", audio_path, "-f", "s16le", "-ar", "16000", "-ac", "1", pcm_path],
+                capture_output=True, timeout=30,
+            )
+            if proc.returncode != 0:
+                logger.warning(f"飞书: ffmpeg 转换失败: {proc.stderr.decode()[:200]}")
+                return ""
+            pcm_data = Path(pcm_path).read_bytes()
+            Path(pcm_path).unlink(missing_ok=True)
+
+            import base64
+            import httpx
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.post(
+                    "https://open.feishu.cn/open-apis/speech_to_text/v1/speech/file_recognize",
+                    headers={"Authorization": f"Bearer {token}"},
+                    json={
+                        "speech": {"speech": base64.b64encode(pcm_data).decode()},
+                        "config": {"engine_type": "16k_auto", "file_id": "feishu_audio", "format": "pcm"},
+                    },
+                )
+                data = resp.json()
+                if data.get("code") == 0:
+                    return data.get("data", {}).get("recognition_text", "")
+                else:
+                    logger.error(f"飞书: 语音识别API失败: {data.get('msg')}")
+                    return ""
+        except Exception as e:
+            logger.error(f"飞书: 语音识别降级失败: {e}")
+            return ""
 
     async def handle_webhook(self, body: dict) -> dict:
         """兼容旧 Webhook 模式（保留以免路由报错）。"""
