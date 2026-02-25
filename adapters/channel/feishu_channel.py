@@ -177,11 +177,12 @@ class FeishuChannelAdapter(ChannelPort):
         """回复飞书消息。"""
         token = await self._get_tenant_token()
         if not token:
+            logger.error("飞书: 无法获取 tenant_access_token，回复取消")
             return
         try:
             import httpx
             async with httpx.AsyncClient(timeout=30) as client:
-                await client.post(
+                resp = await client.post(
                     f"https://open.feishu.cn/open-apis/im/v1/messages/{message_id}/reply",
                     headers={"Authorization": f"Bearer {token}"},
                     json={
@@ -189,8 +190,13 @@ class FeishuChannelAdapter(ChannelPort):
                         "msg_type": "text",
                     },
                 )
+                data = resp.json()
+                if data.get("code") != 0:
+                    logger.error(f"飞书: 回复消息失败: code={data.get('code')}, msg={data.get('msg')}")
+                else:
+                    logger.info(f"飞书: 回复消息成功 message_id={message_id}")
         except Exception as e:
-            logger.error(f"飞书: 回复消息失败: {e}")
+            logger.error(f"飞书: 回复消息异常: {e}")
 
     async def _send_message(self, chat_id: str, text: str):
         """主动发送消息到会话。"""
