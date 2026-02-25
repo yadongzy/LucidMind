@@ -274,7 +274,7 @@ mcporter (npm CLI 工具)
 | # | 任务 | 说明 | 状态 |
 |---|------|------|------|
 | E1 | Skill 安装时代码扫描 | 扫描 shell exec/eval/env harvesting 等危险模式 | ✅ skill_scanner.py |
-| E2 | /workspace 外文件操作确认 | 涉及工作目录以外的文件编辑必须人工确认 | ⚠️ 部分已有 |
+| E2 | /workspace 外文件操作确认 | 涉及工作目录以外的文件编辑必须人工确认 | ✅ _check_outside_workspace |
 
 **LucidMind 现状**：
 - `tool_safety.py` 已有运行时三级审批（DANGEROUS/SENSITIVE/SAFE）

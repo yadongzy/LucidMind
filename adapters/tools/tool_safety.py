@@ -119,6 +119,13 @@ class ToolSafetyGuard:
 
         level = self.classify(tool_name)
 
+        # E2: /workspace 外文件操作自动升级为 DANGEROUS
+        if level != "dangerous":
+            outside = self._check_outside_workspace(tool_name, params)
+            if outside:
+                level = "dangerous"
+                logger.info(f"E2: {tool_name} 操作工作目录外路径 → 升级为 DANGEROUS")
+
         if level == "safe":
             return {"approved": True}
 
@@ -130,6 +137,25 @@ class ToolSafetyGuard:
 
         # 需要审批 — 推送到前端
         return await self._request_approval(session_id, tool_name, params, level)
+
+    def _check_outside_workspace(self, tool_name: str, params: dict) -> bool:
+        """E2: 检测文件操作是否涉及工作目录以外的路径。"""
+        _FILE_TOOLS = {"write_file", "delete_file", "move_file", "read_file",
+                       "list_directory", "run_script", "run_shell", "run_command"}
+        if tool_name not in _FILE_TOOLS:
+            return False
+        workspace = str(Path(__file__).resolve().parent.parent.parent)
+        for key in ("path", "file_path", "target", "directory", "cwd", "command"):
+            val = params.get(key, "")
+            if not val or not isinstance(val, str):
+                continue
+            try:
+                resolved = str(Path(val).resolve())
+            except Exception:
+                continue
+            if not resolved.startswith(workspace) and not resolved.startswith("/tmp") and not resolved.startswith("/private/tmp"):
+                return True
+        return False
 
     async def _request_approval(self, session_id: str, tool_name: str,
                                  params: dict, level: str) -> dict:

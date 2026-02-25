@@ -4,6 +4,20 @@
 
 ---
 
+## v1.4 (2026-02-26)
+
+### 新增
+- **E2: /workspace 外文件操作确认**：`tool_safety.py` `_check_outside_workspace()`
+  - 文件操作涉及工作目录外路径时自动升级为 DANGEROUS，需用户确认
+  - 允许 /tmp 和 /private/tmp（临时文件安全区）
+  - 覆盖工具：write_file, delete_file, move_file, read_file, list_directory, run_script, run_shell, run_command
+  - 检查参数：path, file_path, target, directory, cwd, command
+
+### 修改
+- STRATEGY.md: E2 标记 ✅ — Phase 3 全部任务 100% 完成
+
+---
+
 ## v1.3 (2026-02-26)
 
 ### 验证确认（C5-C8 已在代码中实现）
