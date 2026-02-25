@@ -72,9 +72,27 @@ class FeishuChannelAdapter(ChannelPort):
                 log_level=lark.LogLevel.INFO,
             )
 
+            def _run_ws():
+                """在独立线程中创建新的事件循环运行 ws client。"""
+                import asyncio as _aio
+                import lark_oapi.ws.client as ws_mod
+                # SDK 的 start() 使用模块级 loop 变量，必须替换为新的事件循环
+                new_loop = _aio.new_event_loop()
+                _aio.set_event_loop(new_loop)
+                ws_mod.loop = new_loop
+                # Lock 也需要绑定到新 loop
+                self._ws_client._lock = _aio.Lock()
+                try:
+                    self._ws_client.start()
+                except Exception as e:
+                    logger.error(f"飞书: 长连接线程退出: {e}")
+                finally:
+                    self._running = False
+                    logger.info("飞书: 长连接线程已结束")
+
             self._running = True
             self._ws_thread = threading.Thread(
-                target=self._ws_client.start,
+                target=_run_ws,
                 daemon=True,
                 name="feishu-ws",
             )

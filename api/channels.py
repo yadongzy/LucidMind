@@ -41,7 +41,7 @@ async def channel_status():
         channels.append({
             "name": "feishu", "label": "飞书",
             "configured": bool(_feishu._app_id and _feishu._app_secret),
-            "running": bool(_feishu._app_id),
+            "running": bool(getattr(_feishu, '_running', False) and getattr(_feishu, '_ws_thread', None) and _feishu._ws_thread.is_alive()),
         })
     if _wecom:
         channels.append({
