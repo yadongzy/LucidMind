@@ -15,16 +15,17 @@ logger = get_logger("stream.broadcast")
 class BroadcastStreamAdapter(StreamPort):
     """广播流适配器：收集 Brain 输出并通过 WebSocket 广播。"""
 
-    def __init__(self, ws_channel, job_name: str = "", job_id: str = ""):
+    def __init__(self, ws_channel, job_name: str = "", job_id: str = "", telegram=None):
         self._ws = ws_channel
         self._job_name = job_name
         self._job_id = job_id
+        self._telegram = telegram
         self._chunks: list[str] = []
         self._tool_calls: list[str] = []
 
     async def emit(self, event_type: str, data: Any) -> None:
         """收集流式事件，关键事件实时广播。"""
-        if event_type == "token":
+        if event_type in ("token", "response", "response_delta"):
             if data:
                 self._chunks.append(str(data))
         elif event_type == "tool_call":
@@ -39,7 +40,7 @@ class BroadcastStreamAdapter(StreamPort):
             self._save_run_log(str(data), "error")
 
     async def _broadcast_result(self, text: str):
-        """将结果作为 cron_result 消息广播到所有连接。"""
+        """将结果作为 cron_result 消息广播到所有连接 + Telegram。"""
         msg = json.dumps({
             "type": "cron_result",
             "data": {
@@ -53,6 +54,13 @@ class BroadcastStreamAdapter(StreamPort):
             logger.info(f"📡 Cron结果已广播: {self._job_name} ({len(text)}字)")
         except Exception as e:
             logger.error(f"📡 广播失败: {e}")
+        # Telegram 推送
+        if self._telegram:
+            try:
+                tg_text = f"📅 [{self._job_name}]\n\n{text}"
+                await self._telegram.send_message(tg_text)
+            except Exception as e:
+                logger.debug(f"Telegram推送失败: {e}")
 
     def _save_run_log(self, result: str, status: str):
         """将执行结果保存到 cron job 的运行历史中。"""

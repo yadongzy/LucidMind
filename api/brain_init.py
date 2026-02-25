@@ -46,15 +46,11 @@ async def awaken(brain=None) -> dict:
     if goals_ctx:
         b._goal_context = goals_ctx
         logger.info(f"🎯 注入 {len(goal_system.get_active_goals())} 个目标")
-    # S59: 连接 Cron 回调并启动调度器
+    # S59: 启动 Cron 调度器（回调由 main.py 在 _startup 中注册）
     try:
-        from api.cron import set_cron_callback, start_cron_scheduler
-        async def _cron_handler(command: str, sid: str = "cron_default"):
-            await b.process(sid, command)
-            b._sessions.pop(sid, None)
-        set_cron_callback(_cron_handler)
+        from api.cron import start_cron_scheduler
         asyncio.create_task(start_cron_scheduler())
-        logger.info("⏰ Cron 调度器已连接到 Brain")
+        logger.info("⏰ Cron 调度器已启动")
     except Exception as e:
         logger.warning(f"Cron 启动失败: {e}")
     logger.info("🧠 大脑已完全醒来 — Daemon + Soul + Goals + Cron + Teacher 就绪")

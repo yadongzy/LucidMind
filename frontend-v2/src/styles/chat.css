@@ -63,7 +63,20 @@
   color: var(--border-strong);
   font-size: 18px;
   margin: 0 4px;
-  font-weight: 300;
+}
+
+@media (max-width: 768px) {
+  .chat-controls {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px 12px;
+  }
+  .chat-controls__session { min-width: 100px; max-width: 160px; }
+  .chat-controls__right { width: 100%; }
+  .chat-controls__right input { width: 100% !important; }
+  .chat-input { padding: 8px 12px; }
+  .chat-input textarea { font-size: 15px; }
+  .chat-bubble { max-width: 95% !important; font-size: 14px; }
 }
 
 /* Chat Thread */

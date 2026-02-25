@@ -198,6 +198,26 @@ async def list_cron_jobs():
     return {"jobs": _jobs, "count": len(_jobs)}
 
 
+@router.patch("/api/cron/{job_id}")
+async def update_cron_job(job_id: str, patch: dict):
+    """编辑定时任务（启用/禁用、修改schedule/command/name）。"""
+    for job in _jobs:
+        if job.get("id") == job_id:
+            if "enabled" in patch:
+                job["enabled"] = bool(patch["enabled"])
+            if "schedule" in patch and patch["schedule"]:
+                job["schedule"] = patch["schedule"]
+            if "command" in patch and patch["command"]:
+                job["command"] = patch["command"]
+            if "name" in patch and patch["name"]:
+                job["name"] = patch["name"]
+                job["description"] = patch["name"]
+            _save_jobs()
+            logger.info(f"更新定时任务: {job_id} — {list(patch.keys())}")
+            return job
+    raise HTTPException(404, "Job not found")
+
+
 @router.delete("/api/cron/{job_id}")
 async def delete_cron_job(job_id: str):
     """删除定时任务（按 id 或 name）。"""

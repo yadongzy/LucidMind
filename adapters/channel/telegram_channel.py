@@ -144,6 +144,27 @@ class TelegramChannelAdapter(ChannelPort):
         """注入 Brain 引用。"""
         self._brain = brain
 
+    async def send_message(self, text: str, chat_id: int | str | None = None):
+        """主动推送消息到 Telegram（用于 Cron 结果推送）。"""
+        if not self._token or not self._app:
+            return
+        try:
+            from telegram import Bot
+            bot = Bot(token=self._token)
+            # 如果没有指定 chat_id，发送给所有允许的用户
+            targets = [chat_id] if chat_id else list(self._allowed_users)
+            if not targets:
+                logger.debug("Telegram: 无推送目标")
+                return
+            for tid in targets:
+                if not tid:
+                    continue
+                for chunk in self._split_message(text, 4000):
+                    await bot.send_message(chat_id=int(tid), text=chunk)
+            logger.info(f"Telegram: 已推送消息到 {len(targets)} 个用户")
+        except Exception as e:
+            logger.error(f"Telegram: 推送消息失败: {e}")
+
     async def stop(self) -> None:
         if self._task:
             self._task.cancel()

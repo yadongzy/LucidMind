@@ -2,13 +2,19 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
-# 系统依赖
+# 系统依赖 + Node.js（前端构建）
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl && rm -rf /var/lib/apt/lists/*
+    curl nodejs npm && rm -rf /var/lib/apt/lists/*
 
 # Python 依赖
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
+# 前端构建
+COPY frontend-v2/package*.json frontend-v2/
+RUN cd frontend-v2 && npm install
+COPY frontend-v2/ frontend-v2/
+RUN cd frontend-v2 && npm run build
 
 # 应用代码
 COPY . .

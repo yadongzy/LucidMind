@@ -243,7 +243,7 @@ async def _startup():
             logger.info(f"🔔 Cron 触发执行: sid={sid}, job={job_id}, command={command[:60]}")
             # 保存当前 stream，避免干扰用户对话
             prev_stream = b.stream
-            stream = BroadcastStreamAdapter(_ws_channel, job_name=command[:30], job_id=job_id)
+            stream = BroadcastStreamAdapter(_ws_channel, job_name=command[:30], job_id=job_id, telegram=_telegram_channel)
             b.set_stream(stream)
             # 注入系统提示：要求使用工具获取实时信息
             enhanced_cmd = (

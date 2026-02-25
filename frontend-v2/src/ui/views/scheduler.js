@@ -425,9 +425,13 @@ function _renderCronTab(app) {
                     title="${job.command || ''}">${job.command || '—'}</div>
                 </div>
                 <div style="display:flex;align-items:center;gap:6px;">
-                  ${job.enabled !== false
-                    ? html`<span class="sched-badge badge--ok" style="font-size:10px;">启用</span>`
-                    : html`<span class="sched-badge badge--muted" style="font-size:10px;">禁用</span>`}
+                  <button class="sched-badge ${job.enabled !== false ? 'badge--ok' : 'badge--muted'}"
+                    style="font-size:10px;cursor:pointer;border:none;padding:2px 8px;border-radius:10px;"
+                    title="${job.enabled !== false ? '点击禁用' : '点击启用'}"
+                    @click=${async () => {
+                      await fetch('/api/cron/' + job.id, {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:!(job.enabled !== false)})});
+                      await _refresh(); app.requestUpdate();
+                    }}>${job.enabled !== false ? '启用' : '禁用'}</button>
                   <button class="btn btn--sm btn--icon btn--danger" title="删除"
                     @click=${() => _deleteCronJob(job.id, app)}>${icons.trash}</button>
                 </div>

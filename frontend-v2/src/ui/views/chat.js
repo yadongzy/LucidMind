@@ -181,7 +181,11 @@ function _attachScrollListener() {
 
 export function renderChat(app) {
   const isBusy = app.isStreaming || app.gateway.isProcessing;
-  const groups = groupMessages(app.messages, app.showThinking);
+  const searchQ = (app._chatSearch || '').toLowerCase();
+  const filteredMsgs = searchQ
+    ? app.messages.filter(m => (m.content || '').toLowerCase().includes(searchQ))
+    : app.messages;
+  const groups = groupMessages(filteredMsgs, app.showThinking);
 
   // 自动滚动：新消息、流式输出、或刚切换到对话页面时
   if (app._prevMsgCount !== app.messages.length || app.isStreaming || app._chatJustOpened) {
@@ -232,6 +236,14 @@ export function renderChat(app) {
             }}>
             ${icons.brain}
           </button>
+        </div>
+        <div class="chat-controls__right" style="display:flex;align-items:center;gap:4px;">
+          <input type="text" placeholder="🔍 搜索对话..." .value=${app._chatSearch || ''}
+            @input=${(e) => { app._chatSearch = e.target.value; app.requestUpdate(); }}
+            style="padding:3px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-2);color:var(--fg);font-size:11px;width:140px;">
+          ${app._chatSearch ? html`<button class="btn btn--sm btn--icon" title="清除搜索"
+            @click=${() => { app._chatSearch = ''; app.requestUpdate(); }}
+            style="font-size:10px;">✕</button>` : nothing}
         </div>
       </div>
 

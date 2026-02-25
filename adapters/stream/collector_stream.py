@@ -12,7 +12,7 @@ class CollectorStreamAdapter(StreamPort):
         self._complete = False
 
     async def emit(self, event_type: str, data: Any) -> None:
-        if event_type == "response" and data:
+        if event_type in ("response", "response_delta") and data:
             self._chunks.append(str(data))
         elif event_type == "complete":
             self._complete = True
