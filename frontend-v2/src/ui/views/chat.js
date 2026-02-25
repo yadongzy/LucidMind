@@ -185,9 +185,10 @@ export function renderChat(app) {
   const isBusy = app.isStreaming || app.gateway.isProcessing;
   const groups = groupMessages(app.messages, app.showThinking);
 
-  // 自动滚动：新消息或流式输出时
-  if (app._prevMsgCount !== app.messages.length || app.isStreaming) {
+  // 自动滚动：新消息、流式输出、或刚切换到对话页面时
+  if (app._prevMsgCount !== app.messages.length || app.isStreaming || app._chatJustOpened) {
     app._prevMsgCount = app.messages.length;
+    app._chatJustOpened = false;
     scrollToBottom();
   }
   _attachScrollListener();

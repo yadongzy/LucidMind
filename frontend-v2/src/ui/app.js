@@ -147,6 +147,10 @@ class LucidMindApp extends LitElement {
     this._statusInterval = setInterval(() => this._refreshStatus(), 30000);
     this._brainInterval = setInterval(() => this._refreshBrain(), 15000);
     installTestProbe(this);
+    // 请求浏览器通知权限（用于 Cron 任务结果推送）
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
   }
 
   disconnectedCallback() {
@@ -265,6 +269,30 @@ class LucidMindApp extends LitElement {
           const cronEvt = data.event || "updated";
           const cronJob = data.job || {};
           this._log("info", `⏰ 定时任务${cronEvt === 'created' ? '已创建' : cronEvt === 'fired' ? '已触发' : cronEvt}: ${cronJob.description || cronJob.command || ""}`);
+          window.dispatchEvent(new CustomEvent("lucid-task-updated", { detail: data }));
+          break;
+        }
+
+        case "cron_result": {
+          const cr = data.data || {};
+          const jobName = cr.job_name || "定时任务";
+          const content = cr.content || "";
+          if (content) {
+            this.messages = [...this.messages, {
+              role: "assistant",
+              content: `📅 **[${jobName}]**\n\n${content}`,
+              timestamp: Date.now(),
+              isCron: true,
+            }];
+            this._log("cron", `结果: ${jobName}`);
+          }
+          // 浏览器通知
+          if (Notification.permission === "granted") {
+            new Notification(`📅 ${jobName}`, {
+              body: content.substring(0, 120),
+              icon: "/assets/icon.png",
+            });
+          }
           window.dispatchEvent(new CustomEvent("lucid-task-updated", { detail: data }));
           break;
         }
@@ -403,6 +431,7 @@ class LucidMindApp extends LitElement {
   }
 
   _setTab(tab) {
+    if (tab === "chat") this._chatJustOpened = true;
     this.tab = tab;
   }
 

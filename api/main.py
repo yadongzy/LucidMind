@@ -230,6 +230,32 @@ async def _startup():
         tool_adapter._rebuild_map()
         logger.info(f"MCP: {mcp_count} 个外部工具已注入 Brain")
     b = _get_brain()
+    # 注册 Cron 回调：任务触发时让 Brain 自主执行
+    from api.cron import set_cron_callback
+    from adapters.stream.broadcast_stream import BroadcastStreamAdapter
+
+    async def _cron_execute(command: str, sid: str):
+        """Cron 触发回调：Brain 处理命令并广播结果。"""
+        logger.info(f"🔔 Cron 触发执行: sid={sid}, command={command[:60]}")
+        stream = BroadcastStreamAdapter(_ws_channel, job_name=command[:30])
+        b.set_stream(stream)
+        try:
+            await b.process(sid, command)
+        except Exception as e:
+            logger.error(f"🔔 Cron 执行失败: {e}")
+            await stream.emit("error", str(e))
+        finally:
+            # 恢复 stream 到最近的 WebSocket 连接
+            if hasattr(b, '_ws_holders') and b._ws_holders:
+                for uid, holder in b._ws_holders.items():
+                    ws = holder.get("ws")
+                    if ws:
+                        from adapters.stream.websocket_stream import WebSocketStreamAdapter
+                        b.set_stream(WebSocketStreamAdapter(ws, ws_holder=holder))
+                        break
+
+    set_cron_callback(_cron_execute)
+    logger.info("🔔 Cron 回调已注册: Brain 将自主执行定时任务")
     # 启动多通道
     _telegram_channel.set_brain(b)
     _feishu_channel.set_brain(b)
