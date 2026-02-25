@@ -77,7 +77,7 @@ async def teacher_direct(req: TeacherMessage):
     if not _brain_ref:
         return {"status": "error", "detail": "Brain 未初始化"}
     
-    old_stream = getattr(_brain_ref, '_stream', None)
+    old_stream = getattr(_brain_ref, 'stream', None)
     collector = _CollectorStream()
     _brain_ref.set_stream(collector)
     
