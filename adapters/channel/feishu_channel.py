@@ -86,6 +86,15 @@ class FeishuChannelAdapter(ChannelPort):
                 """在独立线程中创建新的事件循环运行 ws client。"""
                 import asyncio as _aio
                 import lark_oapi.ws.client as ws_mod
+                # 彻底清除代理：从 os.environ 移除 + 禁用 urllib3 代理检测
+                for k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy",
+                           "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy"):
+                    os.environ.pop(k, None)
+                try:
+                    import urllib3.util.connection
+                    urllib3.util.connection.HAS_IPV6 = False  # 强制 IPv4
+                except Exception:
+                    pass
                 # SDK 的 start() 使用模块级 loop 变量，必须替换为新的事件循环
                 new_loop = _aio.new_event_loop()
                 _aio.set_event_loop(new_loop)
