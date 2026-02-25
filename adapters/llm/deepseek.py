@@ -163,7 +163,7 @@ class DeepSeekAdapter(LLMPort):
                         continue
 
     async def is_available(self) -> bool:
-        """检查 DeepSeek API 是否可用（缓存60s）。"""
+        """检查 API 是否可用（缓存60s）。先试 /models，失败则用轻量 chat 探测。"""
         import time as _t
         now = _t.time()
         if now - getattr(self, '_avail_ts', 0) < 60:
@@ -171,11 +171,17 @@ class DeepSeekAdapter(LLMPort):
         if not self.api_key:
             return False
         try:
-            headers = {"Authorization": f"Bearer {self.api_key}"}
-            async with httpx.AsyncClient(timeout=8) as client:
-                resp = await client.get(
-                    f"{self.base_url}/models", headers=headers)
-                ok = resp.status_code == 200
+            headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+            async with httpx.AsyncClient(timeout=10) as client:
+                # 先试 /models（DeepSeek/OpenAI 支持）
+                resp = await client.get(f"{self.base_url}/models", headers=headers)
+                if resp.status_code == 200:
+                    self._avail_cache, self._avail_ts = True, now
+                    return True
+                # /models 不可用（如 MiniMax），用轻量 chat 探测
+                probe = {"model": self.model, "messages": [{"role": "user", "content": "hi"}], "max_tokens": 1}
+                resp2 = await client.post(f"{self.base_url}/chat/completions", json=probe, headers=headers)
+                ok = resp2.status_code == 200
                 self._avail_cache, self._avail_ts = ok, now
                 return ok
         except Exception:

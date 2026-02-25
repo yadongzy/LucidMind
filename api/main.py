@@ -185,13 +185,15 @@ async def verify_config(req: ConfigRequest):
     test = DeepSeekAdapter(api_key=req.api_key, base_url=base_url, model=model)
     if not await test.is_available():
         return {"status": "error", "message": "Connection failed"}
-    # 更新主模型配置（deepseek/minimax/openai 共用主槽位）
-    target = _local if req.provider == "local" else _deepseek
+    # 更新对应适配器的配置
+    _target_map = {"deepseek": _deepseek, "minimax": _minimax, "local": _local, "openai": _deepseek}
+    target = _target_map.get(req.provider, _deepseek)
     target.api_key = req.api_key
     target.base_url = base_url.rstrip("/")
     target.model = model
     target.provider_name = req.provider
-    llm_adapter.provider_name = req.provider
+    # 清除可用性缓存，让新 key 立即生效
+    target._avail_ts = 0
     logger.info(f"配置已更新: Provider={req.provider}, Model={model}")
     return {"status": "ok", "message": "Connection verified and applied"}
 
