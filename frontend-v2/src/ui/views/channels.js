@@ -112,12 +112,12 @@ const _channelMeta = {
   wechat: {
     icon: "💬",
     fields: [
-      { key: "GEWECHAT_BASE_URL", label: "GeweChat 地址", placeholder: "http://localhost:2531", required: true },
-      { key: "GEWECHAT_TOKEN", label: "Token (appId)", placeholder: "登录后获取的appId", required: true },
-      { key: "GEWECHAT_CALLBACK_URL", label: "回调地址", placeholder: "http://你的IP:8765/api/channel/wechat/webhook", required: false },
-      { key: "WECHAT_ALLOWED_WXIDS", label: "允许的微信ID", placeholder: "wxid_xxx,wxid_yyy", required: false },
+      { key: "GEWECHAT_BASE_URL", label: "GeweChat 服务地址", placeholder: "http://localhost:2531", required: true },
+      { key: "GEWECHAT_TOKEN", label: "Token (appId)", placeholder: "登录后从API返回的appId", required: true },
+      { key: "GEWECHAT_CALLBACK_URL", label: "消息回调地址", placeholder: "http://你的内网IP:8765/api/channel/wechat/webhook", required: true },
+      { key: "WECHAT_ALLOWED_WXIDS", label: "允许的微信ID (可选)", placeholder: "wxid_xxx,wxid_yyy 留空不限制", required: false },
     ],
-    help: "需 Docker 部署 GeweChat 服务\n⚠ 仅供个人研究使用",
+    help: "📦 部署步骤:\n1. 安装 Docker Desktop\n2. 拉取镜像: docker pull registry.cn-hangzhou.aliyuncs.com/gewe/gewe\n3. 启动容器: docker run -itd -v gewechat/data:/root/temp -p 2531:2531 -p 2532:2532 --privileged=true --name=gewe registry.cn-hangzhou.aliyuncs.com/gewe/gewe /usr/sbin/init\n4. 等待1分钟后访问 http://localhost:2531 确认服务启动\n5. 调用登录API获取 appId 和二维码，用手机扫码登录\n6. 将 appId 填入上方 Token 字段\n7. 回调地址填本机内网IP (如 http://192.168.x.x:8765/api/channel/wechat/webhook)\n\n⚠ 注意: 手机与Docker需同省 | 仅供个人研究",
   },
 };
 
