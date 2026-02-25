@@ -4,6 +4,30 @@
 
 ---
 
+## v1.3 (2026-02-26)
+
+### 验证确认（C5-C8 已在代码中实现）
+- **C5**: `brain.py:246` — 只在 `_tool_calls_happened` 时标记经验有效（简单问候不算）
+- **C6**: daemon 通过 `brain.process()` 调用，已包含 effectiveness 标记逻辑
+- **C7**: `metacognition.py:107` — 深度元认知超时已改为 15s
+- **C8**: `brain_engines.py:292` — `evolve()` 已接入学习引擎定时调用
+
+### 工程质量（D1-D5）
+- **D1**: `test_e2e_api.py` 25/25 测试全部通过
+- **D3**: 9 个死代码文件移到 `adapters/tools/_deprecated/`
+  - cascade_comm.py, clipboard.py, doubao_comm.py, gui_automation.py,
+    notification.py, plugin_loader.py, stt.py, tts.py, vision.py
+- **D4**: 15 个根目录散落文件移到 `_deprecated/`
+  - 6 个分析 .md、probe_port.py、self_eval.py、integrated_lessons.json、
+    user_preferences.json、user_profile.md、SOUL.md.deprecated、GPT.md、邯郸天气*.txt
+- **D5**: `brain_daemon.py` 389行→162行（提取 `brain_daemon_observe.py` DaemonObserveMixin）
+
+### 修改
+- `brain_daemon.py`: 继承 `DaemonObserveMixin`，观察/健康/教学方法全部提取
+- `STRATEGY.md`: C5-C8, D1-D5, E1 全部标记 ✅
+
+---
+
 ## v1.2 (2026-02-26)
 
 ### 新增

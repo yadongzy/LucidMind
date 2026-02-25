@@ -238,7 +238,7 @@ mcporter (npm CLI 工具)
 - ✅ 前端 MCP 配置 UI 已实现
 - ✅ 已接入 2 个 MCP Server（filesystem 14工具 + memory 9工具 = 23工具）
 - ✅ 两条端到端工作流已验证（文件读写 + 知识图谱 create/search）
-- **缺失**：连接保活（B5）、工具名冲突检测（B6）
+- ✅ 连接保活+自动重连（B5）、工具名冲突检测（B6）已实现
 
 #### 3C. 记忆系统加固
 
@@ -250,10 +250,10 @@ mcporter (npm CLI 工具)
 | C2 | 经验分层(tier) | strategy永不衰减/fact=60天/temp=7天 | ✅ 已实现 |
 | C3 | 选择性添加门控 | 拒绝空洞/短/重复经验 | ✅ 已实现 |
 | C4 | 组合删除(curate) | 周期性+历史性删除，200条→48条 | ✅ 已运行 |
-| C5 | effectiveness虚高修正 | 简单问候不标记effective，只有工具调用才算 | 🔲 待修 |
-| C6 | daemon标记有效性 | 90%任务走daemon不触发_mark_lessons_effective | 🔲 待修 |
-| C7 | 深度元认知超时 | 5s→15s，让规划器能被触发 | 🔲 待修 |
-| C8 | 灵魂进化激活 | evolve()无调用方，需接入学习引擎 | 🔲 待修 |
+| C5 | effectiveness虚高修正 | 简单问候不标记effective，只有工具调用才算 | ✅ brain.py:246 |
+| C6 | daemon标记有效性 | 90%任务走daemon不触发_mark_lessons_effective | ✅ daemon→process()闭环 |
+| C7 | 深度元认知超时 | 5s→15s，让规划器能被触发 | ✅ 已改为15s |
+| C8 | 灵魂进化激活 | evolve()无调用方，需接入学习引擎 | ✅ brain_engines.py:292 |
 
 **依据**: arXiv:2505.16067 — 组合删除准确率+4%，内存-75%
 
@@ -261,11 +261,11 @@ mcporter (npm CLI 工具)
 
 | # | 任务 | 说明 | 状态 |
 |---|------|------|------|
-| D1 | 回归测试框架 | 通道/记忆/Brain核心冒烟测试 | 🔲 |
+| D1 | 回归测试框架 | 通道/记忆/Brain核心冒烟测试 | ✅ test_e2e_api 25/25 |
 | D2 | 变更日志制度 | CHANGELOG.md，每次改动必须记录 | ✅ 已建立 |
-| D3 | 清理死代码工具 | 移除8个无用工具注册(GUI/豆包/TTS等) | 🔲 |
-| D4 | 根目录散落文件清理 | 6个.md + 7个.py 不属于核心 | 🔲 |
-| D5 | brain_daemon.py超限 | 405行→≤300行 | 🔲 |
+| D3 | 清理死代码工具 | 移除8个无用工具注册(GUI/豆包/TTS等) | ✅ 9文件→_deprecated |
+| D4 | 根目录散落文件清理 | 6个.md + 7个.py 不属于核心 | ✅ 15文件→_deprecated |
+| D5 | brain_daemon.py超限 | 405行→≤300行 | ✅ 389→162行 |
 
 #### 3E. 安全加固（对标 OpenClaw security/）
 
@@ -273,12 +273,12 @@ mcporter (npm CLI 工具)
 
 | # | 任务 | 说明 | 状态 |
 |---|------|------|------|
-| E1 | Skill 安装时代码扫描 | 扫描 shell exec/eval/env harvesting 等危险模式 | 🔲 |
+| E1 | Skill 安装时代码扫描 | 扫描 shell exec/eval/env harvesting 等危险模式 | ✅ skill_scanner.py |
 | E2 | /workspace 外文件操作确认 | 涉及工作目录以外的文件编辑必须人工确认 | ⚠️ 部分已有 |
 
 **LucidMind 现状**：
 - `tool_safety.py` 已有运行时三级审批（DANGEROUS/SENSITIVE/SAFE）
-- **缺失**：安装时静态代码扫描（OpenClaw 在安装阶段就拦截，比运行时更早）
+- ✅ 安装时静态代码扫描已实现（`skills/skill_scanner.py`，13种危险模式，三级分类）
 
 ---
 
