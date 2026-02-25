@@ -1,11 +1,20 @@
 /**
- * Channels view — 多通道管理界面
+ * Channels view — 多通道管理界面（含一键配置表单）
  */
 import { html, nothing } from "lit";
 
 let _channels = null;
 let _testResult = {};
 let _restarting = {};
+let _configOpen = {};    // 展开/收起配置表单
+let _configForm = {};    // 表单临时数据
+let _configSaving = {};  // 保存中状态
+let _configMsg = {};     // 保存结果消息
+
+// ngrok 状态
+let _ngrok = null;       // {installed, running, url}
+let _ngrokLoading = "";  // "install" | "start" | "stop" | ""
+let _ngrokMsg = null;    // {status, message}
 
 async function _loadChannels() {
   try {
@@ -48,28 +57,261 @@ async function _restartChannel(name, app) {
   setTimeout(() => { delete _testResult[name]; app.requestUpdate(); }, 5000);
 }
 
-const _channelDocs = {
+async function _saveConfig(name, app) {
+  const form = _configForm[name] || {};
+  _configSaving[name] = true;
+  _configMsg[name] = null;
+  app.requestUpdate();
+  try {
+    const res = await fetch(`/api/channel/${name}/config`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(form),
+    });
+    const data = await res.json();
+    _configMsg[name] = data;
+    if (data.status === "ok") {
+      _channels = null;
+      await _loadChannels();
+    }
+  } catch (e) {
+    _configMsg[name] = { status: "error", message: e.message };
+  }
+  _configSaving[name] = false;
+  app.requestUpdate();
+  setTimeout(() => { _configMsg[name] = null; app.requestUpdate(); }, 6000);
+}
+
+const _channelMeta = {
   telegram: {
     icon: "🤖",
-    env: ["TELEGRAM_BOT_TOKEN", "TELEGRAM_ALLOWED_USERS (可选)"],
-    steps: "1. 在 Telegram 找 @BotFather 创建 Bot\n2. 获取 Bot Token\n3. 设置环境变量后重启服务器",
+    fields: [
+      { key: "TELEGRAM_BOT_TOKEN", label: "Bot Token", placeholder: "123456:ABC-DEF...", required: true },
+      { key: "TELEGRAM_ALLOWED_USERS", label: "允许的用户ID", placeholder: "逗号分隔, 如 123456,789012", required: false },
+    ],
+    help: "在 Telegram 找 @BotFather → /newbot → 获取 Token",
   },
   feishu: {
     icon: "📱",
-    env: ["FEISHU_APP_ID", "FEISHU_APP_SECRET", "FEISHU_VERIFICATION_TOKEN (可选)"],
-    steps: "1. 在飞书开放平台创建企业自建应用\n2. 开启机器人能力\n3. 设置事件回调地址: /api/channel/feishu/webhook",
+    fields: [
+      { key: "FEISHU_APP_ID", label: "App ID", placeholder: "cli_xxxxxxxxxx", required: true },
+      { key: "FEISHU_APP_SECRET", label: "App Secret", placeholder: "飞书应用密钥", required: true },
+      { key: "FEISHU_VERIFICATION_TOKEN", label: "Verification Token", placeholder: "事件验证Token (可选)", required: false },
+    ],
+    help: "飞书开放平台 → 创建企业自建应用 → 凭证与基础信息\n回调地址: /api/channel/feishu/webhook",
   },
   wecom: {
     icon: "💼",
-    env: ["WECOM_CORP_ID", "WECOM_AGENT_ID", "WECOM_SECRET", "WECOM_TOKEN"],
-    steps: "1. 在企业微信管理后台创建自建应用\n2. 设置接收消息的回调地址: /api/channel/wecom/webhook\n3. 配置 Token 和 EncodingAESKey",
+    fields: [
+      { key: "WECOM_CORP_ID", label: "Corp ID", placeholder: "企业ID ww_xxx", required: true },
+      { key: "WECOM_AGENT_ID", label: "Agent ID", placeholder: "应用ID 1000002", required: true },
+      { key: "WECOM_SECRET", label: "Secret", placeholder: "应用密钥", required: true },
+      { key: "WECOM_TOKEN", label: "Token", placeholder: "接收消息Token", required: false },
+    ],
+    help: "企业微信管理后台 → 应用管理 → 自建应用\n回调地址: /api/channel/wecom/webhook",
   },
   wechat: {
     icon: "💬",
-    env: ["GEWECHAT_BASE_URL", "GEWECHAT_TOKEN (appId)", "GEWECHAT_CALLBACK_URL"],
-    steps: "1. Docker 部署 GeweChat 服务\n2. 扫码登录获取 appId\n3. 设置回调地址: /api/channel/wechat/webhook\n⚠ 仅用于个人研究，请勿商用",
+    fields: [
+      { key: "GEWECHAT_BASE_URL", label: "GeweChat 地址", placeholder: "http://localhost:2531", required: true },
+      { key: "GEWECHAT_TOKEN", label: "Token (appId)", placeholder: "登录后获取的appId", required: true },
+      { key: "GEWECHAT_CALLBACK_URL", label: "回调地址", placeholder: "http://你的IP:8765/api/channel/wechat/webhook", required: false },
+      { key: "WECHAT_ALLOWED_WXIDS", label: "允许的微信ID", placeholder: "wxid_xxx,wxid_yyy", required: false },
+    ],
+    help: "需 Docker 部署 GeweChat 服务\n⚠ 仅供个人研究使用",
   },
 };
+
+const _inputStyle = "width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);font-size:12px;font-family:monospace;box-sizing:border-box;";
+
+function _renderConfigForm(name, app) {
+  const meta = _channelMeta[name];
+  if (!meta) return nothing;
+  if (!_configForm[name]) _configForm[name] = {};
+  const form = _configForm[name];
+
+  return html`
+    <div style="margin-top:12px;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;">
+      <div style="font-size:12px;font-weight:600;color:var(--fg-2);margin-bottom:10px;">配置凭据</div>
+      ${meta.fields.map(f => html`
+        <div style="margin-bottom:8px;">
+          <label style="display:block;font-size:11px;color:var(--fg-3);margin-bottom:3px;">
+            ${f.label} ${f.required ? html`<span style="color:var(--danger,#ef4444);">*</span>` : nothing}
+          </label>
+          <input type="${f.key.includes('SECRET') || f.key.includes('TOKEN') ? 'password' : 'text'}"
+            style="${_inputStyle}"
+            placeholder="${f.placeholder}"
+            .value=${form[f.key] || ""}
+            @input=${(e) => { form[f.key] = e.target.value; }}>
+        </div>
+      `)}
+      <div style="font-size:11px;color:var(--fg-3);white-space:pre-line;margin-bottom:10px;line-height:1.6;">${meta.help}</div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button class="btn" style="font-size:12px;padding:6px 16px;background:var(--accent);color:#fff;border:none;border-radius:6px;cursor:pointer;"
+          @click=${() => _saveConfig(name, app)}
+          ?disabled=${_configSaving[name]}>
+          ${_configSaving[name] ? "保存中..." : "💾 保存并启用"}
+        </button>
+        <button class="btn" style="font-size:11px;padding:4px 10px;"
+          @click=${() => { _configOpen[name] = false; app.requestUpdate(); }}>取消</button>
+      </div>
+      ${_configMsg[name] ? html`
+        <div style="margin-top:8px;padding:6px 10px;border-radius:4px;font-size:12px;
+          background:${_configMsg[name].status === 'ok' ? 'rgba(34,197,94,.12)' : 'rgba(239,68,68,.12)'};
+          color:${_configMsg[name].status === 'ok' ? 'var(--green,#22c55e)' : 'var(--danger,#ef4444)'};">
+          ${_configMsg[name].status === 'ok' ? '✅' : '❌'} ${_configMsg[name].message}
+        </div>
+      ` : nothing}
+    </div>
+  `;
+}
+
+// ── ngrok 管理函数 ──
+
+async function _loadNgrok(app) {
+  try {
+    const res = await fetch("/api/channel/ngrok/status");
+    _ngrok = await res.json();
+  } catch (e) {
+    _ngrok = { installed: false, running: false, url: "" };
+  }
+  app?.requestUpdate();
+}
+
+async function _ngrokAction(action, app) {
+  _ngrokLoading = action;
+  _ngrokMsg = null;
+  app.requestUpdate();
+  try {
+    const res = await fetch(`/api/channel/ngrok/${action}`, { method: "POST" });
+    const data = await res.json();
+    _ngrokMsg = data;
+    if (data.url) _ngrok = { installed: true, running: true, url: data.url };
+    else await _loadNgrok(app);
+  } catch (e) {
+    _ngrokMsg = { status: "error", message: e.message };
+  }
+  _ngrokLoading = "";
+  app.requestUpdate();
+  if (_ngrokMsg?.status === "ok") {
+    setTimeout(() => { _ngrokMsg = null; app.requestUpdate(); }, 8000);
+  }
+}
+
+function _copyText(text) {
+  navigator.clipboard.writeText(text).catch(() => {
+    const ta = document.createElement("textarea");
+    ta.value = text; document.body.appendChild(ta);
+    ta.select(); document.execCommand("copy");
+    document.body.removeChild(ta);
+  });
+}
+
+function _renderNgrokPanel(app) {
+  if (_ngrok === null) {
+    _loadNgrok(app);
+    return nothing;
+  }
+
+  return html`
+    <div class="card" style="margin-top:16px;">
+      <div class="card-title" style="display:flex;align-items:center;gap:8px;">
+        <span>🌐 内网穿透 (ngrok)</span>
+        ${_ngrok.running ? html`<span style="font-size:11px;color:var(--green,#22c55e);font-weight:400;">运行中</span>` : nothing}
+      </div>
+      <div style="font-size:13px;color:var(--fg-3);margin-bottom:12px;">
+        飞书、企业微信、微信通道需要公网回调地址。ngrok 可将本地服务暴露到公网。
+      </div>
+
+      ${!_ngrok.installed ? html`
+        <!-- 未安装 -->
+        <div style="padding:16px;background:var(--bg-2);border-radius:8px;">
+          <div style="font-size:13px;color:var(--fg);margin-bottom:10px;">ngrok 未安装</div>
+          <button class="btn" style="font-size:12px;padding:6px 16px;background:var(--accent);color:#fff;border:none;border-radius:6px;cursor:pointer;"
+            @click=${() => _ngrokAction("install", app)}
+            ?disabled=${_ngrokLoading === "install"}>
+            ${_ngrokLoading === "install" ? "安装中（可能需要1-2分钟）..." : "📦 一键安装 ngrok"}
+          </button>
+          <div style="font-size:11px;color:var(--fg-3);margin-top:8px;">
+            通过 Homebrew 安装。也可手动: <span style="font-family:monospace;">brew install ngrok</span>
+          </div>
+        </div>
+      ` : !_ngrok.running ? html`
+        <!-- 已安装未运行 -->
+        <div style="padding:16px;background:var(--bg-2);border-radius:8px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+            <span style="width:8px;height:8px;border-radius:50%;background:var(--fg-3)"></span>
+            <span style="font-size:13px;color:var(--fg);">ngrok 已安装，隧道未启动</span>
+          </div>
+          <button class="btn" style="font-size:12px;padding:6px 16px;background:var(--accent);color:#fff;border:none;border-radius:6px;cursor:pointer;"
+            @click=${() => _ngrokAction("start", app)}
+            ?disabled=${_ngrokLoading === "start"}>
+            ${_ngrokLoading === "start" ? "启动中..." : "🚀 启动内网穿透"}
+          </button>
+          <div style="font-size:11px;color:var(--fg-3);margin-top:8px;">
+            首次使用需要在 <a href="https://dashboard.ngrok.com/signup" target="_blank" style="color:var(--accent);">ngrok.com</a> 注册并运行:
+            <span style="font-family:monospace;">ngrok config add-authtoken YOUR_TOKEN</span>
+          </div>
+        </div>
+      ` : html`
+        <!-- 运行中 -->
+        <div style="padding:16px;background:var(--bg-2);border-radius:8px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+            <span style="width:8px;height:8px;border-radius:50%;background:var(--green,#22c55e);animation:pulse 2s infinite;"></span>
+            <span style="font-size:13px;font-weight:600;color:var(--green,#22c55e);">隧道运行中</span>
+          </div>
+          <!-- 公网地址 -->
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+            <div style="flex:1;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;font-family:monospace;font-size:13px;color:var(--accent);word-break:break-all;">
+              ${_ngrok.url}
+            </div>
+            <button class="btn" style="font-size:11px;padding:6px 12px;white-space:nowrap;"
+              @click=${() => { _copyText(_ngrok.url); }}>
+              📋 复制
+            </button>
+          </div>
+          <!-- Webhook 地址 -->
+          <div style="font-size:12px;color:var(--fg-3);margin-bottom:10px;">
+            <div style="font-weight:600;margin-bottom:4px;">各通道回调地址：</div>
+            <div style="background:var(--bg);padding:8px 10px;border-radius:4px;font-family:monospace;font-size:11px;line-height:1.8;">
+              <div style="display:flex;align-items:center;gap:6px;">
+                <span>飞书:</span>
+                <span style="color:var(--accent);flex:1;">${_ngrok.url}/api/channel/feishu/webhook</span>
+                <button style="font-size:10px;padding:2px 6px;border:1px solid var(--border);border-radius:3px;background:var(--bg-2);color:var(--fg-3);cursor:pointer;"
+                  @click=${() => _copyText(_ngrok.url + "/api/channel/feishu/webhook")}>复制</button>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <span>企微:</span>
+                <span style="color:var(--accent);flex:1;">${_ngrok.url}/api/channel/wecom/webhook</span>
+                <button style="font-size:10px;padding:2px 6px;border:1px solid var(--border);border-radius:3px;background:var(--bg-2);color:var(--fg-3);cursor:pointer;"
+                  @click=${() => _copyText(_ngrok.url + "/api/channel/wecom/webhook")}>复制</button>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <span>微信:</span>
+                <span style="color:var(--accent);flex:1;">${_ngrok.url}/api/channel/wechat/webhook</span>
+                <button style="font-size:10px;padding:2px 6px;border:1px solid var(--border);border-radius:3px;background:var(--bg-2);color:var(--fg-3);cursor:pointer;"
+                  @click=${() => _copyText(_ngrok.url + "/api/channel/wechat/webhook")}>复制</button>
+              </div>
+            </div>
+          </div>
+          <button class="btn" style="font-size:11px;padding:4px 12px;color:var(--danger,#ef4444);border-color:var(--danger,#ef4444);"
+            @click=${() => _ngrokAction("stop", app)}
+            ?disabled=${_ngrokLoading === "stop"}>
+            ${_ngrokLoading === "stop" ? "停止中..." : "⏹ 停止隧道"}
+          </button>
+        </div>
+      `}
+
+      ${_ngrokMsg ? html`
+        <div style="margin-top:8px;padding:6px 10px;border-radius:4px;font-size:12px;
+          background:${_ngrokMsg.status === 'ok' ? 'rgba(34,197,94,.12)' : 'rgba(239,68,68,.12)'};
+          color:${_ngrokMsg.status === 'ok' ? 'var(--green,#22c55e)' : 'var(--danger,#ef4444)'};">
+          ${_ngrokMsg.status === 'ok' ? '✅' : '❌'} ${_ngrokMsg.message}
+        </div>
+      ` : nothing}
+    </div>
+  `;
+}
 
 export function renderChannels(app) {
   if (_channels === null) {
@@ -98,12 +340,12 @@ export function renderChannels(app) {
       </div>
 
       ${_channels.map(ch => {
-        const doc = _channelDocs[ch.name] || {};
+        const meta = _channelMeta[ch.name] || {};
         return html`
           <div style="padding:16px;background:var(--bg-2);border-radius:8px;margin-bottom:12px;">
             <div style="display:flex;align-items:center;justify-content:space-between;">
               <div style="display:flex;align-items:center;gap:10px;">
-                <span style="font-size:24px;">${doc.icon || "📡"}</span>
+                <span style="font-size:24px;">${meta.icon || "📡"}</span>
                 <div>
                   <div style="font-size:15px;font-weight:600;color:var(--fg);">${ch.label}</div>
                   <div style="display:flex;align-items:center;gap:6px;margin-top:2px;">
@@ -114,6 +356,10 @@ export function renderChannels(app) {
                 </div>
               </div>
               <div style="display:flex;gap:6px;">
+                <button class="btn" style="font-size:11px;padding:4px 10px;background:var(--accent);color:#fff;border:none;border-radius:4px;"
+                  @click=${() => { _configOpen[ch.name] = !_configOpen[ch.name]; app.requestUpdate(); }}>
+                  ${_configOpen[ch.name] ? "收起" : "⚙️ 配置"}
+                </button>
                 <button class="btn" style="font-size:11px;padding:4px 10px;"
                   @click=${() => _testChannel(ch.name, app)}
                   ?disabled=${_testResult[ch.name]?.loading}>
@@ -128,32 +374,17 @@ export function renderChannels(app) {
             </div>
             ${_testResult[ch.name] && !_testResult[ch.name].loading ? html`
               <div style="margin-top:8px;padding:6px 10px;border-radius:4px;font-size:12px;
-                background:${_testResult[ch.name].status === 'ok' ? 'var(--green,#22c55e)22' : 'var(--danger,#ef4444)22'};
+                background:${_testResult[ch.name].status === 'ok' ? 'rgba(34,197,94,.12)' : 'rgba(239,68,68,.12)'};
                 color:${_testResult[ch.name].status === 'ok' ? 'var(--green,#22c55e)' : 'var(--danger,#ef4444)'};">
                 ${_testResult[ch.name].status === 'ok' ? '✅' : '❌'} ${_testResult[ch.name].message || ''}
               </div>
             ` : nothing}
-            <div style="margin-top:12px;font-size:12px;color:var(--fg-3);">
-              <div style="font-weight:600;margin-bottom:4px;">环境变量：</div>
-              ${(doc.env || []).map(e => html`<div style="font-family:monospace;padding:2px 0;">${e}</div>`)}
-            </div>
-            <div style="margin-top:8px;font-size:12px;color:var(--fg-3);white-space:pre-line;">${doc.steps || ""}</div>
+            ${_configOpen[ch.name] ? _renderConfigForm(ch.name, app) : nothing}
           </div>
         `;
       })}
     </div>
 
-    <div class="card" style="margin-top:16px;">
-      <div class="card-title">Webhook 端点</div>
-      <div style="font-size:13px;color:var(--fg-3);line-height:1.8;">
-        <p>各通道的回调地址（需要公网可达）：</p>
-        <div style="background:var(--bg-2);padding:12px;border-radius:6px;font-size:12px;font-family:monospace;margin-top:8px;">
-          <div>飞书: POST /api/channel/feishu/webhook</div>
-          <div>企微: GET/POST /api/channel/wecom/webhook</div>
-          <div>微信: POST /api/channel/wechat/webhook</div>
-        </div>
-        <p style="margin-top:8px;">Telegram 使用 polling 模式，无需公网地址。</p>
-      </div>
-    </div>
+    ${_renderNgrokPanel(app)}
   `;
 }

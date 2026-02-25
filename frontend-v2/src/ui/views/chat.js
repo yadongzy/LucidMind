@@ -25,31 +25,39 @@ const SLASH_COMMANDS = [
 ];
 
 function _getSlashMatches(text) {
-  if (!text.startsWith("/")) return [];
-  const q = text.toLowerCase();
-  return SLASH_COMMANDS.filter(c => c.cmd.startsWith(q) || c.desc.includes(q.slice(1)));
+  if (!text) return [];
+  // 支持半角 / 和全角 ／
+  let q = text.replace(/^／/, "/");
+  if (!q.startsWith("/")) return [];
+  if (q === "/") return SLASH_COMMANDS; // 只输入 / 显示全部
+  const keyword = q.slice(1);
+  return SLASH_COMMANDS.filter(c => c.cmd.includes(keyword) || c.desc.includes(keyword));
 }
 
 function _applySlashCmd(cmd, app) {
   if (cmd.template === "__CLEAR__") {
-    app.messages = []; app.chatDraft = ""; app.requestUpdate();
+    app.messages = []; app.chatDraft = ""; app._slashOpen = false; app.requestUpdate();
     return;
   }
+  app._slashOpen = false;
   if (cmd.placeholder) {
     const val = prompt(cmd.placeholder + ":");
     if (!val) { app.chatDraft = ""; app.requestUpdate(); return; }
-    const parts = val.split(/\s+/, 2);
+    // 依次填充模板中的占位符
     let t = cmd.template;
-    t = t.replace(/\{city\}|\{text\}|\{query\}|\{task\}|\{desc\}/, parts[0] || val);
-    t = t.replace(/\{lang\}|\{time\}/, parts[1] || "");
+    const placeholders = t.match(/\{[^}]+\}/g) || [];
+    const parts = val.split(/\s+/);
+    placeholders.forEach((ph, i) => {
+      t = t.replace(ph, parts[i] || (i === 0 ? val : ""));
+    });
     app.chatDraft = t;
+    app.requestUpdate();
+    // 有占位符的也自动发送
+    setTimeout(() => app._sendChat(), 100);
   } else {
     app.chatDraft = cmd.template;
-  }
-  app.requestUpdate();
-  // 自动发送（无占位符的指令）
-  if (!cmd.placeholder) {
-    setTimeout(() => app._sendChat(), 50);
+    app.requestUpdate();
+    setTimeout(() => app._sendChat(), 100);
   }
 }
 
@@ -420,17 +428,18 @@ export function renderChat(app) {
           <textarea class="chat-compose__textarea"
             placeholder="消息... (Enter发送, Shift+Enter换行, / 快捷指令)"
             .value=${app.chatDraft}
-            @input=${(e) => { app.chatDraft = e.target.value; app._slashMatches = _getSlashMatches(e.target.value); autoResize(e.target); app.requestUpdate(); }}
+            @input=${(e) => { app.chatDraft = e.target.value; app._slashOpen = _getSlashMatches(e.target.value).length > 0; autoResize(e.target); app.requestUpdate(); }}
             @keydown=${(e) => {
               if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
                 e.preventDefault();
-                if (app._slashMatches?.length === 1) {
-                  _applySlashCmd(app._slashMatches[0], app);
-                  app._slashMatches = [];
+                const matches = _getSlashMatches(app.chatDraft);
+                if (matches.length === 1) {
+                  _applySlashCmd(matches[0], app);
+                  app._slashOpen = false;
                   e.target.style.height = "auto";
                   return;
                 }
-                app._slashMatches = [];
+                app._slashOpen = false;
                 app._sendChat();
                 e.target.style.height = "auto";
               }
@@ -449,15 +458,17 @@ export function renderChat(app) {
             }}
             rows="1"
           ></textarea>
-          ${(app._slashMatches?.length > 0) ? html`
-            <div style="position:absolute;bottom:100%;left:60px;right:60px;background:var(--bg-elevated,var(--card));border:1px solid var(--border);border-radius:8px;box-shadow:var(--shadow-md);max-height:240px;overflow-y:auto;z-index:100;">
-              ${app._slashMatches.map(c => html`
-                <div style="padding:8px 14px;cursor:pointer;display:flex;align-items:center;gap:10px;font-size:13px;border-bottom:1px solid var(--border);"
-                  @mousedown=${(e) => { e.preventDefault(); _applySlashCmd(c, app); app._slashMatches = []; }}
-                  @mouseenter=${(e) => e.currentTarget.style.background='var(--bg-hover)'}
+          ${app._slashOpen ? html`
+            <div style="position:absolute;bottom:100%;left:0;right:0;background:var(--bg-elevated,var(--card));border:1px solid var(--border);border-radius:8px;box-shadow:0 -4px 16px rgba(0,0,0,.15);max-height:280px;overflow-y:auto;z-index:100;margin-bottom:4px;">
+              <div style="padding:6px 12px;font-size:11px;color:var(--fg-3);border-bottom:1px solid var(--border);font-weight:600;">快捷指令</div>
+              ${_getSlashMatches(app.chatDraft).map(c => html`
+                <div style="padding:10px 14px;cursor:pointer;display:flex;align-items:center;gap:12px;font-size:13px;transition:background .1s;"
+                  @mousedown=${(e) => { e.preventDefault(); _applySlashCmd(c, app); }}
+                  @mouseenter=${(e) => e.currentTarget.style.background='var(--bg-2)'}
                   @mouseleave=${(e) => e.currentTarget.style.background='transparent'}>
-                  <span style="font-weight:600;color:var(--accent);min-width:50px;">${c.cmd}</span>
-                  <span style="color:var(--fg-3);">${c.desc}</span>
+                  <span style="font-weight:700;color:var(--accent);min-width:55px;font-family:monospace;">${c.cmd}</span>
+                  <span style="color:var(--fg-2);">${c.desc}</span>
+                  ${c.placeholder ? html`<span style="color:var(--fg-3);font-size:11px;margin-left:auto;">${c.placeholder}</span>` : nothing}
                 </div>
               `)}
             </div>
