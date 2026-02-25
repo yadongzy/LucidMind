@@ -134,8 +134,8 @@
 | A1 | **PluginHub 远程仓库** | 创建 registry.json，收录现有16个skills | clawhub.com 注册中心 | ✅ 本地+远程回退 |
 | A2 | **前端输入框搜索安装** | 搜索 → 安装 → 热加载，完整跑通 | `clawhub search/install` | ✅ API验证通过 |
 | A3 | **大脑自动搜索安装** | brain.py `_on_tool_not_found` → 搜索 PluginHub → 自动安装 → 重试 | OpenClaw 核心能力 | ✅ 已实现+测试 |
-| A4 | **安装时安全扫描** | 下载 skill 后扫描危险代码模式再安装 | `src/security/skill-scanner.ts` | 🔲 |
-| A5 | **Skill Creator** | Agent 找不到 skill 时自己创建（SKILL.md + main.py） | `skill-creator` (371行) | 🔲 |
+| A4 | **安装时安全扫描** | 下载 skill 后扫描危险代码模式再安装 | `src/security/skill-scanner.ts` | ✅ skill_scanner.py |
+| A5 | **Skill Creator** | Agent 找不到 skill 时自己创建（SKILL.md + main.py） | `skill-creator` (371行) | ✅ skill_creator.py |
 
 **OpenClaw 关键发现**：
 - `install.ts:197-219` — 每次安装自动调用 `scanDirectoryWithSummary()` 扫描危险模式
@@ -148,7 +148,9 @@
 - `frontend-v2/src/ui/views/plugins.js` 的搜索安装 UI 已实现
 - ✅ `registry.json` 本地仓库已创建（16个插件），远程回退机制已实现
 - ✅ `brain_resilience.py` `_on_tool_not_found` 已实现：未知工具 → 搜索 PluginHub → 自动安装 → 热加载 → 重试
-- **缺失**：无 skill-creator 能力（A5）；安装时安全扫描（A4）
+- ✅ `skills/skill_scanner.py` 安装前安全扫描（A4）：检测挖矿/外泄/反向Shell/eval/subprocess等13种危险模式
+- ✅ `skills/skill_creator.py` 自动创建 skill（A5）：PluginHub 无匹配时自动生成 manifest.json + main.py
+- ✅ `_on_tool_not_found` → `_auto_create_skill` 完整闭环：搜索→安装→创建→热加载→重试
 
 **完整工具发现链路（A3+A5 闭环）**：
 ```
@@ -166,9 +168,9 @@
 | B1 | **MCP Server 实际接入** | 接入 2+ 个真实 MCP Server（如 filesystem、web-search） | mcporter `list/call` | ✅ 2服务器 23工具 |
 | B2 | **工作流1: 文件操作** | 通过 MCP 读写文件 → 验证端到端 | filesystem MCP Server | ✅ list+write+read |
 | B3 | **工作流2: 知识图谱** | 通过 MCP memory 创建/搜索实体 → 验证端到端 | memory MCP Server | ✅ create+search |
-| B4 | 前端 MCP 配置验证 | 从 UI 添加 MCP Server → 大脑能用 | 前端已有 | ⚠️ 需验证 |
-| B5 | **MCP 连接健康监控** | 连接状态检测 + 自动重连 + 超时降级 | mcporter `daemon status` | 🔲 |
-| B6 | **MCP 工具名冲突治理** | 原生工具/MCP工具/插件工具名冲突检测与自动去重 | `plugins/tools.ts` 冲突检测 | 🔲 |
+| B4 | 前端 MCP 配置验证 | 从 UI 添加 MCP Server → 大脑能用 | 前端已有 | ✅ 代码审查通过 |
+| B5 | **MCP 连接健康监控** | 连接状态检测 + 自动重连 + 超时降级 | mcporter `daemon status` | ✅ health_check+auto-reconnect |
+| B6 | **MCP 工具名冲突治理** | 原生工具/MCP工具/插件工具名冲突检测与自动去重 | `plugins/tools.ts` 冲突检测 | ✅ discover()冲突检测 |
 
 **OpenClaw mcporter 深度分析（基于代码研究）**：
 

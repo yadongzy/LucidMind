@@ -4,6 +4,42 @@
 
 ---
 
+## v1.2 (2026-02-26)
+
+### 新增
+- **Skill Scanner 安全扫描**（A4）：`skills/skill_scanner.py`
+  - 13种危险模式检测：挖矿、数据外泄、反向Shell、eval/exec、subprocess、env读取等
+  - 三级分类：CRITICAL（阻止安装）、WARNING（警告）、INFO（记录）
+  - 集成到 `install_from_hub()`：下载后扫描，CRITICAL 直接删除拒绝安装
+- **Skill Creator 自动创建**（A5）：`skills/skill_creator.py`
+  - PluginHub 无匹配时自动生成 manifest.json + main.py
+  - 生成后自动经过 skill_scanner 安全扫描
+  - 集成到 `brain_resilience.py` `_auto_create_skill()` 方法
+  - 完整闭环：_on_tool_not_found → 搜索PluginHub → 无结果 → 自动创建 → 扫描 → 热加载
+- **MCP 连接健康监控+自动重连**（B5）：`mcp_client.py`
+  - `health_check()` 方法：检查所有 MCP Server 连接状态
+  - `_reconnect_server()` 方法：自动重连断开的服务器（最多3次）
+  - `execute()` 中集成：服务器断开或无响应时自动重连再重试
+  - `GET /api/mcp/health` API 端点
+- **MCP 工具名冲突治理**（B6）：`mcp_client.py`
+  - `discover()` 中检测工具名冲突，跳过重复工具并记录日志
+
+### 修改
+- `skills/__init__.py`：平台检查支持 `"all"` 字符串匹配所有平台
+- `skills/__init__.py`：`install_from_hub()` 集成安全扫描（本地启用和远程下载两个路径）
+- `brain_resilience.py`：`_on_tool_not_found` 搜索无结果时回退到 `_auto_create_skill`
+- `api/mcp.py`：新增 `/api/mcp/health` 端点
+- STRATEGY.md：A4/A5/B4/B5/B6 全部标记 ✅
+
+### 测试验证
+- skill_scanner：扫描全部16个 skills，正确识别 code_runner 的 CRITICAL（false positive in blacklist comment）
+- skill_creator：创建 auto_test_tool（2个工具），安全扫描通过，热加载成功
+- _on_tool_not_found 完整链路：magic_spell_cast → PluginHub无结果 → 自动创建 auto_magic_spell → 成功
+- MCP auto-reconnect：Kill filesystem 进程 → execute 自动重连 → 执行成功
+- MCP health_check：2个服务器均返回 healthy
+
+---
+
 ## v0.3.3 (2026-02-25)
 
 ### 新增

@@ -75,9 +75,11 @@ def discover_skills() -> list[Any]:
                 logger.info(f"⏸️  插件已禁用: {name}")
                 _registry[name] = {**manifest, "status": "disabled", "adapters": []}
                 continue
-            # 平台检查
+            # 平台检查（"all" 匹配所有平台）
             plats = manifest.get("platform", [])
-            if plats and current_platform not in [p.lower() for p in plats]:
+            if isinstance(plats, str):
+                plats = [plats]
+            if plats and "all" not in [p.lower() for p in plats] and current_platform not in [p.lower() for p in plats]:
                 logger.info(f"⏭️  插件跳过(平台不匹配): {name} 需要 {plats}")
                 _registry[name] = {**manifest, "status": "platform_skip", "adapters": []}
                 continue
@@ -249,8 +251,14 @@ def install_from_hub(name: str) -> dict:
 
     target_dir = _SKILLS_DIR / name
 
-    # 1. 本地已存在 → 直接启用+热加载
+    # 1. 本地已存在 → 安全扫描 + 启用+热加载
     if (target_dir / "manifest.json").exists() and (target_dir / "main.py").exists():
+        # 安全扫描
+        from skills.skill_scanner import scan_skill_directory
+        scan = scan_skill_directory(target_dir)
+        if scan["block"]:
+            logger.warning(f"🚫 插件 {name} 安全扫描未通过，拒绝启用: {scan['summary']}")
+            return {"success": False, "error": f"安全扫描未通过: {scan['summary']}", "scan": scan}
         # 确保 manifest 中 enabled=true
         try:
             manifest = json.loads((target_dir / "manifest.json").read_text("utf-8"))
@@ -261,8 +269,8 @@ def install_from_hub(name: str) -> dict:
         except Exception:
             pass
         reload_result = hot_reload()
-        logger.info(f"📦 插件已启用(本地已有): {name}")
-        return {"success": True, "result": f"插件 {name} 已启用(本地已有)，热加载完成: {reload_result}"}
+        logger.info(f"📦 插件已启用(本地已有): {name} | {scan['summary']}")
+        return {"success": True, "result": f"插件 {name} 已启用(本地已有)，热加载完成: {reload_result}", "scan": scan}
 
     # 2. 本地不存在 → 从远程下载
     download_url = plugin_info.get("download_url", "")
@@ -279,8 +287,17 @@ def install_from_hub(name: str) -> dict:
                 content = resp.read().decode("utf-8")
                 (target_dir / fname).write_text(content, encoding="utf-8")
 
+        # 安全扫描（下载后、热加载前）
+        from skills.skill_scanner import scan_skill_directory
+        scan = scan_skill_directory(target_dir)
+        if scan["block"]:
+            import shutil
+            shutil.rmtree(target_dir, ignore_errors=True)
+            logger.warning(f"🚫 插件 {name} 安全扫描未通过，已删除: {scan['summary']}")
+            return {"success": False, "error": f"安全扫描未通过，已拒绝安装: {scan['summary']}", "scan": scan}
+
         reload_result = hot_reload()
-        logger.info(f"📦 插件已安装: {name} → {target_dir}")
-        return {"success": True, "result": f"插件 {name} 已安装到 {target_dir}，热加载完成: {reload_result}"}
+        logger.info(f"📦 插件已安装: {name} → {target_dir} | {scan['summary']}")
+        return {"success": True, "result": f"插件 {name} 已安装到 {target_dir}，热加载完成: {reload_result}", "scan": scan}
     except Exception as e:
         return {"success": False, "error": f"安装失败: {e}"}

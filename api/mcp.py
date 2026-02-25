@@ -63,6 +63,16 @@ async def discover():
     return {"status": "ok", "tools_discovered": count}
 
 
+@router.get("/health")
+async def health_check():
+    """B5: 检查所有 MCP Server 连接健康状态。"""
+    if not _mcp_client:
+        return {"servers": {}, "healthy": False}
+    results = await _mcp_client.health_check()
+    all_healthy = all(v.get("status") in ("healthy", "disabled") for v in results.values())
+    return {"servers": results, "healthy": all_healthy}
+
+
 @router.get("/tools")
 async def list_mcp_tools():
     """列出所有 MCP 工具。"""

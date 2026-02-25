@@ -154,6 +154,9 @@ class MCPClientAdapter(ToolPort):
 
     支持 stdio（子进程）和 http（远程）两种传输。
     工具名格式：mcp_{server_name}_{tool_name}
+
+    B5: 连接健康监控 + 自动重连
+    B6: 工具名冲突检测与自动去重
     """
 
     def __init__(self):
@@ -161,6 +164,9 @@ class MCPClientAdapter(ToolPort):
         self._transports: dict[str, _StdioTransport | _HttpTransport] = {}
         self._tools: list[dict] = []
         self._tool_server: dict[str, dict] = {}
+        self._server_configs: dict[str, dict] = {}  # name -> config (for reconnect)
+        self._reconnect_count: dict[str, int] = {}   # name -> reconnect attempts
+        self._max_reconnect = 3
         self._load_config()
 
     def _load_config(self):
@@ -226,6 +232,7 @@ class MCPClientAdapter(ToolPort):
         self._tools.clear()
         self._tool_server.clear()
         count = 0
+        conflicts = 0
         for srv in self._servers:
             name = srv.get("name", "unknown")
             transport_type = srv.get("transport", "http")
@@ -258,6 +265,8 @@ class MCPClientAdapter(ToolPort):
                 logger.warning(f"MCP: {name} 连接失败")
                 continue
             self._transports[name] = transport
+            self._server_configs[name] = srv
+            self._reconnect_count[name] = 0
 
             # 发现工具
             try:
@@ -267,6 +276,12 @@ class MCPClientAdapter(ToolPort):
                 tools = resp.get("result", {}).get("tools", [])
                 for t in tools:
                     tool_name = f"mcp_{name}_{t['name']}"
+                    # B6: 工具名冲突检测
+                    if tool_name in self._tool_server:
+                        existing = self._tool_server[tool_name]["server"]
+                        logger.warning(f"MCP 工具名冲突: {tool_name} 已在 {existing}，{name} 的版本将被跳过")
+                        conflicts += 1
+                        continue
                     tool_def = {
                         "type": "function",
                         "function": {
@@ -283,8 +298,70 @@ class MCPClientAdapter(ToolPort):
                 logger.info(f"MCP: {name} ({transport_type}) → {len(tools)} 个工具")
             except Exception as e:
                 logger.warning(f"MCP: {name} 工具发现失败: {e}")
+        if conflicts:
+            logger.warning(f"MCP: {conflicts} 个工具名冲突被跳过")
         logger.info(f"MCP: 共发现 {count} 个外部工具 ({len(self._transports)} 个服务器已连接)")
         return count
+
+    async def _reconnect_server(self, server_name: str) -> bool:
+        """B5: 尝试重连单个 MCP Server。"""
+        cfg = self._server_configs.get(server_name)
+        if not cfg:
+            return False
+        attempts = self._reconnect_count.get(server_name, 0)
+        if attempts >= self._max_reconnect:
+            logger.warning(f"MCP: {server_name} 已达到最大重连次数 ({self._max_reconnect})，放弃")
+            return False
+        self._reconnect_count[server_name] = attempts + 1
+        logger.info(f"MCP: 正在重连 {server_name} (第 {attempts + 1} 次)...")
+        # 清理旧连接
+        old = self._transports.pop(server_name, None)
+        if old:
+            try:
+                await old.stop()
+            except Exception:
+                pass
+        # 创建新传输层
+        transport_type = cfg.get("transport", "http")
+        if transport_type == "stdio":
+            transport = _StdioTransport(cfg.get("command", ""), cfg.get("args", []), cfg.get("env"))
+        elif transport_type == "http":
+            transport = _HttpTransport(cfg.get("url", ""))
+        else:
+            return False
+        ok = await transport.start()
+        if not ok:
+            logger.warning(f"MCP: {server_name} 重连失败")
+            return False
+        self._transports[server_name] = transport
+        self._reconnect_count[server_name] = 0
+        logger.info(f"MCP: {server_name} 重连成功")
+        return True
+
+    async def health_check(self) -> dict[str, Any]:
+        """B5: 检查所有 MCP Server 连接健康状态。"""
+        results = {}
+        for srv in self._servers:
+            name = srv.get("name", "unknown")
+            if not srv.get("enabled", True):
+                results[name] = {"status": "disabled"}
+                continue
+            transport = self._transports.get(name)
+            if not transport:
+                results[name] = {"status": "disconnected"}
+                continue
+            # 尝试 ping (发送 tools/list 作为心跳)
+            try:
+                resp = await transport.request("tools/list")
+                if resp and "result" in resp:
+                    tool_count = len(resp.get("result", {}).get("tools", []))
+                    results[name] = {"status": "healthy", "tools": tool_count}
+                    self._reconnect_count[name] = 0
+                else:
+                    results[name] = {"status": "unhealthy", "error": "no response"}
+            except Exception as e:
+                results[name] = {"status": "unhealthy", "error": str(e)}
+        return results
 
     async def shutdown(self):
         """关闭所有 MCP 连接。"""
@@ -295,6 +372,8 @@ class MCPClientAdapter(ToolPort):
             except Exception:
                 pass
         self._transports.clear()
+        self._server_configs.clear()
+        self._reconnect_count.clear()
 
     def list_tools(self) -> list[dict[str, Any]]:
         return self._tools
@@ -306,13 +385,28 @@ class MCPClientAdapter(ToolPort):
         server_name = info["server"]
         transport = self._transports.get(server_name)
         if not transport:
-            return {"success": False, "result": None, "error": f"MCP Server 未连接: {server_name}"}
+            # B5: 服务器断开，尝试自动重连
+            reconnected = await self._reconnect_server(server_name)
+            if reconnected:
+                transport = self._transports.get(server_name)
+            if not transport:
+                return {"success": False, "result": None, "error": f"MCP Server 未连接且重连失败: {server_name}"}
         try:
             resp = await transport.request("tools/call", {
                 "name": info["original_name"], "arguments": params
             })
             if not resp:
-                return {"success": False, "result": None, "error": "MCP Server 无响应"}
+                # B5: 无响应，尝试重连一次
+                logger.warning(f"MCP: {tool_name} 无响应，尝试重连 {server_name}")
+                reconnected = await self._reconnect_server(server_name)
+                if reconnected:
+                    transport = self._transports.get(server_name)
+                    if transport:
+                        resp = await transport.request("tools/call", {
+                            "name": info["original_name"], "arguments": params
+                        })
+                if not resp:
+                    return {"success": False, "result": None, "error": "MCP Server 无响应(重连后仍失败)"}
             if "error" in resp:
                 err = resp["error"]
                 logger.warning(f"MCP: {tool_name} 错误: {err}")

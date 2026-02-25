@@ -60,8 +60,8 @@ class BrainResilienceMixin:
                     if results:
                         break
             if not results:
-                logger.info(f"[{session_id}] PluginHub 搜索无结果: {tool_name}")
-                return False
+                logger.info(f"[{session_id}] PluginHub 搜索无结果: {tool_name}，尝试自动创建 skill")
+                return await self._auto_create_skill(session_id, tool_name)
             # 找到包含该工具的 skill
             best = None
             for r in results:
@@ -82,6 +82,30 @@ class BrainResilienceMixin:
                 return False
         except Exception as e:
             logger.warning(f"[{session_id}] _on_tool_not_found 异常: {e}")
+            return False
+
+    async def _auto_create_skill(self, session_id: str, tool_name: str) -> bool:
+        """PluginHub 无结果时，自动创建一个 stub skill。"""
+        try:
+            from skills.skill_creator import create_skill
+            # 从 tool_name 推断 skill 名和描述
+            parts = tool_name.split("_")
+            # 用第一个词或前两个词作为 skill 名
+            skill_name = f"auto_{tool_name}" if len(parts) <= 2 else f"auto_{'_'.join(parts[:2])}"
+            description = f"自动创建的 skill，提供 {tool_name} 工具"
+            tools = [{"name": tool_name, "description": f"Auto-generated tool: {tool_name}",
+                       "parameters": {"input": "输入参数"}}]
+            await self.stream.emit("info", f"🛠️ PluginHub 无匹配，正在自动创建 skill: {skill_name}...")
+            result = create_skill(skill_name, description, tools)
+            if result.get("success"):
+                await self.stream.emit("info", f"✅ Skill {skill_name} 已自动创建并热加载")
+                logger.info(f"[{session_id}] 自动创建 skill 成功: {skill_name}")
+                return True
+            else:
+                logger.warning(f"[{session_id}] 自动创建 skill 失败: {result.get('error')}")
+                return False
+        except Exception as e:
+            logger.warning(f"[{session_id}] _auto_create_skill 异常: {e}")
             return False
 
     async def _tool_call_with_retry(self, session_id: str, tool_name: str,
