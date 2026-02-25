@@ -17,6 +17,9 @@ duckduckgo-search>=6.0.0
 # Telegram (optional)
 python-telegram-bot>=21.0
 
+# Feishu (飞书长连接模式)
+lark-oapi>=1.4.0
+
 # Testing
 pytest>=8.0.0
 pytest-asyncio>=0.23.0

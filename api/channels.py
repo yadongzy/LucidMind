@@ -104,7 +104,7 @@ async def restart_channel(name: str):
 # ── 各通道环境变量映射 ──
 _CHANNEL_ENV_KEYS = {
     "telegram": ["TELEGRAM_BOT_TOKEN", "TELEGRAM_ALLOWED_USERS"],
-    "feishu": ["FEISHU_APP_ID", "FEISHU_APP_SECRET", "FEISHU_VERIFICATION_TOKEN"],
+    "feishu": ["FEISHU_APP_ID", "FEISHU_APP_SECRET"],
     "wecom": ["WECOM_CORP_ID", "WECOM_AGENT_ID", "WECOM_SECRET", "WECOM_TOKEN"],
     "wechat": ["GEWECHAT_BASE_URL", "GEWECHAT_TOKEN", "GEWECHAT_CALLBACK_URL", "WECHAT_ALLOWED_WXIDS"],
 }
@@ -176,7 +176,6 @@ async def save_channel_config(name: str, request: Request):
         elif name == "feishu":
             ch._app_id = updates.get("FEISHU_APP_ID", ch._app_id)
             ch._app_secret = updates.get("FEISHU_APP_SECRET", ch._app_secret)
-            ch._verification_token = updates.get("FEISHU_VERIFICATION_TOKEN", ch._verification_token)
         elif name == "wecom":
             ch._corp_id = updates.get("WECOM_CORP_ID", getattr(ch, '_corp_id', ''))
             ch._agent_id = updates.get("WECOM_AGENT_ID", getattr(ch, '_agent_id', ''))
@@ -321,6 +320,10 @@ async def ngrok_authtoken(request: Request):
         return {"status": "error", "message": "请输入 authtoken"}
     if not shutil.which("ngrok"):
         return {"status": "error", "message": "ngrok 未安装"}
+    # 确保 ngrok 配置目录存在
+    ngrok_cfg_dir = Path.home() / "Library" / "Application Support" / "ngrok"
+    if not ngrok_cfg_dir.exists():
+        ngrok_cfg_dir.mkdir(parents=True, exist_ok=True)
     try:
         proc = await asyncio.create_subprocess_exec(
             "ngrok", "config", "add-authtoken", token,
@@ -349,12 +352,15 @@ async def ngrok_start():
     if _ngrok_process and _ngrok_process.poll() is None and _ngrok_url:
         return {"status": "ok", "url": _ngrok_url, "message": "ngrok 已在运行"}
 
-    # 启动 ngrok
+    # 启动 ngrok（清除代理环境变量，免费版不支持代理）
     try:
+        clean_env = {k: v for k, v in os.environ.items()
+                     if k.lower() not in ("http_proxy", "https_proxy", "all_proxy", "no_proxy")}
         _ngrok_process = subprocess.Popen(
             ["ngrok", "http", "8765", "--log=stdout"],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
+            env=clean_env,
         )
         # 等待获取公网 URL（通过 ngrok API）
         _ngrok_url = ""

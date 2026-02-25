@@ -96,9 +96,8 @@ const _channelMeta = {
     fields: [
       { key: "FEISHU_APP_ID", label: "App ID", placeholder: "cli_xxxxxxxxxx", required: true },
       { key: "FEISHU_APP_SECRET", label: "App Secret", placeholder: "飞书应用密钥", required: true },
-      { key: "FEISHU_VERIFICATION_TOKEN", label: "Verification Token", placeholder: "事件验证Token (可选)", required: false },
     ],
-    help: "飞书开放平台 → 创建企业自建应用 → 凭证与基础信息\n回调地址: /api/channel/feishu/webhook",
+    help: "🚀 长连接模式 — 无需公网域名，无需 ngrok\n1. 飞书开放平台 → 创建企业自建应用\n2. 开启机器人能力\n3. 事件订阅选「使用长连接接收事件」\n4. 添加事件: im.message.receive_v1\n5. 填入 App ID 和 Secret → 保存即可",
   },
   wecom: {
     icon: "💼",

@@ -1,23 +1,27 @@
-"""飞书 Channel Adapter — 通过飞书机器人 API 接入 Brain。
+"""飞书 Channel Adapter — 通过飞书官方 SDK 长连接模式接入 Brain。
+
+使用 lark-oapi SDK 的 WebSocket 长连接模式：
+  - 无需公网域名或 IP
+  - 无需 ngrok 内网穿透
+  - 无需配置加密/验签
+  - 只需 App ID + App Secret 即可一键连接
 
 配置：
   FEISHU_APP_ID=飞书应用 App ID
   FEISHU_APP_SECRET=飞书应用 App Secret
-  FEISHU_VERIFICATION_TOKEN=事件订阅验证 Token（可选）
-  FEISHU_ENCRYPT_KEY=事件加密 Key（可选）
 
 飞书开放平台：https://open.feishu.cn
-需要在飞书开放平台创建企业自建应用，开启机器人能力，订阅消息事件。
-
-回调地址设置为：http(s)://你的域名/api/channel/feishu/webhook
+1. 创建企业自建应用 → 开启机器人能力
+2. 事件订阅方式选择「使用长连接接收事件」
+3. 添加事件：im.message.receive_v1
 """
 
 import asyncio
-import hashlib
 import json
 import os
+import threading
 import time
-from typing import Callable, Awaitable, Any
+from typing import Callable, Awaitable
 
 from ports.channel_port import ChannelPort
 from logs import get_logger
@@ -26,34 +30,114 @@ logger = get_logger("channel.feishu")
 
 
 class FeishuChannelAdapter(ChannelPort):
-    """飞书通道适配器 — 接收飞书 Webhook 事件，调用 Brain 处理并回复。"""
+    """飞书通道适配器 — 通过 SDK 长连接接收消息，调用 Brain 处理并回复。"""
 
     def __init__(self):
         self._on_message: Callable | None = None
         self._brain = None
         self._app_id = os.getenv("FEISHU_APP_ID", "")
         self._app_secret = os.getenv("FEISHU_APP_SECRET", "")
-        self._verification_token = os.getenv("FEISHU_VERIFICATION_TOKEN", "")
-        self._encrypt_key = os.getenv("FEISHU_ENCRYPT_KEY", "")
+        self._ws_client = None
+        self._ws_thread: threading.Thread | None = None
+        self._running = False
         self._tenant_access_token = ""
         self._token_expires = 0
         self._processed_msg_ids: set[str] = set()  # 去重
+        self._loop = None  # 主 asyncio 事件循环
 
     async def start(self, on_message: Callable[[str, str], Awaitable[None]]) -> None:
         self._on_message = on_message
+        self._loop = asyncio.get_event_loop()
         if not self._app_id or not self._app_secret:
             logger.info("飞书: 未配置 FEISHU_APP_ID/FEISHU_APP_SECRET，跳过")
             return
-        logger.info("飞书: Channel 已就绪，等待 Webhook 事件")
+        self._start_ws_client()
+
+    def _start_ws_client(self):
+        """启动 SDK 长连接客户端（在独立线程中运行）。"""
+        if self._running:
+            return
+        try:
+            import lark_oapi as lark
+
+            # 注册消息事件处理器
+            event_handler = lark.EventDispatcherHandler.builder("", "") \
+                .register_p2_im_message_receive_v1(self._on_receive_message) \
+                .build()
+
+            self._ws_client = lark.ws.Client(
+                self._app_id,
+                self._app_secret,
+                event_handler=event_handler,
+                log_level=lark.LogLevel.INFO,
+            )
+
+            self._running = True
+            self._ws_thread = threading.Thread(
+                target=self._ws_client.start,
+                daemon=True,
+                name="feishu-ws",
+            )
+            self._ws_thread.start()
+            logger.info("飞书: 长连接客户端已启动 (WebSocket 模式，无需公网域名)")
+        except ImportError:
+            logger.error("飞书: lark-oapi 未安装，请运行 pip install lark-oapi")
+        except Exception as e:
+            logger.error(f"飞书: 启动长连接失败: {e}")
+            self._running = False
+
+    def _on_receive_message(self, data) -> None:
+        """SDK 事件回调 — 收到飞书消息（在 ws 线程中调用）。"""
+        try:
+            event = data.event
+            message = event.message
+            msg_id = message.message_id
+            msg_type = message.message_type
+            chat_type = message.chat_type
+
+            # 去重
+            if msg_id in self._processed_msg_ids:
+                return
+            self._processed_msg_ids.add(msg_id)
+            if len(self._processed_msg_ids) > 1000:
+                self._processed_msg_ids = set(list(self._processed_msg_ids)[-500:])
+
+            # 只处理文本消息
+            if msg_type != "text":
+                return
+
+            content = json.loads(message.content or "{}")
+            text = content.get("text", "").strip()
+            if not text:
+                return
+
+            sender = event.sender
+            user_id = sender.sender_id.open_id if sender and sender.sender_id else "unknown"
+            session_id = f"feishu_{user_id}"
+
+            logger.info(f"飞书: 收到消息 from={user_id} chat_type={chat_type} len={len(text)}")
+
+            # 调度到主事件循环执行异步处理
+            if self._loop and self._loop.is_running():
+                asyncio.run_coroutine_threadsafe(
+                    self._process_and_reply(session_id, text, msg_id),
+                    self._loop,
+                )
+        except Exception as e:
+            logger.error(f"飞书: 解析消息事件失败: {e}")
 
     async def stop(self) -> None:
+        self._running = False
+        # lark ws.Client 没有 stop 方法，daemon 线程会随主进程退出
+        self._ws_client = None
+        self._ws_thread = None
         logger.info("飞书: Channel 已停止")
 
     def set_brain(self, brain):
         self._brain = brain
 
     async def _get_tenant_token(self) -> str:
-        """获取 tenant_access_token（2小时有效）。"""
+        """获取 tenant_access_token（2小时有效，用于主动发送消息）。"""
         if self._tenant_access_token and time.time() < self._token_expires:
             return self._tenant_access_token
         try:
@@ -112,59 +196,11 @@ class FeishuChannelAdapter(ChannelPort):
             logger.error(f"飞书: 发送消息失败: {e}")
 
     async def handle_webhook(self, body: dict) -> dict:
-        """处理飞书 Webhook 请求（由 FastAPI 路由调用）。
-
-        返回值直接作为 HTTP 响应体。
-        """
-        # URL 验证（飞书首次配置时发送）
+        """兼容旧 Webhook 模式（保留以免路由报错）。"""
+        # URL 验证
         if "challenge" in body:
             return {"challenge": body["challenge"]}
-
-        # 事件回调
-        header = body.get("header", {})
-        event = body.get("event", {})
-
-        # 验证 token
-        if self._verification_token:
-            if header.get("token") != self._verification_token:
-                logger.warning("飞书: 验证 token 不匹配")
-                return {"code": 403, "msg": "invalid token"}
-
-        event_type = header.get("event_type", "")
-        if event_type != "im.message.receive_v1":
-            return {"code": 0}
-
-        message = event.get("message", {})
-        msg_id = message.get("message_id", "")
-        msg_type = message.get("message_type", "")
-        chat_type = message.get("chat_type", "")
-
-        # 去重
-        if msg_id in self._processed_msg_ids:
-            return {"code": 0}
-        self._processed_msg_ids.add(msg_id)
-        # 限制集合大小
-        if len(self._processed_msg_ids) > 1000:
-            self._processed_msg_ids = set(list(self._processed_msg_ids)[-500:])
-
-        # 只处理文本消息
-        if msg_type != "text":
-            return {"code": 0}
-
-        content = json.loads(message.get("content", "{}"))
-        text = content.get("text", "").strip()
-        if not text:
-            return {"code": 0}
-
-        sender = event.get("sender", {}).get("sender_id", {})
-        user_id = sender.get("open_id", "unknown")
-        session_id = f"feishu_{user_id}"
-
-        logger.info(f"飞书: 收到消息 from={user_id} chat_type={chat_type} len={len(text)}")
-
-        # 异步处理，立即返回
-        asyncio.create_task(self._process_and_reply(session_id, text, msg_id))
-        return {"code": 0}
+        return {"code": 0, "msg": "请使用长连接模式，无需配置 Webhook"}
 
     async def _process_and_reply(self, session_id: str, text: str, message_id: str):
         """调用 Brain 处理并回复。"""
