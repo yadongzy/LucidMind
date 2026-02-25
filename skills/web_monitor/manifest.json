@@ -1,0 +1,11 @@
+{
+  "name": "web_monitor",
+  "version": "1.0.0",
+  "description": "网页监控：定期检查网页变化，变化时推送通知",
+  "author": "LucidMind",
+  "entry": "main.py",
+  "tools": ["monitor_add", "monitor_check", "monitor_list"],
+  "platform": [],
+  "dependencies": [],
+  "enabled": true
+}

@@ -1,0 +1,11 @@
+{
+  "name": "weather",
+  "version": "1.0.0",
+  "description": "天气查询：当前天气和预报（wttr.in 免费 API）",
+  "author": "LucidMind",
+  "entry": "main.py",
+  "tools": ["get_weather"],
+  "platform": [],
+  "dependencies": [],
+  "enabled": true
+}

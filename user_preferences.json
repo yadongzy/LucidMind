@@ -1,0 +1,65 @@
+{
+  "user_profile": {
+    "name": "Yadong",
+    "language_preference": "中文为主",
+    "response_style": "简洁直接",
+    "output_format_preference": ["表格", "列表", "结构化"],
+    "action_style": "主动执行，不要反复确认"
+  },
+  
+  "work_environment": {
+    "system": "macOS (Apple Silicon M3)",
+    "main_project": "LucidMind — 有意识的AI大脑系统",
+    "tech_stack": ["Python (FastAPI)", "Lit Element (前端)", "WebSocket"],
+    "working_directory": "/Users/yadong/Documents/LucidMind"
+  },
+  
+  "interaction_patterns": {
+    "most_active_time": "09:00",
+    "preferred_task_completion": "直接汇报结果，不问'还需要什么'",
+    "error_handling_preference": "先分析再行动，不盲目重试",
+    "tool_failure_response": "换方法，不重复同样的错误"
+  },
+  
+  "learning_preferences": {
+    "learning_style": "从错误中学习，同样的错误不犯第二次",
+    "improvement_focus": ["变得更聪明", "减少错误", "更好地理解用户"],
+    "feedback_preference": "直接指出错误，不要委婉"
+  },
+  
+  "security_preferences": {
+    "file_deletion": "删除前必须先预览和确认",
+    "dangerous_commands": ["禁止 sudo", "禁止 rm -rf", "禁止访问 .env/.git"],
+    "confirmation_required": ["系统级操作", "文件删除", "配置修改"]
+  },
+  
+  "quality_preferences": {
+    "answer_quality": "完整、准确、可直接使用",
+    "uncertainty_handling": "明确标注'我不确定'的部分",
+    "source_verification": "涉及文件内容先用工具读取，不凭训练数据猜"
+  },
+  
+  "observed_patterns": {
+    "repeated_questions_count": 112,
+    "tool_loop_warnings": 2,
+    "common_task_types": ["代码开发", "系统管理", "数据分析", "文档编写"],
+    "frequent_errors": ["stream模块连接", "llm模块调用", "工具调用失败"]
+  },
+  
+  "improvement_goals": {
+    "long_term": [
+      "变得更聪明 — 从每次交互中学习",
+      "减少错误 — 同样的错误不犯第二次",
+      "更好地理解用户 — 记住偏好和习惯"
+    ],
+    "short_term": [
+      "整理经验库，合并重复经验",
+      "优化stream模块稳定性",
+      "改进llm调用策略"
+    ]
+  },
+  
+  "last_updated": "2026-02-25 10:48:00",
+  "update_frequency": "每次交互后自动更新",
+  "version": "2.0"
+}

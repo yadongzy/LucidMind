@@ -1,0 +1,25 @@
+{
+  "name": "Python学习数据",
+  "exercises": [
+    {
+      "id": 1,
+      "name": "计算器",
+      "completed": true
+    },
+    {
+      "id": 2,
+      "name": "文件处理器",
+      "completed": true
+    },
+    {
+      "id": 3,
+      "name": "数据分析",
+      "completed": false
+    }
+  ],
+  "stats": {
+    "total_exercises": 3,
+    "completed": 2,
+    "completion_rate": 66.67
+  }
+}

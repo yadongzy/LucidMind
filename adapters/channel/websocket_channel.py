@@ -1,0 +1,245 @@
+"""S34: WebSocket Channel Adapter — 实现 ChannelPort 接口。
+
+让 WebSocket 通道经过标准 Port 接口，实现真正的可插拔。
+新 Adapter，不修改 brain.py（规则 06）。
+"""
+import asyncio
+import json
+import time
+from typing import Callable, Awaitable, Any
+
+from fastapi import WebSocket, WebSocketDisconnect
+from ports.channel_port import ChannelPort
+from adapters.stream.websocket_stream import WebSocketStreamAdapter
+from logs import get_logger
+
+logger = get_logger("channel.ws")
+
+_SERVER_PING_INTERVAL = 45  # 服务端主动 ping 间隔（秒）
+_SERVER_PONG_TIMEOUT = 90   # 服务端无 pong 判死时间（秒）
+
+
+class WebSocketChannelAdapter(ChannelPort):
+    """WebSocket 通道适配器 — 将 WebSocket 消息路由到 Brain。"""
+
+    def __init__(self):
+        self._on_message: Callable | None = None
+        self._connections: dict[str, WebSocket] = {}
+        self._last_pong: dict[str, float] = {}  # conn_id -> last pong timestamp
+        self._server_hb_task: asyncio.Task | None = None
+
+    async def start(self, on_message: Callable[[str, str], Awaitable[None]]) -> None:
+        self._on_message = on_message
+        if not self._server_hb_task or self._server_hb_task.done():
+            self._server_hb_task = asyncio.create_task(self._server_heartbeat_loop())
+        logger.info("WebSocket Channel 已就绪 (服务端心跳已启动)")
+
+    async def stop(self) -> None:
+        if self._server_hb_task:
+            self._server_hb_task.cancel()
+            try:
+                await self._server_hb_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        for cid in list(self._connections):
+            try:
+                await self._connections[cid].close()
+            except Exception:
+                pass
+        self._connections.clear()
+        self._last_pong.clear()
+        logger.info("WebSocket Channel 已停止")
+
+    def _resolve_user(self, token: str) -> str:
+        if not token:
+            return "anonymous"
+        try:
+            from adapters.auth.user_isolator import get_isolator
+            uid = get_isolator().validate_token(token)
+            return uid or "anonymous"
+        except Exception:
+            return "anonymous"
+
+    def _isolate_sid(self, user_id: str, session_id: str) -> str:
+        if user_id == "anonymous":
+            return session_id
+        try:
+            from adapters.auth.user_isolator import get_isolator
+            return get_isolator().get_isolated_session_id(user_id, session_id)
+        except Exception:
+            return session_id
+
+    async def handle_connection(self, websocket: WebSocket, brain,
+                                token: str = "") -> None:
+        """处理一个 WebSocket 连接的完整生命周期。"""
+        await websocket.accept()
+        conn_id = str(id(websocket))
+        self._connections[conn_id] = websocket
+        self._last_pong[conn_id] = time.time()
+        user_id = self._resolve_user(token)
+        # S59: ws_holder — stream 始终指向当前用户最新活跃连接
+        if not hasattr(brain, '_ws_holders'):
+            brain._ws_holders = {}
+        holder = brain._ws_holders.setdefault(user_id, {"ws": websocket})
+        holder["ws"] = websocket
+        stream = WebSocketStreamAdapter(websocket, ws_holder=holder)
+        brain.set_stream(stream)
+        # 对话输入排队机制：用户连续发消息时入队顺序处理，不丢失
+        chat_queue: asyncio.Queue = asyncio.Queue()
+        consumer_task: asyncio.Task | None = None
+        current_task: asyncio.Task | None = None
+        logger.info(f"WebSocket 连接已建立 (conn={conn_id}, user={user_id})")
+
+        async def _queue_consumer():
+            """顺序消费聊天队列，保证消息按发送顺序处理。"""
+            nonlocal current_task
+            while True:
+                item = await chat_queue.get()
+                if item is None:  # 毒丸，退出
+                    break
+                sid, user_input = item
+                pending = chat_queue.qsize()
+                if pending > 0:
+                    try:
+                        await stream.emit("info", f"📨 排队中: 还有 {pending} 条消息待处理")
+                    except Exception:
+                        pass
+                brain.set_stream(stream)
+                current_task = asyncio.create_task(self._safe_process(
+                    brain, stream, sid, user_input, self._on_message))
+                await current_task
+                current_task = None
+                chat_queue.task_done()
+
+        consumer_task = asyncio.create_task(_queue_consumer())
+
+        try:
+            while True:
+                raw = await websocket.receive_text()
+                data = json.loads(raw)
+                msg_type = data.get("type")
+
+                if msg_type == "server_pong":
+                    self._last_pong[conn_id] = time.time()
+                elif msg_type == "ping":
+                    self._last_pong[conn_id] = time.time()
+                    await websocket.send_json({"type": "pong",
+                        "ts": time.time(),
+                        "client_ts": data.get("client_ts"),
+                        "brain": brain._awake if hasattr(brain, '_awake') else True,
+                        "queue": chat_queue.qsize()})
+                elif msg_type == "switch_session":
+                    iso_sid = self._isolate_sid(user_id, data.get("session_id", "default"))
+                    await brain.switch_session(iso_sid)
+                elif msg_type == "abort":
+                    # 清空排队 + 取消当前任务
+                    while not chat_queue.empty():
+                        try:
+                            chat_queue.get_nowait()
+                            chat_queue.task_done()
+                        except asyncio.QueueEmpty:
+                            break
+                    if current_task and not current_task.done():
+                        current_task.cancel()
+                        logger.info(f"用户中止了当前任务 (conn={conn_id})")
+                        try:
+                            await current_task
+                        except (asyncio.CancelledError, Exception):
+                            pass
+                    try:
+                        await stream.emit("info", "⏹ 已停止")
+                        await stream.emit("complete", None)
+                    except Exception:
+                        pass
+                elif msg_type == "tool_approval_response":
+                    from adapters.tools.tool_safety import get_safety_guard
+                    guard = get_safety_guard()
+                    guard.handle_approval_response(
+                        data.get("request_id", ""),
+                        data.get("approved", False),
+                        data.get("reason", ""),
+                    )
+                elif msg_type == "chat":
+                    user_input = data.get("message", "").strip()
+                    if user_input:
+                        raw_sid = data.get("session_id", "default")
+                        sid = self._isolate_sid(user_id, raw_sid)
+                        await chat_queue.put((sid, user_input))
+                        qsize = chat_queue.qsize()
+                        if qsize > 1:
+                            logger.info(f"📨 消息入队: queue={qsize} (conn={conn_id})")
+        except WebSocketDisconnect:
+            logger.info(f"WebSocket 连接已断开 (conn={conn_id})")
+        except Exception as e:
+            logger.error(f"WebSocket 错误 (conn={conn_id}): {e}")
+        finally:
+            # 停止消费者
+            await chat_queue.put(None)
+            if consumer_task:
+                consumer_task.cancel()
+                try:
+                    await consumer_task
+                except (asyncio.CancelledError, Exception):
+                    pass
+            self._connections.pop(conn_id, None)
+            self._last_pong.pop(conn_id, None)
+
+    async def broadcast(self, message: str):
+        """向所有活跃连接广播消息。"""
+        dead = []
+        for cid, ws in list(self._connections.items()):
+            try:
+                await ws.send_text(message)
+            except Exception:
+                dead.append(cid)
+        for cid in dead:
+            self._connections.pop(cid, None)
+            self._last_pong.pop(cid, None)
+
+    async def _server_heartbeat_loop(self):
+        """服务端主动心跳：定期检测僵尸连接并清理。"""
+        while True:
+            try:
+                await asyncio.sleep(_SERVER_PING_INTERVAL)
+                now = time.time()
+                dead = []
+                for cid, ws in list(self._connections.items()):
+                    last = self._last_pong.get(cid, 0)
+                    if now - last > _SERVER_PONG_TIMEOUT:
+                        dead.append(cid)
+                        continue
+                    try:
+                        await ws.send_json({"type": "server_ping", "ts": now})
+                    except Exception:
+                        dead.append(cid)
+                for cid in dead:
+                    ws = self._connections.pop(cid, None)
+                    self._last_pong.pop(cid, None)
+                    if ws:
+                        try:
+                            await ws.close()
+                        except Exception:
+                            pass
+                    logger.info(f"♻ 清理僵尸连接: {cid}")
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning(f"服务端心跳异常: {e}")
+
+    @staticmethod
+    async def _safe_process(brain, stream, sid, user_input, on_message):
+        """后台安全执行 brain.process，异常不会崩溃 WebSocket 连接。"""
+        try:
+            if on_message:
+                await on_message(sid, user_input)
+            else:
+                await brain.process(sid, user_input)
+        except asyncio.CancelledError:
+            logger.info(f"Brain 处理已被用户中止 (sid={sid})")
+        except Exception as e:
+            logger.error(f"Brain 处理异常 (sid={sid}): {e}")
+            try:
+                await stream.emit("error", f"处理出错: {e}")
+                await stream.emit("complete", None)
+            except Exception:
+                pass

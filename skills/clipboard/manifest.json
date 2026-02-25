@@ -1,0 +1,11 @@
+{
+  "name": "clipboard",
+  "version": "1.0.0",
+  "description": "系统剪贴板读写工具（macOS）",
+  "author": "LucidMind",
+  "entry": "main.py",
+  "tools": ["clipboard_read", "clipboard_write"],
+  "platform": ["darwin"],
+  "dependencies": [],
+  "enabled": true
+}

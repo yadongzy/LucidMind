@@ -1,0 +1,11 @@
+{
+  "name": "knowledge_base",
+  "version": "1.0.0",
+  "description": "个人知识库：文本/URL 导入，关键词搜索",
+  "author": "LucidMind",
+  "entry": "main.py",
+  "tools": ["kb_add", "kb_search", "kb_list"],
+  "platform": [],
+  "dependencies": [],
+  "enabled": true
+}

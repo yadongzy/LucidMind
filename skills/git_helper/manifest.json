@@ -1,0 +1,11 @@
+{
+  "name": "git_helper",
+  "version": "1.0.0",
+  "description": "Git 操作：状态、差异、日志、提交",
+  "author": "LucidMind",
+  "entry": "main.py",
+  "tools": ["git_status", "git_diff", "git_log", "git_commit"],
+  "platform": [],
+  "dependencies": [],
+  "enabled": true
+}

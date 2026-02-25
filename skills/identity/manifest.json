@@ -1,0 +1,8 @@
+{
+  "name": "identity",
+  "version": "1.0.0",
+  "description": "身份文件管理 — 读取和演化 SOUL/USER/BOOTSTRAP",
+  "entry": "main.py",
+  "tools": ["identity_read", "identity_update"],
+  "enabled": true
+}

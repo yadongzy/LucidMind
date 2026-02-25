@@ -1,0 +1,902 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LucidMind IDE 2.0</title>
+    <style>
+        /* 核心设计系统 - 完全匹配之前的视觉规范 */
+        :root {
+            --bg-main: #0F172A;
+            --bg-panel: #1E293B;
+            --bg-card: #273449;
+            --text-primary: #E2E8F0;
+            --text-secondary: #64748B;
+            --primary: #6366F1;
+            --success: #10B981;
+            --warning: #F59E0B;
+            --danger: #EF4444;
+            --border: #334155;
+            --shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: "Source Han Sans", "Inter", sans-serif;
+        }
+
+        code, pre {
+            font-family: "JetBrains Mono", monospace;
+        }
+
+        body {
+            background-color: var(--bg-main);
+            color: var(--text-primary);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* 1. 顶栏导航 */
+        .navbar {
+            height: 50px;
+            background-color: var(--bg-panel);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            justify-content: space-between;
+            box-shadow: var(--shadow);
+            z-index: 10;
+        }
+
+        .navbar .logo {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .navbar .logo i {
+            font-size: 20px;
+        }
+
+        .navbar .mode-switch {
+            display: flex;
+            gap: 10px;
+        }
+
+        .navbar .mode-switch button {
+            background-color: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .navbar .mode-switch button.active {
+            background-color: var(--primary);
+            border-color: var(--primary);
+            color: white;
+        }
+
+        .navbar .mode-switch button:hover {
+            border-color: var(--primary);
+        }
+
+        .navbar .actions {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+
+        .navbar .actions button {
+            background-color: transparent;
+            border: none;
+            color: var(--text-primary);
+            font-size: 16px;
+            cursor: pointer;
+            transition: color 0.2s;
+        }
+
+        .navbar .actions button:hover {
+            color: var(--primary);
+        }
+
+        /* 2. 主内容区 - 三栏布局 */
+        .main-container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* 2.1 左侧边栏 */
+        .sidebar {
+            width: 240px;
+            background-color: var(--bg-panel);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            transition: width 0.3s;
+        }
+
+        .sidebar.collapsed {
+            width: 60px;
+        }
+
+        .sidebar .sidebar-header {
+            padding: 15px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .sidebar .sidebar-header button {
+            background-color: transparent;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .sidebar .sidebar-menu {
+            flex: 1;
+            padding: 10px 0;
+            overflow-y: auto;
+        }
+
+        .sidebar .menu-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 20px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            color: var(--text-primary);
+            text-decoration: none;
+        }
+
+        .sidebar.collapsed .menu-item span {
+            display: none;
+        }
+
+        .sidebar.collapsed .menu-item {
+            justify-content: center;
+            padding: 12px 0;
+        }
+
+        .sidebar .menu-item:hover {
+            background-color: var(--bg-card);
+        }
+
+        .sidebar .menu-item.active {
+            background-color: rgba(99, 102, 241, 0.1);
+            border-left: 3px solid var(--primary);
+            color: var(--primary);
+        }
+
+        .sidebar .menu-item i {
+            font-size: 16px;
+            width: 16px;
+            text-align: center;
+        }
+
+        /* 2.2 中央主工作区 */
+        .workspace {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .workspace .chat-container {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        /* 对话气泡样式 */
+        .chat-message {
+            max-width: 80%;
+            display: flex;
+            gap: 10px;
+        }
+
+        .chat-message.user {
+            align-self: flex-end;
+        }
+
+        .chat-message.ai {
+            align-self: flex-start;
+        }
+
+        .chat-message .avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background-color: var(--bg-card);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .chat-message.user .avatar {
+            background-color: var(--primary);
+            color: white;
+        }
+
+        .chat-message .content {
+            background-color: var(--bg-card);
+            border-radius: 8px;
+            padding: 12px 16px;
+            box-shadow: var(--shadow);
+            position: relative;
+        }
+
+        .chat-message.user .content {
+            background-color: var(--primary);
+            color: white;
+        }
+
+        .chat-message .content.system {
+            background-color: rgba(100, 116, 139, 0.2);
+            color: var(--text-secondary);
+            font-size: 14px;
+            max-width: 100%;
+            align-self: center;
+        }
+
+        .chat-message .content .status-tag {
+            position: absolute;
+            top: -8px;
+            right: 12px;
+            font-size: 12px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            background-color: var(--warning);
+            color: white;
+        }
+
+        /* 输入区 */
+        .workspace .input-area {
+            padding: 20px;
+            border-top: 1px solid var(--border);
+            background-color: var(--bg-panel);
+        }
+
+        .input-container {
+            display: flex;
+            gap: 10px;
+            background-color: var(--bg-card);
+            border-radius: 8px;
+            padding: 8px;
+        }
+
+        .input-container textarea {
+            flex: 1;
+            background-color: transparent;
+            border: none;
+            outline: none;
+            color: var(--text-primary);
+            resize: none;
+            padding: 8px;
+            font-size: 14px;
+            min-height: 60px;
+        }
+
+        .input-container button {
+            background-color: var(--primary);
+            border: none;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            white-space: nowrap;
+        }
+
+        .input-container button:hover {
+            background-color: #4F46E5;
+        }
+
+        /* 2.3 右侧扩展面板 */
+        .right-panel {
+            width: 300px;
+            background-color: var(--bg-panel);
+            border-left: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            transition: width 0.3s;
+        }
+
+        .right-panel.collapsed {
+            width: 0;
+        }
+
+        .right-panel .panel-tabs {
+            display: flex;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .right-panel .panel-tab {
+            flex: 1;
+            padding: 12px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            border-bottom: 2px solid transparent;
+            color: var(--text-secondary);
+        }
+
+        .right-panel .panel-tab.active {
+            border-bottom-color: var(--primary);
+            color: var(--primary);
+        }
+
+        .right-panel .panel-tab:hover {
+            color: var(--primary);
+        }
+
+        .right-panel .panel-content {
+            flex: 1;
+            padding: 15px;
+            overflow-y: auto;
+            display: none;
+        }
+
+        .right-panel .panel-content.active {
+            display: block;
+        }
+
+        /* 心智状态面板 */
+        .status-card {
+            background-color: var(--bg-card);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .status-card .card-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+
+        .status-card .metric {
+            display: flex;
+            justify-content: space-between;
+            margin: 8px 0;
+        }
+
+        .status-card .metric .value {
+            font-weight: 600;
+        }
+
+        .status-card .metric .value.success {
+            color: var(--success);
+        }
+
+        .status-card .metric .value.warning {
+            color: var(--warning);
+        }
+
+        .status-card .metric .value.danger {
+            color: var(--danger);
+        }
+
+        .progress-bar {
+            height: 6px;
+            background-color: var(--border);
+            border-radius: 3px;
+            margin-top: 5px;
+            overflow: hidden;
+        }
+
+        .progress-bar .progress {
+            height: 100%;
+            background-color: var(--primary);
+            border-radius: 3px;
+        }
+
+        /* 任务看板占位样式 */
+        .task-board {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .task-column {
+            background-color: var(--bg-card);
+            border-radius: 8px;
+            padding: 10px;
+        }
+
+        .task-column .column-header {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: var(--text-secondary);
+        }
+
+        .task-card {
+            background-color: var(--bg-panel);
+            border-radius: 6px;
+            padding: 8px;
+            margin-bottom: 8px;
+            border-left: 3px solid var(--primary);
+            font-size: 13px;
+        }
+
+        .task-card.p0 {
+            border-left-color: var(--danger);
+        }
+
+        .task-card.p1 {
+            border-left-color: var(--warning);
+        }
+
+        .task-card.blocked {
+            opacity: 0.7;
+            border-left-color: var(--warning);
+        }
+
+        /* 3. 底部状态栏 */
+        .status-bar {
+            height: 30px;
+            background-color: var(--bg-panel);
+            border-top: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .status-bar .status-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .status-bar .status-item .badge {
+            background-color: var(--primary);
+            color: white;
+            padding: 1px 6px;
+            border-radius: 10px;
+            font-size: 11px;
+        }
+
+        .status-bar .status-item .badge.success {
+            background-color: var(--success);
+        }
+
+        .status-bar .status-item .badge.warning {
+            background-color: var(--warning);
+        }
+
+        .status-bar .status-item .badge.danger {
+            background-color: var(--danger);
+        }
+
+        /* 工具类 */
+        .hidden {
+            display: none;
+        }
+
+        /* 滚动条样式 */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-panel);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-secondary);
+        }
+    </style>
+    <!-- 引入字体图标 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <!-- 1. 顶栏导航 -->
+    <div class="navbar">
+        <div class="logo">
+            <i class="fas fa-brain"></i>
+            <span>LucidMind IDE 2.0</span>
+        </div>
+        <div class="mode-switch">
+            <button class="active">对话模式</button>
+            <button>任务模式</button>
+            <button disabled>工程模式 (未来)</button>
+        </div>
+        <div class="actions">
+            <button title="全局搜索"><i class="fas fa-search"></i></button>
+            <button title="快速设置"><i class="fas fa-cog"></i></button>
+            <button title="导入/导出"><i class="fas fa-upload"></i></button>
+            <button title="紧急停止"><i class="fas fa-stop-circle"></i></button>
+        </div>
+    </div>
+
+    <!-- 2. 主内容区 -->
+    <div class="main-container">
+        <!-- 2.1 左侧边栏 -->
+        <div class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <span>资源导航</span>
+                <button id="toggle-sidebar"><i class="fas fa-chevron-left"></i></button>
+            </div>
+            <div class="sidebar-menu">
+                <a href="#" class="menu-item active">
+                    <i class="fas fa-comments"></i>
+                    <span>会话</span>
+                </a>
+                <a href="#" class="menu-item">
+                    <i class="fas fa-tasks"></i>
+                    <span>任务看板</span>
+                </a>
+                <a href="#" class="menu-item">
+                    <i class="fas fa-database"></i>
+                    <span>记忆库</span>
+                </a>
+                <a href="#" class="menu-item">
+                    <i class="fas fa-shield-alt"></i>
+                    <span>系统监控</span>
+                </a>
+                <a href="#" class="menu-item">
+                    <i class="fas fa-cog"></i>
+                    <span>设置</span>
+                </a>
+            </div>
+        </div>
+
+        <!-- 2.2 中央主工作区 -->
+        <div class="workspace">
+            <div class="chat-container" id="chat-container">
+                <!-- 系统消息 -->
+                <div class="chat-message">
+                    <div class="content system">
+                        🚀 LucidMind IDE 2.0 已启动 - 当前模式：对话模式 | 系统状态：正常
+                    </div>
+                </div>
+
+                <!-- AI 消息（示例） -->
+                <div class="chat-message ai">
+                    <div class="avatar">
+                        <i class="fas fa-brain"></i>
+                    </div>
+                    <div class="content">
+                        <div class="status-tag">思考中</div>
+                        你好！我是 LucidMind，一个基于 OODA 循环的自主进化智能体。<br><br>
+                        我的核心能力包括：<br>
+                        • 任务驱动的自主学习<br>
+                        • 实时自检与修复<br>
+                        • 持续进化的记忆系统<br><br>
+                        你可以下达任何任务，我会尽全力完成，并且越做越好。
+                    </div>
+                </div>
+
+                <!-- 用户消息（示例） -->
+                <div class="chat-message user">
+                    <div class="content">
+                        我想看看你的新界面，并且希望你能处理一个任务：分析今天的天气数据。
+                    </div>
+                    <div class="avatar">
+                        <i class="fas fa-user"></i>
+                    </div>
+                </div>
+
+                <!-- AI 阻塞消息（示例） -->
+                <div class="chat-message ai">
+                    <div class="avatar">
+                        <i class="fas fa-brain"></i>
+                    </div>
+                    <div class="content">
+                        <div class="status-tag">阻塞中</div>
+                        我需要先学习「天气数据解析工具」的使用方法，才能完成你的任务。<br><br>
+                        🔍 学习进度：30% | 预计完成时间：1分钟
+                    </div>
+                </div>
+            </div>
+
+            <!-- 输入区 -->
+            <div class="input-area">
+                <div class="input-container">
+                    <textarea placeholder="输入你的指令或问题..."></textarea>
+                    <button><i class="fas fa-paper-plane"></i> 发送</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2.3 右侧扩展面板 -->
+        <div class="right-panel" id="right-panel">
+            <div class="panel-tabs">
+                <div class="panel-tab active" data-panel="status">心智状态</div>
+                <div class="panel-tab" data-panel="console">工具控制台</div>
+                <div class="panel-tab" data-panel="learning">学习中心</div>
+                <div class="panel-tab" data-panel="check">自检修复</div>
+            </div>
+
+            <!-- 心智状态面板 -->
+            <div class="panel-content active" id="panel-status">
+                <div class="status-card">
+                    <div class="card-header">
+                        <span>队列状态</span>
+                        <i class="fas fa-sync-alt"></i>
+                    </div>
+                    <div class="metric">
+                        <span>任务队列 (Task Queue)</span>
+                        <span class="value warning">4</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress" style="width: 40%;"></div>
+                    </div>
+                    <div class="metric">
+                        <span>学习队列 (Learn Queue)</span>
+                        <span class="value">2</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress" style="width: 20%;"></div>
+                    </div>
+                </div>
+
+                <div class="status-card">
+                    <div class="card-header">
+                        <span>系统资源</span>
+                        <span>实时</span>
+                    </div>
+                    <div class="metric">
+                        <span>LLM 连接状态</span>
+                        <span class="value success">已连接</span>
+                    </div>
+                    <div class="metric">
+                        <span>工具调用状态</span>
+                        <span class="value warning">部分可用</span>
+                    </div>
+                    <div class="metric">
+                        <span>内存占用</span>
+                        <span class="value">68%</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress" style="width: 68%;"></div>
+                    </div>
+                </div>
+
+                <div class="status-card">
+                    <div class="card-header">
+                        <span>进化指标</span>
+                        <span>累计</span>
+                    </div>
+                    <div class="metric">
+                        <span>已完成任务</span>
+                        <span class="value">128</span>
+                    </div>
+                    <div class="metric">
+                        <span>已掌握技能</span>
+                        <span class="value">42</span>
+                    </div>
+                    <div class="metric">
+                        <span>任务成功率</span>
+                        <span class="value success">92%</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 工具控制台面板 -->
+            <div class="panel-content" id="panel-console">
+                <div class="status-card">
+                    <div class="card-header">
+                        <span>工具调用日志</span>
+                        <button style="background: none; border: none; color: var(--text-secondary); cursor: pointer;">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                    <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.6;">
+                        [2026-02-23 16:55:00] INFO: 尝试调用 weather_tool v1.0<br>
+                        [2026-02-23 16:55:01] ERROR: weather_tool 认证失败 - API Key 不存在<br>
+                        [2026-02-23 16:55:02] INFO: 生成 L0 学习任务：学习 weather_tool 认证方法<br>
+                        [2026-02-23 16:55:10] INFO: 学习完成 - 已获取有效 API Key<br>
+                        [2026-02-23 16:55:11] INFO: 重新调用 weather_tool - 成功
+                    </div>
+                </div>
+            </div>
+
+            <!-- 学习中心面板 -->
+            <div class="panel-content" id="panel-learning">
+                <div class="status-card">
+                    <div class="card-header">
+                        <span>当前学习任务</span>
+                        <span>L0 优先级</span>
+                    </div>
+                    <div class="metric">
+                        <span>学习目标</span>
+                        <span class="value">weather_tool 认证方法</span>
+                    </div>
+                    <div class="metric">
+                        <span>父任务</span>
+                        <span class="value">分析今天的天气数据</span>
+                    </div>
+                    <div class="metric">
+                        <span>学习进度</span>
+                        <span class="value success">100%</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress" style="width: 100%; background-color: var(--success);"></div>
+                    </div>
+                    <div class="metric" style="margin-top: 10px;">
+                        <span>学习结果</span>
+                        <span class="value success">已掌握</span>
+                    </div>
+                </div>
+
+                <div class="status-card">
+                    <div class="card-header">
+                        <span>待验证经验</span>
+                        <span>2 条</span>
+                    </div>
+                    <div style="font-size: 12px; line-height: 1.6;">
+                        • weather_tool 认证需要在 header 中添加 X-API-Key<br>
+                        • 天气数据解析需使用 json.loads 处理返回结果
+                    </div>
+                </div>
+            </div>
+
+            <!-- 自检修复面板 -->
+            <div class="panel-content" id="panel-check">
+                <div class="status-card">
+                    <div class="card-header">
+                        <span>未解决问题</span>
+                        <span class="badge danger">1</span>
+                    </div>
+                    <div style="font-size: 12px; line-height: 1.8;">
+                        <div style="margin-bottom: 8px;">
+                            <strong>⚠️ 工具调用超时</strong><br>
+                            来源：每日自检 | 时间：2026-02-23 00:05<br>
+                            描述：map_tool 调用超时超过 30 秒<br>
+                            状态：待修复 (P1)
+                        </div>
+                    </div>
+                </div>
+
+                <div class="status-card">
+                    <div class="card-header">
+                        <span>已修复问题</span>
+                        <span class="badge success">2</span>
+                    </div>
+                    <div style="font-size: 12px; line-height: 1.8; color: var(--text-secondary);">
+                        • memory_db 连接失败 - 已修复 (验证中)<br>
+                        • 经验库重复数据 - 已修复 (已关闭)
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. 底部状态栏 -->
+    <div class="status-bar">
+        <div class="status-item">
+            <i class="fas fa-circle" style="color: var(--success);"></i>
+            <span>系统状态：正常</span>
+        </div>
+        <div class="status-item">
+            <i class="fas fa-tasks"></i>
+            <span>队列：</span>
+            <span class="badge warning">T4</span>
+            <span>/</span>
+            <span class="badge">L2</span>
+        </div>
+        <div class="status-item">
+            <i class="fas fa-clock"></i>
+            <span>下轮循环：30s</span>
+        </div>
+        <div class="status-item">
+            <i class="fas fa-brain"></i>
+            <span>当前模型：DeepSeek (云端)</span>
+        </div>
+    </div>
+
+    <script>
+        // 基础交互逻辑 - 无业务逻辑，仅UI交互
+        document.addEventListener('DOMContentLoaded', function() {
+            // 1. 侧边栏折叠/展开
+            const toggleSidebarBtn = document.getElementById('toggle-sidebar');
+            const sidebar = document.getElementById('sidebar');
+            toggleSidebarBtn.addEventListener('click', function() {
+                sidebar.classList.toggle('collapsed');
+                const icon = toggleSidebarBtn.querySelector('i');
+                if (sidebar.classList.contains('collapsed')) {
+                    icon.classList.remove('fa-chevron-left');
+                    icon.classList.add('fa-chevron-right');
+                } else {
+                    icon.classList.remove('fa-chevron-right');
+                    icon.classList.add('fa-chevron-left');
+                }
+            });
+
+            // 2. 右侧面板标签切换
+            const panelTabs = document.querySelectorAll('.panel-tab');
+            panelTabs.forEach(tab => {
+                tab.addEventListener('click', function() {
+                    // 移除所有active
+                    panelTabs.forEach(t => t.classList.remove('active'));
+                    document.querySelectorAll('.panel-content').forEach(p => p.classList.remove('active'));
+                    
+                    // 添加当前active
+                    this.classList.add('active');
+                    const panelId = 'panel-' + this.dataset.panel;
+                    document.getElementById(panelId).classList.add('active');
+                });
+            });
+
+            // 3. 模拟发送消息（仅UI演示）
+            const sendBtn = document.querySelector('.input-container button');
+            const textarea = document.querySelector('.input-container textarea');
+            const chatContainer = document.getElementById('chat-container');
+
+            sendBtn.addEventListener('click', function() {
+                const message = textarea.value.trim();
+                if (!message) return;
+
+                // 创建用户消息
+                const userMsg = document.createElement('div');
+                userMsg.className = 'chat-message user';
+                userMsg.innerHTML = `
+                    <div class="content">${message}</div>
+                    <div class="avatar"><i class="fas fa-user"></i></div>
+                `;
+                chatContainer.appendChild(userMsg);
+
+                // 清空输入框
+                textarea.value = '';
+
+                // 滚动到底部
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+
+                // 模拟AI回复（仅演示）
+                setTimeout(() => {
+                    const aiMsg = document.createElement('div');
+                    aiMsg.className = 'chat-message ai';
+                    aiMsg.innerHTML = `
+                        <div class="avatar"><i class="fas fa-brain"></i></div>
+                        <div class="content">
+                            我已收到你的指令：<strong>${message}</strong>。<br><br>
+                            我会按照 OODA 循环处理这个任务，你可以在右侧「心智状态」面板查看进度。
+                        </div>
+                    `;
+                    chatContainer.appendChild(aiMsg);
+                    chatContainer.scrollTop = chatContainer.scrollHeight;
+                }, 1000);
+            });
+
+            // 回车发送（Shift+回车换行）
+            textarea.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendBtn.click();
+                }
+            });
+        });
+    </script>
+</body>
+</html>

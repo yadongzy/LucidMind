@@ -1,0 +1,12 @@
+{
+  "name": "reminder",
+  "version": "1.0.0",
+  "description": "定时提醒工具，支持相对/绝对时间，到期通过WebSocket推送",
+  "author": "LucidMind",
+  "entry": "main.py",
+  "tools": ["set_reminder", "list_reminders"],
+  "platform": [],
+  "dependencies": [],
+  "hooks": {"ws_channel": true},
+  "enabled": true
+}

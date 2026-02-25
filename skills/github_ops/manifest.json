@@ -1,0 +1,11 @@
+{
+  "name": "github_ops",
+  "version": "1.0.0",
+  "description": "GitHub 操作：Issue/PR 查询和创建（需配置 GITHUB_TOKEN）",
+  "author": "LucidMind",
+  "entry": "main.py",
+  "tools": ["gh_issues", "gh_create_issue", "gh_prs", "gh_repo_info"],
+  "platform": [],
+  "dependencies": [],
+  "enabled": true
+}

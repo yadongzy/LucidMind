@@ -1,0 +1,11 @@
+{
+  "name": "code_runner",
+  "version": "1.0.0",
+  "description": "安全代码执行器：沙盒运行 Python/Node/Shell 代码片段",
+  "author": "LucidMind",
+  "entry": "main.py",
+  "tools": ["run_python", "run_script"],
+  "platform": [],
+  "dependencies": [],
+  "enabled": true
+}

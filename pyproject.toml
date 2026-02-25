@@ -1,0 +1,15 @@
+[project]
+name = "lucidmind"
+version = "0.1.0"
+description = "LucidMind — 清明心智，简洁透明可扩展的 AI 认知系统"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

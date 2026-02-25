@@ -1,0 +1,213 @@
+"""数据可视化 API — 记忆 + 经验 + A/B测试。"""
+from fastapi import APIRouter
+
+router = APIRouter(prefix="/api", tags=["data"])
+
+# 延迟绑定：由 main.py 注入
+_memory_adapter = None
+_learning_adapter = None
+_brain_ref = None
+
+
+def init(memory, learning, brain=None):
+    global _memory_adapter, _learning_adapter, _brain_ref
+    _memory_adapter, _learning_adapter = memory, learning
+    _brain_ref = brain
+
+
+@router.get("/reminders")
+async def get_reminders():
+    """获取待触发的提醒列表。"""
+    try:
+        from skills.reminder.main import _reminders
+        from datetime import datetime
+        pending = [r for r in _reminders if not r.get("fired")]
+        return {"reminders": pending, "count": len(pending)}
+    except Exception:
+        return {"reminders": [], "count": 0}
+
+
+@router.get("/memory/journal")
+async def get_journal():
+    """获取今日日记和最近日记列表。"""
+    try:
+        from memory_journal import get_today_journal, get_recent_journals
+        return {
+            "today": get_today_journal(),
+            "recent": get_recent_journals(7),
+        }
+    except Exception as e:
+        return {"today": "", "recent": [], "error": str(e)}
+
+
+@router.get("/memory/{session_id}")
+async def get_memory(session_id: str):
+    """记忆可视化 — 查看会话历史。"""
+    msgs = await _memory_adapter.get_context(session_id)
+    return {"session_id": session_id, "messages": msgs or []}
+
+
+@router.get("/lessons")
+async def get_lessons():
+    """经验可视化 — 查看已学习的经验。"""
+    return {"lessons": _learning_adapter._lessons, "count": len(_learning_adapter._lessons)}
+
+
+@router.get("/dispatcher/tasks")
+async def get_dispatcher_tasks():
+    """任务调度器队列 — 轻量级：只返回活跃任务+最近10条历史。"""
+    try:
+        from task_dispatcher import get_queue_status
+        return get_queue_status()
+    except Exception as e:
+        return {"tasks": [], "total": 0, "error": str(e)}
+
+
+def _resolve_user_profile_path():
+    """优先 identity/USER.md，兼容旧 user_profile.md。"""
+    from pathlib import Path
+    user_path = Path(__file__).parent.parent / "identity" / "USER.md"
+    if user_path.exists():
+        return user_path
+    legacy = Path(__file__).parent.parent / "user_profile.md"
+    if legacy.exists():
+        return legacy
+    return user_path  # 默认写入新路径
+
+
+@router.get("/user-profile")
+async def get_user_profile():
+    """读取用户画像文件。"""
+    profile_path = _resolve_user_profile_path()
+    if not profile_path.exists():
+        return {"content": "", "exists": False}
+    return {"content": profile_path.read_text(encoding="utf-8"), "exists": True}
+
+
+@router.put("/user-profile")
+async def update_user_profile(body: dict):
+    """保存用户画像文件。"""
+    profile_path = _resolve_user_profile_path()
+    content = body.get("content", "")
+    profile_path.parent.mkdir(parents=True, exist_ok=True)
+    profile_path.write_text(content, encoding="utf-8")
+    return {"status": "saved", "length": len(content)}
+
+
+@router.get("/identity/{filename}")
+async def get_identity_file(filename: str):
+    """读取身份文件（只读展示）。"""
+    from pathlib import Path
+    allowed = {"CORE.md", "SOUL.md", "BOOTSTRAP.md"}
+    if filename not in allowed:
+        return {"content": "", "exists": False, "error": f"不支持: {filename}"}
+    path = Path(__file__).parent.parent / "identity" / filename
+    if not path.exists():
+        return {"content": "", "exists": False}
+    return {"content": path.read_text(encoding="utf-8"), "exists": True, "file": filename}
+
+
+@router.post("/dispatcher/tasks")
+async def create_dispatcher_task(body: dict):
+    """手动创建任务。"""
+    try:
+        import task_dispatcher as td
+        content = body.get("content", "").strip()
+        if not content:
+            return {"error": "content is required"}
+        priority = body.get("priority", "P2")
+        task = td.enqueue(content, task_type="task", priority=priority, source="user")
+        return {"status": "created", "task": task}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@router.delete("/lessons/{index}")
+async def delete_lesson(index: int):
+    """删除单条经验。"""
+    try:
+        lessons = _learning_adapter._lessons
+        if 0 <= index < len(lessons):
+            removed = lessons.pop(index)
+            # 持久化
+            if hasattr(_learning_adapter, '_save'):
+                _learning_adapter._save()
+            elif hasattr(_learning_adapter, 'save'):
+                _learning_adapter.save()
+            return {"status": "deleted", "index": index}
+        return {"error": f"Index {index} out of range (0-{len(lessons)-1})"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@router.delete("/memory/{session_id}/{index}")
+async def delete_memory_item(session_id: str, index: int):
+    """删除单条会话记忆。"""
+    try:
+        msgs = await _memory_adapter.get_context(session_id)
+        if msgs and 0 <= index < len(msgs):
+            msgs.pop(index)
+            if hasattr(_memory_adapter, '_store'):
+                _memory_adapter._store[session_id] = msgs
+                if hasattr(_memory_adapter, '_save'):
+                    _memory_adapter._save()
+            return {"status": "deleted", "index": index, "remaining": len(msgs)}
+        return {"error": f"Index {index} out of range"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@router.delete("/dispatcher/tasks/{task_id}")
+async def delete_dispatcher_task(task_id: str):
+    """删除单个任务。"""
+    try:
+        from task_dispatcher_utils import load_store, save_store
+        store = load_store()
+        tasks = store.get("tasks", [])
+        before = len(tasks)
+        store["tasks"] = [t for t in tasks if t.get("id") != task_id]
+        if len(store["tasks"]) == before:
+            return {"error": "Task not found"}
+        save_store(store)
+        return {"status": "deleted", "id": task_id}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@router.get("/ab-test")
+async def get_ab_test():
+    """A/B测试统计 — 对比经验注入开/关的回答质量。"""
+    if not _brain_ref:
+        return {"error": "Brain not initialized"}
+    stats = _brain_ref._ab_stats
+
+    def _summarize(records: list) -> dict:
+        if not records:
+            return {"count": 0, "avg_elapsed": 0, "avg_tokens": 0, "avg_response_len": 0}
+        n = len(records)
+        return {
+            "count": n,
+            "avg_elapsed": round(sum(r["elapsed"] for r in records) / n, 2),
+            "avg_tokens": round(sum(r["tokens"] for r in records) / n),
+            "avg_response_len": round(sum(r["response_len"] for r in records) / n),
+        }
+
+    return {
+        "lessons_enabled": _brain_ref.lessons_enabled,
+        "with_lessons": _summarize(stats["with_lessons"]),
+        "without_lessons": _summarize(stats["without_lessons"]),
+        "raw": {k: v[-10:] for k, v in stats.items()},
+    }
+
+
+@router.put("/ab-test")
+async def set_ab_test(body: dict):
+    """A/B测试开关 — 切换经验注入。"""
+    if not _brain_ref:
+        return {"error": "Brain not initialized"}
+    enabled = body.get("lessons_enabled")
+    if enabled is not None:
+        _brain_ref.lessons_enabled = bool(enabled)
+    if body.get("reset"):
+        _brain_ref._ab_stats = {"with_lessons": [], "without_lessons": []}
+    return {"lessons_enabled": _brain_ref.lessons_enabled, "stats_reset": bool(body.get("reset"))}

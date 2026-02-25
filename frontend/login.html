@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LucidMind — 登录</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #1e1e2e; color: #cdd6f4; font-family: 'Segoe UI', sans-serif;
+               display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .login-card { background: #313244; border-radius: 16px; padding: 40px;
+                      width: 380px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+        .login-card h1 { text-align: center; margin-bottom: 8px; font-size: 28px; }
+        .login-card .subtitle { text-align: center; color: #a6adc8; margin-bottom: 32px; font-size: 14px; }
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; margin-bottom: 6px; font-size: 13px; color: #a6adc8; }
+        .form-group input { width: 100%; padding: 12px 16px; border: 1px solid #45475a;
+                            border-radius: 8px; background: #1e1e2e; color: #cdd6f4;
+                            font-size: 15px; outline: none; transition: border 0.2s; }
+        .form-group input:focus { border-color: #89b4fa; }
+        .btn { width: 100%; padding: 12px; border: none; border-radius: 8px; font-size: 15px;
+               cursor: pointer; transition: background 0.2s; font-weight: 600; }
+        .btn-primary { background: #89b4fa; color: #1e1e2e; }
+        .btn-primary:hover { background: #74c7ec; }
+        .btn-secondary { background: transparent; color: #89b4fa; border: 1px solid #89b4fa; margin-top: 12px; }
+        .btn-secondary:hover { background: rgba(137,180,250,0.1); }
+        .error { color: #f38ba8; font-size: 13px; text-align: center; margin-top: 12px; display: none; }
+        .success { color: #a6e3a1; font-size: 13px; text-align: center; margin-top: 12px; display: none; }
+        .brain-icon { text-align: center; font-size: 48px; margin-bottom: 8px; }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <div class="brain-icon">🧠</div>
+        <h1>LucidMind</h1>
+        <p class="subtitle">透明思考的 AI 助手</p>
+
+        <div id="login-form">
+            <div class="form-group">
+                <label>用户名</label>
+                <input type="text" id="username" placeholder="输入用户名" autocomplete="username">
+            </div>
+            <div class="form-group">
+                <label>密码</label>
+                <input type="password" id="password" placeholder="输入密码" autocomplete="current-password">
+            </div>
+            <button class="btn btn-primary" id="login-btn" onclick="doLogin()">登录</button>
+            <button class="btn btn-secondary" onclick="doRegister()">注册新账号</button>
+            <p class="error" id="error-msg"></p>
+            <p class="success" id="success-msg"></p>
+        </div>
+    </div>
+
+    <script>
+    const API = window.location.origin;
+
+    function showError(msg) {
+        const el = document.getElementById('error-msg');
+        el.textContent = msg; el.style.display = 'block';
+        document.getElementById('success-msg').style.display = 'none';
+    }
+    function showSuccess(msg) {
+        const el = document.getElementById('success-msg');
+        el.textContent = msg; el.style.display = 'block';
+        document.getElementById('error-msg').style.display = 'none';
+    }
+
+    async function doLogin() {
+        const user_id = document.getElementById('username').value.trim();
+        const password = document.getElementById('password').value;
+        if (!user_id || !password) { showError('请输入用户名和密码'); return; }
+        try {
+            const r = await fetch(`${API}/api/auth/login`, {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({user_id, password})
+            });
+            if (!r.ok) { const d = await r.json(); showError(d.detail || '登录失败'); return; }
+            const data = await r.json();
+            localStorage.setItem('lucidmind_token', data.token);
+            localStorage.setItem('lucidmind_user', data.user_id);
+            window.location.href = '/';
+        } catch(e) { showError('网络错误: ' + e.message); }
+    }
+
+    async function doRegister() {
+        const user_id = document.getElementById('username').value.trim();
+        const password = document.getElementById('password').value;
+        if (!user_id || !password) { showError('请输入用户名和密码'); return; }
+        if (password.length < 4) { showError('密码至少4位'); return; }
+        try {
+            const r = await fetch(`${API}/api/auth/register`, {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({user_id, password})
+            });
+            if (!r.ok) { showError('注册失败'); return; }
+            const data = await r.json();
+            localStorage.setItem('lucidmind_token', data.token);
+            localStorage.setItem('lucidmind_user', data.user_id);
+            showSuccess('注册成功！正在跳转...');
+            setTimeout(() => { window.location.href = '/'; }, 1000);
+        } catch(e) { showError('网络错误: ' + e.message); }
+    }
+
+    // Enter 键登录
+    document.getElementById('password').addEventListener('keydown', e => {
+        if (e.key === 'Enter') doLogin();
+    });
+
+    // 已登录则跳转
+    if (localStorage.getItem('lucidmind_token')) {
+        window.location.href = '/';
+    }
+    </script>
+</body>
+</html>
