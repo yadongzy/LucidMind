@@ -12,6 +12,63 @@ function autoResize(el) {
   el.style.height = Math.min(el.scrollHeight, 150) + "px";
 }
 
+// 快捷指令
+const SLASH_COMMANDS = [
+  { cmd: "/天气", desc: "查询天气", template: "今天{city}的天气怎么样？", placeholder: "城市名" },
+  { cmd: "/新闻", desc: "今日新闻", template: "帮我搜索今天的热点新闻" },
+  { cmd: "/翻译", desc: "翻译文本", template: "请翻译以下内容：{text}", placeholder: "要翻译的文本" },
+  { cmd: "/总结", desc: "总结对话", template: "请总结我们刚才的对话内容" },
+  { cmd: "/搜索", desc: "联网搜索", template: "帮我联网搜索：{query}", placeholder: "搜索内容" },
+  { cmd: "/代码", desc: "写代码", template: "请帮我写一段{lang}代码：{desc}", placeholder: "语言 描述" },
+  { cmd: "/提醒", desc: "设置提醒", template: "{time}提醒我{task}", placeholder: "时间 事项" },
+  { cmd: "/清空", desc: "清空对话", template: "__CLEAR__" },
+];
+
+function _getSlashMatches(text) {
+  if (!text.startsWith("/")) return [];
+  const q = text.toLowerCase();
+  return SLASH_COMMANDS.filter(c => c.cmd.startsWith(q) || c.desc.includes(q.slice(1)));
+}
+
+function _applySlashCmd(cmd, app) {
+  if (cmd.template === "__CLEAR__") {
+    app.messages = []; app.chatDraft = ""; app.requestUpdate();
+    return;
+  }
+  if (cmd.placeholder) {
+    const val = prompt(cmd.placeholder + ":");
+    if (!val) { app.chatDraft = ""; app.requestUpdate(); return; }
+    const parts = val.split(/\s+/, 2);
+    let t = cmd.template;
+    t = t.replace(/\{city\}|\{text\}|\{query\}|\{task\}|\{desc\}/, parts[0] || val);
+    t = t.replace(/\{lang\}|\{time\}/, parts[1] || "");
+    app.chatDraft = t;
+  } else {
+    app.chatDraft = cmd.template;
+  }
+  app.requestUpdate();
+  // 自动发送（无占位符的指令）
+  if (!cmd.placeholder) {
+    setTimeout(() => app._sendChat(), 50);
+  }
+}
+
+function _exportChat(messages) {
+  let md = `# LucidMind 对话记录\n> 导出时间: ${new Date().toLocaleString()}\n\n---\n\n`;
+  for (const m of messages) {
+    if (m.role === "user") md += `## 🧑 用户\n${m.content}\n\n`;
+    else if (m.role === "assistant") md += `## 🤖 LucidMind\n${m.content}\n\n`;
+    else if (m.role === "tool_call") md += `> 🔧 工具调用: ${m.content}\n\n`;
+    else if (m.role === "tool_result") md += `> 📋 工具结果: ${(m.content || "").slice(0, 200)}\n\n`;
+  }
+  const blob = new Blob([md], { type: "text/markdown" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `lucidmind-chat-${new Date().toISOString().slice(0,10)}.md`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
 function groupMessages(messages, showThinking) {
   const groups = [];
   let current = null;
@@ -244,6 +301,9 @@ export function renderChat(app) {
           ${app._chatSearch ? html`<button class="btn btn--sm btn--icon" title="清除搜索"
             @click=${() => { app._chatSearch = ''; app.requestUpdate(); }}
             style="font-size:10px;">✕</button>` : nothing}
+          <button class="btn btn--sm btn--icon" title="导出对话为 Markdown"
+            @click=${() => _exportChat(app.messages)}
+            style="font-size:12px;">📥</button>
         </div>
       </div>
 
@@ -358,12 +418,19 @@ export function renderChat(app) {
             ${icons.upload}
           </button>
           <textarea class="chat-compose__textarea"
-            placeholder="消息... (Enter发送, Shift+Enter换行)"
+            placeholder="消息... (Enter发送, Shift+Enter换行, / 快捷指令)"
             .value=${app.chatDraft}
-            @input=${(e) => { app.chatDraft = e.target.value; autoResize(e.target); }}
+            @input=${(e) => { app.chatDraft = e.target.value; app._slashMatches = _getSlashMatches(e.target.value); autoResize(e.target); app.requestUpdate(); }}
             @keydown=${(e) => {
               if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
                 e.preventDefault();
+                if (app._slashMatches?.length === 1) {
+                  _applySlashCmd(app._slashMatches[0], app);
+                  app._slashMatches = [];
+                  e.target.style.height = "auto";
+                  return;
+                }
+                app._slashMatches = [];
                 app._sendChat();
                 e.target.style.height = "auto";
               }
@@ -382,6 +449,19 @@ export function renderChat(app) {
             }}
             rows="1"
           ></textarea>
+          ${(app._slashMatches?.length > 0) ? html`
+            <div style="position:absolute;bottom:100%;left:60px;right:60px;background:var(--bg-elevated,var(--card));border:1px solid var(--border);border-radius:8px;box-shadow:var(--shadow-md);max-height:240px;overflow-y:auto;z-index:100;">
+              ${app._slashMatches.map(c => html`
+                <div style="padding:8px 14px;cursor:pointer;display:flex;align-items:center;gap:10px;font-size:13px;border-bottom:1px solid var(--border);"
+                  @mousedown=${(e) => { e.preventDefault(); _applySlashCmd(c, app); app._slashMatches = []; }}
+                  @mouseenter=${(e) => e.currentTarget.style.background='var(--bg-hover)'}
+                  @mouseleave=${(e) => e.currentTarget.style.background='transparent'}>
+                  <span style="font-weight:600;color:var(--accent);min-width:50px;">${c.cmd}</span>
+                  <span style="color:var(--fg-3);">${c.desc}</span>
+                </div>
+              `)}
+            </div>
+          ` : nothing}
           <button class="btn btn--compose ${isBusy ? 'btn--danger' : 'btn--primary'}"
             ?disabled=${!isBusy && (!app.connected || !app.chatDraft.trim())}
             @click=${isBusy ? () => app._abortChat() : () => app._sendChat()}
