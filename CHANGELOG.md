@@ -8,7 +8,8 @@
 
 ### 变更
 - STRATEGY.md Phase 3 全面重构：基于 OpenClaw 代码深度对标分析
-  - 3A: Skill 生态（PluginHub仓库 + 前端安装 + 大脑自动搜索安装 + 安装时安全扫描）
+  - 3A: Skill 生态（PluginHub仓库 + 前端安装 + 大脑自动搜索安装 + Skill Creator + 安装时安全扫描）
+  - 3A 补齐：Skill Creator (A5) 从 Phase 4 提升到 Phase 3 P0，形成完整工具发现闭环
   - 3B: MCP 工作流（实际接入 MCP Server + 两个端到端工作流验证）
   - 3C: 记忆系统加固（effectiveness修正 + daemon有效性闭环）
   - 3D: 工程质量（回归测试 + 死代码清理）

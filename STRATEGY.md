@@ -135,7 +135,7 @@
 | A2 | **前端输入框搜索安装** | 搜索 → 安装 → 热加载，完整跑通 | `clawhub search/install` | ⚠️ UI已有，仓库为空 |
 | A3 | **大脑自动搜索安装** | brain.py `_on_tool_not_found` → 搜索 PluginHub → 自动安装 → 重试 | OpenClaw 核心能力 | 🔲 |
 | A4 | **安装时安全扫描** | 下载 skill 后扫描危险代码模式再安装 | `src/security/skill-scanner.ts` | 🔲 |
-| A5 | Skill Creator | Agent 自己创建新 skill（SKILL.md + main.py） | `skill-creator` (371行) | 🔲 后续 |
+| A5 | **Skill Creator** | Agent 找不到 skill 时自己创建（SKILL.md + main.py） | `skill-creator` (371行) | 🔲 |
 
 **OpenClaw 关键发现**：
 - `install.ts:197-219` — 每次安装自动调用 `scanDirectoryWithSummary()` 扫描危险模式
@@ -146,7 +146,14 @@
 - `skills/__init__.py` 的 `search_hub()` / `install_from_hub()` 已实现
 - `api/plugins.py` 的 `/hub/search` + `/hub/install` API 已实现
 - `frontend-v2/src/ui/views/plugins.js` 的搜索安装 UI 已实现
-- **缺失**：远程 registry.json 仓库不存在 → 搜索返回空；brain.py 无 `_on_tool_not_found`
+- **缺失**：远程 registry.json 仓库不存在 → 搜索返回空；brain.py 无 `_on_tool_not_found`；无 skill-creator 能力
+
+**完整工具发现链路（A3+A5 闭环）**：
+```
+大脑需要工具 → 搜索 PluginHub
+  ├─ 找到 → 自动安装 → 热加载 → 重试任务      （A3）
+  └─ 没找到 → Agent 自己创建 skill → 热加载     （A5）
+```
 
 #### 3B. MCP 工作流（用户核心目标 ⭐）
 
@@ -211,8 +218,8 @@
 
 ```
 优先级 P0（用户核心目标，必须完成）:
-  A1 → A2 → A3    Skill 搜索安装生态
-  B1 → B2 → B3    MCP 两个工作流
+  A1 → A2 → A3 → A5    Skill 搜索安装 + 自动创建（完整闭环）
+  B1 → B2 → B3          MCP 两个工作流
 
 优先级 P1（记忆+安全）:
   C5 → C6          经验有效性闭环修复
@@ -228,7 +235,6 @@
 
 | 功能 | 状态 | 说明 |
 |------|------|------|
-| Skill Creator（A5） | 🔲 | Agent 自己创建 skill，对标 OpenClaw skill-creator |
 | 多角色配置 | 🔲 | 多个分身共享记忆独立上下文，对标 OpenClaw agents/ |
 | Discord 通道 | 🔲 | 社区贡献即可 |
 | pip 打包发布 | 🔲 | Phase 3 稳定后 |
