@@ -18,7 +18,6 @@ function groupMessages(messages, showThinking) {
 
   for (const msg of messages) {
     if (msg.role === "thinking" && !showThinking) continue;
-    if ((msg.role === "tool_call" || msg.role === "tool_result") && !showThinking) continue;
 
     const groupRole = (msg.role === "user") ? "user"
       : (msg.role === "assistant" || msg.role === "thinking" || msg.role === "tool_call" || msg.role === "tool_result") ? "assistant"
@@ -129,28 +128,27 @@ function renderBubble(msg) {
     `;
   }
   if (msg.role === "tool_call") {
+    const toolName = (msg.content || "").split("(")[0] || "tool";
     return html`
-      <div class="chat-tool-card">
-        <div class="chat-tool-card__header">
-          <div class="chat-tool-card__title">
-            <span class="chat-tool-card__icon">⚙</span>
-            <span>工具调用: ${msg.content}</span>
-          </div>
-        </div>
-      </div>
+      <details class="chat-tool-card chat-tool-card--collapsed">
+        <summary class="chat-tool-card__header">
+          <span class="chat-tool-card__icon">⚙️</span>
+          <span style="font-size:12px;color:var(--fg-3);">调用 <b style="color:var(--fg);">${toolName}</b></span>
+        </summary>
+        <div class="chat-tool-card__body" style="font-size:11px;word-break:break-all;">${msg.content}</div>
+      </details>
     `;
   }
   if (msg.role === "tool_result") {
+    const preview = (msg.content || "").substring(0, 80);
     return html`
-      <div class="chat-tool-card chat-tool-card--result">
-        <div class="chat-tool-card__header">
-          <div class="chat-tool-card__title">
-            <span class="chat-tool-card__icon">${icons.check}</span>
-            <span>返回结果</span>
-          </div>
-        </div>
-        <div class="chat-tool-card__body">${msg.content}</div>
-      </div>
+      <details class="chat-tool-card chat-tool-card--result chat-tool-card--collapsed">
+        <summary class="chat-tool-card__header">
+          <span class="chat-tool-card__icon">✅</span>
+          <span style="font-size:12px;color:var(--fg-3);">结果: ${preview}${(msg.content || "").length > 80 ? '...' : ''}</span>
+        </summary>
+        <div class="chat-tool-card__body" style="font-size:11px;">${msg.content}</div>
+      </details>
     `;
   }
   if (msg.role === "error") {

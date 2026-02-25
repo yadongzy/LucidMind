@@ -1,5 +1,6 @@
 """LucidMind API — FastAPI 入口。≤ 200 行。"""
 
+import asyncio
 import json
 import os
 import sys
@@ -234,25 +235,31 @@ async def _startup():
     from api.cron import set_cron_callback
     from adapters.stream.broadcast_stream import BroadcastStreamAdapter
 
-    async def _cron_execute(command: str, sid: str):
+    _cron_lock = asyncio.Lock()
+
+    async def _cron_execute(command: str, sid: str, job_id: str = ""):
         """Cron 触发回调：Brain 处理命令并广播结果。"""
-        logger.info(f"🔔 Cron 触发执行: sid={sid}, command={command[:60]}")
-        stream = BroadcastStreamAdapter(_ws_channel, job_name=command[:30])
-        b.set_stream(stream)
-        try:
-            await b.process(sid, command)
-        except Exception as e:
-            logger.error(f"🔔 Cron 执行失败: {e}")
-            await stream.emit("error", str(e))
-        finally:
-            # 恢复 stream 到最近的 WebSocket 连接
-            if hasattr(b, '_ws_holders') and b._ws_holders:
-                for uid, holder in b._ws_holders.items():
-                    ws = holder.get("ws")
-                    if ws:
-                        from adapters.stream.websocket_stream import WebSocketStreamAdapter
-                        b.set_stream(WebSocketStreamAdapter(ws, ws_holder=holder))
-                        break
+        async with _cron_lock:
+            logger.info(f"🔔 Cron 触发执行: sid={sid}, job={job_id}, command={command[:60]}")
+            # 保存当前 stream，避免干扰用户对话
+            prev_stream = b.stream
+            stream = BroadcastStreamAdapter(_ws_channel, job_name=command[:30], job_id=job_id)
+            b.set_stream(stream)
+            # 注入系统提示：要求使用工具获取实时信息
+            enhanced_cmd = (
+                f"[定时任务自动执行] 用户要求: {command}\n"
+                f"重要：这是定时任务，请务必使用 web_search 工具搜索最新实时信息来完成任务。"
+                f"不要依赖训练数据，必须联网搜索获取当天最新内容。"
+                f"搜索完成后，整理成简洁有条理的中文摘要回复。"
+            )
+            try:
+                await b.process(sid, enhanced_cmd)
+            except Exception as e:
+                logger.error(f"🔔 Cron 执行失败: {e}")
+                await stream.emit("error", str(e))
+            finally:
+                # 恢复之前的 stream
+                b.set_stream(prev_stream)
 
     set_cron_callback(_cron_execute)
     logger.info("🔔 Cron 回调已注册: Brain 将自主执行定时任务")

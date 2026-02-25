@@ -438,6 +438,23 @@ function _renderCronTab(app) {
                 <span>⏱ 上次: <b style="color:var(--fg);">${job.last_run ? _formatTime(job.last_run) : '未运行'}</b></span>
                 <span style="margin-left:auto;">下次: <b style="color:var(--accent);">${_formatNextRun(job)}</b></span>
               </div>
+              ${(job.runs && job.runs.length > 0) ? html`
+                <details style="margin-top:8px;padding-left:28px;">
+                  <summary style="font-size:11px;color:var(--fg-3);cursor:pointer;user-select:none;">📜 执行记录 (${job.runs.length})</summary>
+                  <div style="margin-top:6px;max-height:200px;overflow-y:auto;">
+                    ${job.runs.slice().reverse().map(r => html`
+                      <div style="padding:6px 10px;background:var(--bg);border-radius:6px;margin-bottom:4px;font-size:11px;">
+                        <div style="display:flex;gap:8px;align-items:center;margin-bottom:3px;">
+                          <span>${r.status === 'ok' ? '✅' : '❌'}</span>
+                          <span style="color:var(--fg-3);">${r.ts ? new Date(r.ts * 1000).toLocaleString("zh-CN", {month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"}) : '—'}</span>
+                          ${r.tools && r.tools.length > 0 ? html`<span style="color:var(--accent);font-size:10px;">🔧 ${r.tools.length}个工具</span>` : nothing}
+                        </div>
+                        <div style="color:var(--fg);white-space:pre-wrap;word-break:break-word;max-height:80px;overflow:hidden;">${(r.result || '').substring(0, 200)}</div>
+                      </div>
+                    `)}
+                  </div>
+                </details>
+              ` : nothing}
             </div>
           `)}
         </div>

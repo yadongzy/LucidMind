@@ -346,7 +346,7 @@ async def start_cron_scheduler():
                         if _on_cron_message:
                             try:
                                 sid = f"cron_{job_id}"
-                                await _on_cron_message(job["command"], sid)
+                                await _on_cron_message(job["command"], sid, job_id)
                             except Exception as e:
                                 logger.error(f"Cron[expr] 执行失败: {job_id} — {e}")
                 except Exception as e:
@@ -367,7 +367,7 @@ async def start_cron_scheduler():
                 if _on_cron_message:
                     try:
                         sid = f"cron_{job_id}"
-                        await _on_cron_message(job["command"], sid)
+                        await _on_cron_message(job["command"], sid, job_id)
                     except Exception as e:
                         logger.error(f"Cron 执行失败: {job_id} — {e}")
         if dirty:
