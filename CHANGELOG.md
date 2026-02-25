@@ -4,6 +4,20 @@
 
 ---
 
+## v0.3.1 (2026-02-25)
+
+### 变更
+- STRATEGY.md Phase 3 全面重构：基于 OpenClaw 代码深度对标分析
+  - 3A: Skill 生态（PluginHub仓库 + 前端安装 + 大脑自动搜索安装 + 安装时安全扫描）
+  - 3B: MCP 工作流（实际接入 MCP Server + 两个端到端工作流验证）
+  - 3C: 记忆系统加固（effectiveness修正 + daemon有效性闭环）
+  - 3D: 工程质量（回归测试 + 死代码清理）
+  - 3E: 安全加固（安装时静态代码扫描，对标 OpenClaw skill-scanner.ts）
+  - 明确 P0/P1/P2 执行顺序
+  - Phase 4 加入 Skill Creator 和多角色配置
+
+---
+
 ## v0.3.0-feishu-voice (2026-02-25)
 
 ### 新增

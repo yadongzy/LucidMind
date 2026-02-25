@@ -119,52 +119,118 @@
 
 ### Phase 3: 大脑变聪明（当前聚焦）
 
-> **核心方向：上下文记忆与检索（对标 OpenClaw src/memory/）+ 正确使用工具与 MCP**
+> **核心方向：Skill 生态 + MCP 工作流 + 记忆检索**
 > 教学方向已验证无效（200条垃圾经验），不再投入。大脑变聪明靠的是：
-> 1. 高质量记忆检索 — 记对的东西，找得到
-> 2. 正确使用工具 — 用工具做事，不是背答案
-> 3. MCP 生态接入 — 借助外部工具扩展能力
+> 1. **Skill 生态** — 搜索、安装、自动发现缺失工具（对标 OpenClaw ClawHub）
+> 2. **MCP 工作流** — 接入外部 MCP Server，验证端到端工作流（对标 OpenClaw mcporter）
+> 3. **记忆检索** — 高质量经验，找得到用得上（对标 OpenClaw src/memory/）
 
-#### 3A. 记忆系统加固（对标 OpenClaw）
+#### 3A. Skill 生态（用户核心目标 ⭐）
 
-| # | 任务 | 说明 | 当前状态 |
-|---|------|------|---------|
-| A1 | 向量语义检索 | Ollama nomic-embed-text + BM25融合(0.6:0.4) | ✅ 已可用 |
-| A2 | 经验分层(tier) | strategy永不衰减/fact=60天/temp=7天 | ✅ 已实现 |
-| A3 | 选择性添加门控 | 拒绝空洞/短/重复经验 | ✅ 已实现 |
-| A4 | 组合删除(curate) | 周期性+历史性删除，200条→48条 | ✅ 已运行 |
-| A5 | effectiveness虚高修正 | 简单问候不应标记effective，只有工具调用才算 | 🔲 待修 |
-| A6 | daemon任务标记有效性 | 90%任务走daemon不触发_mark_lessons_effective | 🔲 待修 |
-| A7 | 深度元认知超时修正 | 5s→15s，让规划器能被触发 | 🔲 待修 |
-| A8 | 灵魂进化激活 | evolve()无调用方，需接入学习引擎 | 🔲 待修 |
+> 对标 OpenClaw: `clawhub` skill + `skill-creator` skill + `src/plugins/install.ts`
 
-**依据**: arXiv:2505.16067 — 组合删除准确率+4%，内存-75%。Harvard D3 — "Simply storing every experience leads to worse outcomes."
+| # | 任务 | 说明 | 对标 OpenClaw | 状态 |
+|---|------|------|-------------|------|
+| A1 | **PluginHub 远程仓库** | 创建 registry.json，收录现有15个skills | clawhub.com 注册中心 | 🔲 |
+| A2 | **前端输入框搜索安装** | 搜索 → 安装 → 热加载，完整跑通 | `clawhub search/install` | ⚠️ UI已有，仓库为空 |
+| A3 | **大脑自动搜索安装** | brain.py `_on_tool_not_found` → 搜索 PluginHub → 自动安装 → 重试 | OpenClaw 核心能力 | 🔲 |
+| A4 | **安装时安全扫描** | 下载 skill 后扫描危险代码模式再安装 | `src/security/skill-scanner.ts` | 🔲 |
+| A5 | Skill Creator | Agent 自己创建新 skill（SKILL.md + main.py） | `skill-creator` (371行) | 🔲 后续 |
 
-#### 3B. 工具能力提升
+**OpenClaw 关键发现**：
+- `install.ts:197-219` — 每次安装自动调用 `scanDirectoryWithSummary()` 扫描危险模式
+- `skill-scanner.ts` — 检测 shell exec、eval、crypto mining、env harvesting、数据外泄
+- `skill-creator/SKILL.md` — 371行详细指导 Agent 如何自己创建 skill
+
+**LucidMind 现状**：
+- `skills/__init__.py` 的 `search_hub()` / `install_from_hub()` 已实现
+- `api/plugins.py` 的 `/hub/search` + `/hub/install` API 已实现
+- `frontend-v2/src/ui/views/plugins.js` 的搜索安装 UI 已实现
+- **缺失**：远程 registry.json 仓库不存在 → 搜索返回空；brain.py 无 `_on_tool_not_found`
+
+#### 3B. MCP 工作流（用户核心目标 ⭐）
+
+> 对标 OpenClaw: `mcporter` skill — MCP 万能适配器
+
+| # | 任务 | 说明 | 对标 OpenClaw | 状态 |
+|---|------|------|-------------|------|
+| B1 | **MCP Server 实际接入** | 接入 2+ 个真实 MCP Server（如 filesystem、web-search） | mcporter `list/call` | 🔲 |
+| B2 | **工作流1: 文件操作** | 通过 MCP 读写文件 → 验证端到端 | filesystem MCP Server | 🔲 |
+| B3 | **工作流2: 浏览器/搜索** | 通过 MCP 搜索或浏览 → 验证端到端 | chrome-devtools-mcp | 🔲 |
+| B4 | 前端 MCP 配置验证 | 从 UI 添加 MCP Server → 大脑能用 | 前端已有 | ⚠️ 需验证 |
+
+**LucidMind 现状**：
+- `adapters/tools/mcp_client.py` MCP Client 代码已实现
+- `api/mcp.py` MCP 管理 API 已实现
+- 前端 MCP 配置 UI 已实现
+- **缺失**：未实际接入任何 MCP Server，无端到端验证
+
+#### 3C. 记忆系统加固
+
+> 对标 OpenClaw: `src/memory/` (78文件, manager.ts 77KB)
 
 | # | 任务 | 说明 | 状态 |
 |---|------|------|------|
-| B1 | 清理死代码工具 | 移除8个无用工具注册(GUI/豆包/TTS等) | 🔲 |
-| B2 | 工具使用准确性 | 大脑正确选择和调用工具的能力 | 🔲 |
-| B3 | MCP 生态实际接入 | 配置并验证外部MCP Server可用 | 🔲 |
+| C1 | 向量语义检索 | Ollama nomic-embed-text + BM25融合(0.6:0.4) | ✅ 已可用 |
+| C2 | 经验分层(tier) | strategy永不衰减/fact=60天/temp=7天 | ✅ 已实现 |
+| C3 | 选择性添加门控 | 拒绝空洞/短/重复经验 | ✅ 已实现 |
+| C4 | 组合删除(curate) | 周期性+历史性删除，200条→48条 | ✅ 已运行 |
+| C5 | effectiveness虚高修正 | 简单问候不标记effective，只有工具调用才算 | 🔲 待修 |
+| C6 | daemon标记有效性 | 90%任务走daemon不触发_mark_lessons_effective | 🔲 待修 |
+| C7 | 深度元认知超时 | 5s→15s，让规划器能被触发 | 🔲 待修 |
+| C8 | 灵魂进化激活 | evolve()无调用方，需接入学习引擎 | 🔲 待修 |
 
-#### 3C. 工程质量
+**依据**: arXiv:2505.16067 — 组合删除准确率+4%，内存-75%
+
+#### 3D. 工程质量
 
 | # | 任务 | 说明 | 状态 |
 |---|------|------|------|
-| C1 | 回归测试框架 | 通道/记忆/Brain核心的冒烟测试 | 🔲 |
-| C2 | 变更日志制度 | CHANGELOG.md，每次改动必须记录 | 🔲 |
-| C3 | 根目录散落文件清理 | 6个.md + 7个.py 不属于核心 | 🔲 |
-| C4 | brain_daemon.py超限 | 405行→≤300行 | 🔲 |
-| C5 | task_dispatcher.py超限 | 484行→≤300行（已拆分utils） | ⚠️ 需验证 |
+| D1 | 回归测试框架 | 通道/记忆/Brain核心冒烟测试 | 🔲 |
+| D2 | 变更日志制度 | CHANGELOG.md，每次改动必须记录 | ✅ 已建立 |
+| D3 | 清理死代码工具 | 移除8个无用工具注册(GUI/豆包/TTS等) | 🔲 |
+| D4 | 根目录散落文件清理 | 6个.md + 7个.py 不属于核心 | 🔲 |
+| D5 | brain_daemon.py超限 | 405行→≤300行 | 🔲 |
+
+#### 3E. 安全加固（对标 OpenClaw security/）
+
+> 对标 OpenClaw: `src/security/skill-scanner.ts` + `audit.ts` (37KB)
+
+| # | 任务 | 说明 | 状态 |
+|---|------|------|------|
+| E1 | Skill 安装时代码扫描 | 扫描 shell exec/eval/env harvesting 等危险模式 | 🔲 |
+| E2 | /workspace 外文件操作确认 | 涉及工作目录以外的文件编辑必须人工确认 | ⚠️ 部分已有 |
+
+**LucidMind 现状**：
+- `tool_safety.py` 已有运行时三级审批（DANGEROUS/SENSITIVE/SAFE）
+- **缺失**：安装时静态代码扫描（OpenClaw 在安装阶段就拦截，比运行时更早）
+
+---
+
+### Phase 3 执行顺序
+
+```
+优先级 P0（用户核心目标，必须完成）:
+  A1 → A2 → A3    Skill 搜索安装生态
+  B1 → B2 → B3    MCP 两个工作流
+
+优先级 P1（记忆+安全）:
+  C5 → C6          经验有效性闭环修复
+  A4 → E1          安装时安全扫描
+
+优先级 P2（工程质量）:
+  D1               回归测试
+  D3 → D4          代码清理
+  C7 → C8          元认知+灵魂进化
+```
 
 ### Phase 4+: 按需扩展
 
 | 功能 | 状态 | 说明 |
 |------|------|------|
+| Skill Creator（A5） | 🔲 | Agent 自己创建 skill，对标 OpenClaw skill-creator |
+| 多角色配置 | 🔲 | 多个分身共享记忆独立上下文，对标 OpenClaw agents/ |
 | Discord 通道 | 🔲 | 社区贡献即可 |
-| 权限分级 | 🔲 | 多用户场景才需要 |
-| 社区生态 | 🔲 | 需要用户基础支撑 |
 | pip 打包发布 | 🔲 | Phase 3 稳定后 |
 
 ---
