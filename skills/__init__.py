@@ -190,26 +190,38 @@ def hot_reload() -> dict:
 import urllib.request
 
 _PLUGIN_HUB_URL = "https://raw.githubusercontent.com/lucidmind-plugins/registry/main/registry.json"
+_LOCAL_REGISTRY_PATH = pathlib.Path(__file__).parent.parent / "registry.json"
 _registry_cache: list[dict] = []
 _registry_cache_time: float = 0
 
 
 def refresh_hub_registry() -> list[dict]:
-    """从远程拉取 PluginHub 插件索引。"""
+    """从远程拉取 PluginHub 插件索引，远程不可用时回退到本地 registry.json。"""
     import time
     global _registry_cache, _registry_cache_time
     # 5分钟缓存
     if _registry_cache and (time.time() - _registry_cache_time) < 300:
         return _registry_cache
+    # 1. 尝试远程
     try:
         req = urllib.request.Request(_PLUGIN_HUB_URL, headers={"User-Agent": "LucidMind/1.0"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             _registry_cache = data.get("plugins", [])
             _registry_cache_time = time.time()
-            logger.info(f"📦 PluginHub 索引已更新: {len(_registry_cache)} 个插件")
+            logger.info(f"📦 PluginHub 索引已更新(远程): {len(_registry_cache)} 个插件")
+            return _registry_cache
     except Exception as e:
-        logger.warning(f"📦 PluginHub 索引拉取失败: {e}")
+        logger.warning(f"📦 PluginHub 远程索引拉取失败: {e}，尝试本地回退")
+    # 2. 回退到本地 registry.json
+    if _LOCAL_REGISTRY_PATH.exists():
+        try:
+            data = json.loads(_LOCAL_REGISTRY_PATH.read_text("utf-8"))
+            _registry_cache = data.get("plugins", [])
+            _registry_cache_time = time.time()
+            logger.info(f"📦 PluginHub 索引已加载(本地): {len(_registry_cache)} 个插件")
+        except Exception as e:
+            logger.warning(f"📦 PluginHub 本地索引解析失败: {e}")
     return _registry_cache
 
 
@@ -226,21 +238,40 @@ def search_hub(query: str) -> list[dict]:
 
 
 def install_from_hub(name: str) -> dict:
-    """从 PluginHub 下载并安装插件到 skills/ 目录。"""
+    """从 PluginHub 安装插件到 skills/ 目录。
+
+    优先检查本地是否已存在（已有则直接启用+热加载），否则从远程下载。
+    """
     hub = refresh_hub_registry()
     plugin_info = next((p for p in hub if p.get("name") == name), None)
     if not plugin_info:
         return {"success": False, "error": f"PluginHub 中未找到插件: {name}"}
 
+    target_dir = _SKILLS_DIR / name
+
+    # 1. 本地已存在 → 直接启用+热加载
+    if (target_dir / "manifest.json").exists() and (target_dir / "main.py").exists():
+        # 确保 manifest 中 enabled=true
+        try:
+            manifest = json.loads((target_dir / "manifest.json").read_text("utf-8"))
+            if not manifest.get("enabled", True):
+                manifest["enabled"] = True
+                (target_dir / "manifest.json").write_text(
+                    json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+        reload_result = hot_reload()
+        logger.info(f"📦 插件已启用(本地已有): {name}")
+        return {"success": True, "result": f"插件 {name} 已启用(本地已有)，热加载完成: {reload_result}"}
+
+    # 2. 本地不存在 → 从远程下载
     download_url = plugin_info.get("download_url", "")
     if not download_url:
-        return {"success": False, "error": f"插件 {name} 没有下载地址"}
+        return {"success": False, "error": f"插件 {name} 没有下载地址且本地不存在"}
 
-    target_dir = _SKILLS_DIR / name
     target_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        # 下载 manifest.json
         for fname in ["manifest.json", "main.py"]:
             url = f"{download_url.rstrip('/')}/{fname}"
             req = urllib.request.Request(url, headers={"User-Agent": "LucidMind/1.0"})
@@ -248,7 +279,8 @@ def install_from_hub(name: str) -> dict:
                 content = resp.read().decode("utf-8")
                 (target_dir / fname).write_text(content, encoding="utf-8")
 
+        reload_result = hot_reload()
         logger.info(f"📦 插件已安装: {name} → {target_dir}")
-        return {"success": True, "result": f"插件 {name} 已安装到 {target_dir}"}
+        return {"success": True, "result": f"插件 {name} 已安装到 {target_dir}，热加载完成: {reload_result}"}
     except Exception as e:
         return {"success": False, "error": f"安装失败: {e}"}

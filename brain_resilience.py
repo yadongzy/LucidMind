@@ -44,6 +44,46 @@ class BrainResilienceMixin:
             f"最后一次错误: {last_error}"
         )
 
+    async def _on_tool_not_found(self, session_id: str, tool_name: str) -> bool:
+        """工具未注册时：搜索 PluginHub → 自动安装 → 热加载 → 返回是否成功。"""
+        try:
+            from skills import search_hub, install_from_hub
+            # 从 tool_name 推断 skill 名（去掉常见前后缀）
+            query = tool_name.replace("_", " ")
+            results = search_hub(query)
+            if not results:
+                # 尝试用 tool_name 的前半部分搜索
+                parts = tool_name.split("_")
+                for i in range(len(parts), 0, -1):
+                    partial = " ".join(parts[:i])
+                    results = search_hub(partial)
+                    if results:
+                        break
+            if not results:
+                logger.info(f"[{session_id}] PluginHub 搜索无结果: {tool_name}")
+                return False
+            # 找到包含该工具的 skill
+            best = None
+            for r in results:
+                if tool_name in r.get("tools", []):
+                    best = r
+                    break
+            if not best:
+                best = results[0]  # 退而求其次
+            skill_name = best["name"]
+            await self.stream.emit("info", f"🔍 发现缺失工具 {tool_name}，正在自动安装 skill: {skill_name}...")
+            result = install_from_hub(skill_name)
+            if result.get("success"):
+                await self.stream.emit("info", f"✅ Skill {skill_name} 已安装并热加载")
+                logger.info(f"[{session_id}] 自动安装成功: {skill_name} (因为需要 {tool_name})")
+                return True
+            else:
+                logger.warning(f"[{session_id}] 自动安装失败: {skill_name}: {result.get('error')}")
+                return False
+        except Exception as e:
+            logger.warning(f"[{session_id}] _on_tool_not_found 异常: {e}")
+            return False
+
     async def _tool_call_with_retry(self, session_id: str, tool_name: str,
                                      params: dict, max_retries: int = 2) -> dict:
         """S11: 工具层 Ralph — 失败→分析错误→换方法→再试→学习。"""
@@ -55,6 +95,16 @@ class BrainResilienceMixin:
                     return result
                 error_msg = result.get("error", "unknown error")
                 last_error = error_msg
+                # 工具未注册 → 尝试自动搜索安装
+                if "未知工具" in error_msg or "未注册" in error_msg:
+                    installed = await self._on_tool_not_found(session_id, tool_name)
+                    if installed:
+                        # 安装成功，立即重试（不计入重试次数）
+                        result = await self.tools.execute(tool_name, params, session_id=session_id)
+                        if result.get("success"):
+                            return result
+                        error_msg = result.get("error", "unknown error")
+                        last_error = error_msg
                 if attempt < max_retries:
                     await self.stream.emit("info",
                         f"⚡ 工具 {tool_name} 失败({error_msg[:40]})，换方法重试...")

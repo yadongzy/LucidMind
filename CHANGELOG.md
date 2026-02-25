@@ -4,6 +4,39 @@
 
 ---
 
+## v0.3.3 (2026-02-25)
+
+### 新增
+- **PluginHub registry.json**（A1）：收录 16 个 skills，支持远程+本地回退
+- **`_on_tool_not_found` 自动搜索安装**（A3）：`brain_resilience.py` 新增方法
+  - 工具未注册 → 搜索 PluginHub → 精确匹配 tool 名 → 自动安装 → 热加载 → 立即重试
+  - 集成到 `_tool_call_with_retry` 中，无需额外代码路径
+- **MCP filesystem Server 接入**（B1+B2）：14 个文件操作工具，list/write/read 端到端验证通过
+- **MCP memory Server 接入**（B1+B3）：9 个知识图谱工具，create_entities/search_nodes 端到端验证通过
+- 总计：2 个 MCP Server，23 个外部工具注入 Brain
+
+### 修改
+- `skills/__init__.py`：`refresh_hub_registry()` 支持本地 registry.json 回退
+- `skills/__init__.py`：`install_from_hub()` 本地已存在时直接启用+热加载，不重复下载
+- `api/plugins.py`：移除 `install_from_hub` 中冗余的 `hot_reload()` 调用
+- `data/mcp_servers.json`：配置 filesystem + memory 两个 MCP Server
+- STRATEGY.md：A1/A2/A3/B1/B2/B3 标记 ✅
+
+---
+
+## v0.3.2 (2026-02-25)
+
+### 变更
+- STRATEGY.md 3B MCP 工作流深度扩展：基于 OpenClaw mcporter skill 代码深度研究
+  - 新增 B5（连接健康监控）、B6（工具名冲突治理）两个任务项
+  - 新增 mcporter 完整架构分析（list/call/auth/config/daemon/codegen）
+  - 新增 4 个关键设计模式分析（CLI桥接器、统一调用面、工具注入、确定性分发）
+  - 新增 LucidMind vs mcporter 10 维度对比表
+  - 明确 LucidMind 的 3 个结构性优势（直接集成、Python原生、无shell中转）
+  - 明确 5 个缺失项（连接保活、工具名冲突、OAuth认证、ad-hoc Server、端到端验证）
+
+---
+
 ## v0.3.1 (2026-02-25)
 
 ### 变更

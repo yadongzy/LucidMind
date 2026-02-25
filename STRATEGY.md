@@ -131,9 +131,9 @@
 
 | # | 任务 | 说明 | 对标 OpenClaw | 状态 |
 |---|------|------|-------------|------|
-| A1 | **PluginHub 远程仓库** | 创建 registry.json，收录现有15个skills | clawhub.com 注册中心 | 🔲 |
-| A2 | **前端输入框搜索安装** | 搜索 → 安装 → 热加载，完整跑通 | `clawhub search/install` | ⚠️ UI已有，仓库为空 |
-| A3 | **大脑自动搜索安装** | brain.py `_on_tool_not_found` → 搜索 PluginHub → 自动安装 → 重试 | OpenClaw 核心能力 | 🔲 |
+| A1 | **PluginHub 远程仓库** | 创建 registry.json，收录现有16个skills | clawhub.com 注册中心 | ✅ 本地+远程回退 |
+| A2 | **前端输入框搜索安装** | 搜索 → 安装 → 热加载，完整跑通 | `clawhub search/install` | ✅ API验证通过 |
+| A3 | **大脑自动搜索安装** | brain.py `_on_tool_not_found` → 搜索 PluginHub → 自动安装 → 重试 | OpenClaw 核心能力 | ✅ 已实现+测试 |
 | A4 | **安装时安全扫描** | 下载 skill 后扫描危险代码模式再安装 | `src/security/skill-scanner.ts` | 🔲 |
 | A5 | **Skill Creator** | Agent 找不到 skill 时自己创建（SKILL.md + main.py） | `skill-creator` (371行) | 🔲 |
 
@@ -146,7 +146,9 @@
 - `skills/__init__.py` 的 `search_hub()` / `install_from_hub()` 已实现
 - `api/plugins.py` 的 `/hub/search` + `/hub/install` API 已实现
 - `frontend-v2/src/ui/views/plugins.js` 的搜索安装 UI 已实现
-- **缺失**：远程 registry.json 仓库不存在 → 搜索返回空；brain.py 无 `_on_tool_not_found`；无 skill-creator 能力
+- ✅ `registry.json` 本地仓库已创建（16个插件），远程回退机制已实现
+- ✅ `brain_resilience.py` `_on_tool_not_found` 已实现：未知工具 → 搜索 PluginHub → 自动安装 → 热加载 → 重试
+- **缺失**：无 skill-creator 能力（A5）；安装时安全扫描（A4）
 
 **完整工具发现链路（A3+A5 闭环）**：
 ```
@@ -161,16 +163,80 @@
 
 | # | 任务 | 说明 | 对标 OpenClaw | 状态 |
 |---|------|------|-------------|------|
-| B1 | **MCP Server 实际接入** | 接入 2+ 个真实 MCP Server（如 filesystem、web-search） | mcporter `list/call` | 🔲 |
-| B2 | **工作流1: 文件操作** | 通过 MCP 读写文件 → 验证端到端 | filesystem MCP Server | 🔲 |
-| B3 | **工作流2: 浏览器/搜索** | 通过 MCP 搜索或浏览 → 验证端到端 | chrome-devtools-mcp | 🔲 |
+| B1 | **MCP Server 实际接入** | 接入 2+ 个真实 MCP Server（如 filesystem、web-search） | mcporter `list/call` | ✅ 2服务器 23工具 |
+| B2 | **工作流1: 文件操作** | 通过 MCP 读写文件 → 验证端到端 | filesystem MCP Server | ✅ list+write+read |
+| B3 | **工作流2: 知识图谱** | 通过 MCP memory 创建/搜索实体 → 验证端到端 | memory MCP Server | ✅ create+search |
 | B4 | 前端 MCP 配置验证 | 从 UI 添加 MCP Server → 大脑能用 | 前端已有 | ⚠️ 需验证 |
+| B5 | **MCP 连接健康监控** | 连接状态检测 + 自动重连 + 超时降级 | mcporter `daemon status` | 🔲 |
+| B6 | **MCP 工具名冲突治理** | 原生工具/MCP工具/插件工具名冲突检测与自动去重 | `plugins/tools.ts` 冲突检测 | 🔲 |
+
+**OpenClaw mcporter 深度分析（基于代码研究）**：
+
+mcporter 不是一个普通 skill，它是 OpenClaw 的 **MCP 万能网关**。核心架构：
+
+```
+mcporter (npm CLI 工具)
+├── list              — 列出所有已配置 MCP Server 及其工具
+├── list <server>     — 列出单个 Server 的工具 schema
+├── call <srv.tool>   — 调用工具（支持 key=value / JSON / function 语法）
+├── call --stdio      — ad-hoc 启动 stdio Server 并调用
+├── auth              — OAuth 认证管理
+├── config            — Server 配置 CRUD
+├── daemon            — 后台守护进程（保持连接）
+└── generate-cli      — 自动生成 Server 的 CLI wrapper
+```
+
+**关键设计模式**（值得学习）：
+
+1. **Skill = CLI 桥接器**：mcporter 本身是 npm 包，OpenClaw 通过 SKILL.md 告诉 LLM 如何使用它。
+   LLM 不直接操作 MCP 协议，而是通过 shell 调用 `mcporter call linear.list_issues team=ENG`。
+   这意味着 **LLM 用自然语言格式就能调用任何 MCP 工具**，无需理解 JSON-RPC。
+
+2. **统一调用面**：不管 MCP Server 用 stdio 还是 http，mcporter 对 LLM 暴露的都是
+   `mcporter call <server.tool> key=value` 格式。Agent 不需要知道传输层细节。
+
+3. **工具注入到 LLM**：OpenClaw 通过 `plugins/tools.ts` 的 `resolvePluginTools()` 将
+   插件工具和原生工具合并注入 LLM tool_calls。工具名冲突时 **直接阻断并记录诊断信息**。
+
+4. **Skill Command Dispatch**：OpenClaw 的 skill 可以声明 `command-dispatch: tool`，
+   使 `/mcporter list` 这样的命令直接映射到工具执行，绕过 LLM（确定性分发）。
+
+**LucidMind vs OpenClaw mcporter 对比**：
+
+| 维度 | OpenClaw mcporter | LucidMind MCP Client |
+|------|-------------------|---------------------|
+| 架构 | npm CLI + SKILL.md（间接） | Python 原生集成（直接） |
+| LLM 调用方式 | LLM → shell → mcporter CLI → MCP | LLM → tool_call → mcp_client → MCP |
+| 工具注入 | `resolvePluginTools()` 合并注入 | `CompositeToolAdapter` 合并注入 |
+| 传输支持 | stdio + http + ad-hoc | stdio + http |
+| 认证 | OAuth + 配置文件 | 无（仅 env） |
+| 守护进程 | `mcporter daemon` 保活连接 | 无（每次启动重连） |
+| 工具名冲突 | 检测 + 阻断 + 诊断日志 | 无冲突检测 |
+| 配置管理 | `mcporter config add/remove/import` | API + 配置文件 |
+| 健康监控 | `mcporter daemon status` | 无 |
+| codegen | `generate-cli` 自动生成 Server CLI | 无 |
+
+**LucidMind 的结构性优势**：
+- **直接集成优于间接桥接**：mcporter 靠 shell 调用 CLI，多一层进程开销。
+  LucidMind 的 `mcp_client.py` 直接 JSON-RPC 通信，延迟更低、错误处理更直接。
+- **Python 原生**：不依赖 npm/Node.js 环境，部署更简单。
+- **工具定义直接注入 LLM**：通过 `CompositeToolAdapter` 已实现，
+  LLM 的 tool_calls 直接路由到 MCP，无需 shell 中转。
+
+**LucidMind 的缺失项（需补齐）**：
+1. **连接保活与健康监控**：stdio 子进程崩溃后不会自动重连
+2. **工具名冲突检测**：原生工具和 MCP 工具同名时无处理
+3. **OAuth 认证流**：需要认证的 MCP Server（如 GitHub、Linear）无法使用
+4. **ad-hoc Server**：无法临时启动未配置的 MCP Server
+5. **端到端验证**：代码存在但从未真正跑通
 
 **LucidMind 现状**：
-- `adapters/tools/mcp_client.py` MCP Client 代码已实现
-- `api/mcp.py` MCP 管理 API 已实现
-- 前端 MCP 配置 UI 已实现
-- **缺失**：未实际接入任何 MCP Server，无端到端验证
+- ✅ `adapters/tools/mcp_client.py` MCP Client 直接集成，优于 mcporter CLI 桥接
+- ✅ `api/mcp.py` MCP 管理 API 已实现
+- ✅ 前端 MCP 配置 UI 已实现
+- ✅ 已接入 2 个 MCP Server（filesystem 14工具 + memory 9工具 = 23工具）
+- ✅ 两条端到端工作流已验证（文件读写 + 知识图谱 create/search）
+- **缺失**：连接保活（B5）、工具名冲突检测（B6）
 
 #### 3C. 记忆系统加固
 

@@ -83,11 +83,8 @@ async def search_hub(q: str = ""):
 @router.post("/hub/install")
 async def install_from_hub(body: dict):
     """从 PluginHub 安装插件并热加载。"""
-    from skills import install_from_hub, hot_reload
+    from skills import install_from_hub as _install
     name = body.get("name", "")
     if not name:
         return {"error": "请提供插件名称"}
-    result = install_from_hub(name)
-    if result.get("success"):
-        hot_reload()
-    return result
+    return _install(name)
