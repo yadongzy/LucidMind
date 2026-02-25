@@ -65,7 +65,8 @@ description: 每次收到任务时强制读取全部项目规则（LucidMind规�
 // turbo
 6. 运行 pytest：`python -m pytest tests/test_brain.py -v`
 
-7. 将结果记录到 PROGRESS.md 或 logs/
+7. **必须更新 CHANGELOG.md** — 记录本次改动（新增/修复/变更/删除）
+8. 将结果记录到 logs/
 
 ### Step 6: 诚实自查
 
