@@ -312,6 +312,31 @@ async def ngrok_install():
         return {"status": "error", "message": str(e)}
 
 
+@router.post("/ngrok/authtoken")
+async def ngrok_authtoken(request: Request):
+    """配置 ngrok authtoken。"""
+    body = await request.json()
+    token = body.get("token", "").strip()
+    if not token:
+        return {"status": "error", "message": "请输入 authtoken"}
+    if not shutil.which("ngrok"):
+        return {"status": "error", "message": "ngrok 未安装"}
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ngrok", "config", "add-authtoken", token,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
+        output = stdout.decode("utf-8", errors="replace").strip()
+        if proc.returncode == 0:
+            logger.info(f"ngrok authtoken 已配置")
+            return {"status": "ok", "message": "authtoken 配置成功"}
+        return {"status": "error", "message": output or "配置失败"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
 @router.post("/ngrok/start")
 async def ngrok_start():
     """启动 ngrok 隧道（端口 8765）。"""

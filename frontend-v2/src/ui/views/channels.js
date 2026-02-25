@@ -239,19 +239,45 @@ function _renderNgrokPanel(app) {
       ` : !_ngrok.running ? html`
         <!-- 已安装未运行 -->
         <div style="padding:16px;background:var(--bg-2);border-radius:8px;">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
             <span style="width:8px;height:8px;border-radius:50%;background:var(--fg-3)"></span>
             <span style="font-size:13px;color:var(--fg);">ngrok 已安装，隧道未启动</span>
+          </div>
+          <!-- Authtoken 配置 -->
+          <div style="margin-bottom:12px;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;">
+            <label style="display:block;font-size:11px;color:var(--fg-3);margin-bottom:4px;">
+              Authtoken（首次使用必填，在 <a href="https://dashboard.ngrok.com/get-started/your-authtoken" target="_blank" style="color:var(--accent);">ngrok.com</a> 获取）
+            </label>
+            <div style="display:flex;gap:6px;">
+              <input type="password" id="ngrok-token-input"
+                style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-2);color:var(--fg);font-size:12px;font-family:monospace;"
+                placeholder="2xxx...your_authtoken">
+              <button class="btn" style="font-size:11px;padding:4px 12px;white-space:nowrap;"
+                @click=${async () => {
+                  const input = document.getElementById("ngrok-token-input");
+                  const token = input?.value?.trim();
+                  if (!token) { alert("请输入 authtoken"); return; }
+                  _ngrokLoading = "authtoken"; app.requestUpdate();
+                  try {
+                    const res = await fetch("/api/channel/ngrok/authtoken", {
+                      method: "POST", headers: {"Content-Type":"application/json"},
+                      body: JSON.stringify({token})
+                    });
+                    const data = await res.json();
+                    _ngrokMsg = data;
+                  } catch(e) { _ngrokMsg = {status:"error",message:e.message}; }
+                  _ngrokLoading = ""; app.requestUpdate();
+                }}
+                ?disabled=${_ngrokLoading === "authtoken"}>
+                ${_ngrokLoading === "authtoken" ? "配置中..." : "� 保存Token"}
+              </button>
+            </div>
           </div>
           <button class="btn" style="font-size:12px;padding:6px 16px;background:var(--accent);color:#fff;border:none;border-radius:6px;cursor:pointer;"
             @click=${() => _ngrokAction("start", app)}
             ?disabled=${_ngrokLoading === "start"}>
             ${_ngrokLoading === "start" ? "启动中..." : "🚀 启动内网穿透"}
           </button>
-          <div style="font-size:11px;color:var(--fg-3);margin-top:8px;">
-            首次使用需要在 <a href="https://dashboard.ngrok.com/signup" target="_blank" style="color:var(--accent);">ngrok.com</a> 注册并运行:
-            <span style="font-family:monospace;">ngrok config add-authtoken YOUR_TOKEN</span>
-          </div>
         </div>
       ` : html`
         <!-- 运行中 -->
