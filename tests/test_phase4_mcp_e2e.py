@@ -16,23 +16,23 @@ class TestMCPToolExecution(unittest.TestCase):
     """MCP 工具执行端到端（mock transport）"""
 
     def test_stdio_transport_send_receive(self):
-        """验证 _StdioTransport 的 JSON-RPC 消息格式"""
-        from adapters.tools.mcp_client import _StdioTransport
-        t = _StdioTransport("echo", [])
+        """验证 StdioTransport 的 JSON-RPC 消息格式"""
+        from adapters.tools.mcp_transport import StdioTransport
+        t = StdioTransport("echo", [])
         self.assertEqual(t.command, "echo")
         self.assertEqual(t._request_id, 0)
 
     def test_http_transport_init(self):
-        """验证 _HttpTransport 初始化"""
-        from adapters.tools.mcp_client import _HttpTransport
-        t = _HttpTransport("http://localhost:3001/mcp", headers={"X-Key": "abc"})
+        """验证 HttpTransport 初始化"""
+        from adapters.tools.mcp_transport import HttpTransport
+        t = HttpTransport("http://localhost:3001/mcp", headers={"X-Key": "abc"})
         self.assertEqual(t.url, "http://localhost:3001/mcp")
         self.assertEqual(t._headers["X-Key"], "abc")
 
     def test_http_transport_oauth(self):
         """验证 OAuth token 注入"""
-        from adapters.tools.mcp_client import _HttpTransport
-        t = _HttpTransport("http://localhost:3001/mcp", oauth_token="my-token")
+        from adapters.tools.mcp_transport import HttpTransport
+        t = HttpTransport("http://localhost:3001/mcp", oauth_token="my-token")
         self.assertEqual(t._headers["Authorization"], "Bearer my-token")
 
     def test_mcp_client_tool_name_format(self):
