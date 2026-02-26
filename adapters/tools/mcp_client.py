@@ -124,10 +124,14 @@ class _StdioTransport:
 
 
 class _HttpTransport:
-    """通过 HTTP JSON-RPC 与远程 MCP Server 通信。"""
+    """通过 HTTP JSON-RPC 与远程 MCP Server 通信。支持 OAuth Bearer token。"""
 
-    def __init__(self, url: str):
+    def __init__(self, url: str, headers: dict[str, str] | None = None,
+                 oauth_token: str | None = None):
         self.url = url
+        self._headers = headers or {}
+        if oauth_token:
+            self._headers["Authorization"] = f"Bearer {oauth_token}"
 
     async def start(self) -> bool:
         return True
@@ -142,7 +146,10 @@ class _HttpTransport:
                 resp = await client.post(self.url, json={
                     "jsonrpc": "2.0", "id": 1,
                     "method": method, "params": params or {}
-                })
+                }, headers=self._headers)
+                if resp.status_code == 401:
+                    logger.warning(f"MCP HTTP 认证失败(401): {self.url}")
+                    return None
                 return resp.json()
         except Exception as e:
             logger.warning(f"MCP HTTP 请求失败: {e}")
@@ -254,7 +261,8 @@ class MCPClientAdapter(ToolPort):
                 if not url:
                     logger.warning(f"MCP: {name} 缺少 url 配置")
                     continue
-                transport = _HttpTransport(url)
+                transport = _HttpTransport(url, headers=cfg.get("headers"),
+                                           oauth_token=cfg.get("oauth_token") or cfg.get("env", {}).get("OAUTH_TOKEN"))
             else:
                 logger.warning(f"MCP: {name} 未知传输类型: {transport_type}")
                 continue
@@ -326,7 +334,8 @@ class MCPClientAdapter(ToolPort):
         if transport_type == "stdio":
             transport = _StdioTransport(cfg.get("command", ""), cfg.get("args", []), cfg.get("env"))
         elif transport_type == "http":
-            transport = _HttpTransport(cfg.get("url", ""))
+            transport = _HttpTransport(cfg.get("url", ""), headers=cfg.get("headers"),
+                                       oauth_token=cfg.get("oauth_token") or cfg.get("env", {}).get("OAUTH_TOKEN"))
         else:
             return False
         ok = await transport.start()

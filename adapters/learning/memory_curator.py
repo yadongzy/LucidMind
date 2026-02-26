@@ -73,6 +73,13 @@ def get_half_life_days(tier: str) -> float:
 
 # === 选择性添加：质量门控 ===
 
+# 用户指令型内容（不是经验教训，是一次性命令）
+_COMMAND_PATTERNS = [
+    "每天", "给我", "提醒", "设置", "设定", "停止", "删掉", "删除",
+    "安装", "把CORE", "1分钟后", "30秒后", "16：", "8点",
+]
+
+
 def should_add_lesson(lesson: dict[str, Any], existing: list[dict[str, Any]]) -> bool:
     """选择性添加门控。论文发现 add-all 比不添加更差。
 
@@ -80,6 +87,8 @@ def should_add_lesson(lesson: dict[str, Any], existing: list[dict[str, Any]]) ->
     1. 内容过短（无信息量）
     2. 与现有经验高度重复
     3. 纯"任务成功"记录但无具体方法
+    4. 用户指令型内容（不是教训，是一次性命令）
+    5. lesson 本身无教训价值（仅描述动作而非方法论）
     """
     trigger = lesson.get("trigger", "")
     content = lesson.get("lesson", "")
@@ -89,6 +98,10 @@ def should_add_lesson(lesson: dict[str, Any], existing: list[dict[str, Any]]) ->
     if "方法有效，可复用" in content and len(content) < 50:
         logger.debug(f"门控拒绝: 空洞的成功记录")
         return False
+    # 拒绝用户指令型内容
+    if _is_command_like(content):
+        logger.debug(f"门控拒绝: 用户指令型内容")
+        return False
     # 检查重复：与现有经验的trigger相似度
     trigger_lower = trigger.lower()
     for ex in existing:
@@ -97,6 +110,15 @@ def should_add_lesson(lesson: dict[str, Any], existing: list[dict[str, Any]]) ->
             logger.debug(f"门控拒绝: 与现有经验重复 (overlap>0.8)")
             return False
     return True
+
+
+def _is_command_like(text: str) -> bool:
+    """检测是否为用户指令型内容（非教训）。"""
+    if len(text) < 40:
+        matches = sum(1 for p in _COMMAND_PATTERNS if p in text)
+        if matches >= 1:
+            return True
+    return False
 
 
 def _text_overlap(a: str, b: str) -> float:
@@ -176,8 +198,25 @@ def history_cleanup(lessons: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 # === 组合删除（主入口） ===
 
+def quality_cleanup(lessons: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """P1a: 质量清理 — 删除用户指令型、空洞短经验。"""
+    keep, removed = [], []
+    for lesson in lessons:
+        content = lesson.get("lesson", "")
+        # 用户指令型内容直接删除（无论什么 tier）
+        if _is_command_like(content):
+            removed.append(lesson)
+            continue
+        keep.append(lesson)
+    if removed:
+        logger.info(f"质量清理: 移除 {len(removed)} 条指令型/空洞经验")
+        for r in removed:
+            logger.debug(f"  删除: [{r.get('tier')}] {r.get('lesson','')[:60]}")
+    return keep
+
+
 def curate(lessons: list[dict[str, Any]], now: float | None = None) -> tuple[list[dict[str, Any]], dict[str, int]]:
-    """组合删除：周期性 + 历史性。返回 (清理后的经验列表, 统计信息)。
+    """组合删除：周期性 + 历史性 + 质量清理。返回 (清理后的经验列表, 统计信息)。
 
     论文数据：组合删除准确率+4%，内存-75%。
     """
@@ -185,9 +224,11 @@ def curate(lessons: list[dict[str, Any]], now: float | None = None) -> tuple[lis
     # 1. 分层标注
     for lesson in lessons:
         lesson["tier"] = classify_tier(lesson)
-    # 2. 周期性删除
+    # 2. 质量清理（P1a新增）
+    lessons = quality_cleanup(lessons)
+    # 3. 周期性删除
     lessons = periodic_cleanup(lessons, now)
-    # 3. 历史性删除
+    # 4. 历史性删除
     lessons = history_cleanup(lessons)
     # 4. 保底：至少保留 MIN_LESSONS_KEEP 条
     if len(lessons) < MIN_LESSONS_KEEP:

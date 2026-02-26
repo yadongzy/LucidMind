@@ -37,6 +37,17 @@ _LOOP_HINT = ("你正在重复同样的失败操作。请停下来思考："
     "3.换一种完全不同的策略 4.实在不行就诚实告诉用户并建议替代方案。不要再重复同样的命令。")
 _FAIL_HINT = "[提示] 操作失败。请分析错误原因，考虑：搜索解决方案(web_search)、换方法、或告知用户。"
 
+_TOOL_USAGE_HINTS = """
+工具使用原则:
+1. 需要事实/数据→先用工具获取，不要凭记忆回答
+2. 文件操作→用read_file/write_file，不要用run_command cat/echo
+3. 搜索信息→web_search；搜索本地文件→grep/find_files
+4. 需要执行代码→run_python(安全沙盒)；系统命令→run_command
+5. 复杂任务→先用decompose_task拆分，再逐步执行
+6. 不确定能否完成→先尝试，失败后换方法，不要直接说不会
+7. 多个工具可用时，选最直接的那个（如查天气用get_weather而非web_search）
+""".strip()
+
 
 class Brain(BrainResilienceMixin, BrainLearningMixin):
     """LucidMind 的核心大脑。"""
@@ -67,6 +78,7 @@ class Brain(BrainResilienceMixin, BrainLearningMixin):
         self._goal_context = ""
         self.lessons_enabled = True  # A/B开关：经验注入
         self._ab_stats: dict[str, list] = {"with_lessons": [], "without_lessons": []}  # A/B质量追踪
+        self._persona_manager = None  # P2a: 多角色系统（延迟初始化）
         self._reload_soul_if_changed()
 
     def set_stream(self, stream: StreamPort) -> None:
@@ -103,11 +115,8 @@ class Brain(BrainResilienceMixin, BrainLearningMixin):
         logger.info(f"[{session_id}] 收到用户输入: {user_input[:100]}")
 
         try:
-            # 防止历史过长导致 LLM 400 错误（daemon任务工具调用多轮膨胀快）
-            if len(self._history) > 10:
-                # 只保留 user/assistant 消息，丢弃 tool_calls/tool 避免配对断裂
-                clean = [m for m in self._history if m.get("role") in ("user", "assistant", "system") and "tool_calls" not in m]
-                self._history = clean[-6:] if len(clean) > 6 else clean
+            # P1b: 智能上下文窗口管理 — 超长对话自动摘要压缩
+            await self._smart_compact_history(session_id)
 
             # S6: 首次消息时从记忆加载会话历史
             if not self._history and self.memory:
@@ -263,21 +272,54 @@ class Brain(BrainResilienceMixin, BrainLearningMixin):
             logger.info(f"[{session_id}] 处理完成")
 
     async def _stream_final_reply(self, session_id: str, messages: list, response: dict, t0: float) -> str:
-        """最终回复：分块推送已有内容，实现流式体验。"""
+        """最终回复：优先真流式（LLM stream=True），降级伪流式。"""
         raw = response.get("content", "")
         content = re.sub(r"<think>.*?</think>\s*", "", raw, flags=re.DOTALL).strip() if raw else ""
+        _already_streamed = False
+
+        # 尝试真流式：用 LLM stream=True 直接推送（仅已有内容为空时）
+        if not content and not response.get("tool_calls"):
+            try:
+                stream_iter = await self.llm.chat(messages, tools=None, stream=True)
+                if hasattr(stream_iter, '__aiter__'):
+                    await self.stream.emit("response_start", None)
+                    chunks = []
+                    in_think = False
+                    async for chunk in stream_iter:
+                        if "<think>" in chunk:
+                            in_think = True
+                        if in_think:
+                            if "</think>" in chunk:
+                                in_think = False
+                                chunk = chunk.split("</think>", 1)[-1]
+                                if not chunk:
+                                    continue
+                            else:
+                                continue
+                        chunks.append(chunk)
+                        await self.stream.emit("response_delta", chunk)
+                    await self.stream.emit("response_end", None)
+                    content = "".join(chunks).strip()
+                    _already_streamed = True
+                    if content:
+                        logger.info(f"[{session_id}] 真流式输出完成: {len(content)} 字符")
+            except Exception as e:
+                logger.debug(f"[{session_id}] 真流式失败({e})，降级伪流式")
+
         content = content or "抱歉，我没有生成有效的回复。"
         if not content.strip(): logger.warning(f"[{session_id}] LLM 返回空内容")
-        # 分块推送：每 chunk_size 字符推送一次，模拟流式体验
-        chunk_size = 8
-        if len(content) > chunk_size * 2:
-            await self.stream.emit("response_start", None)
-            for i in range(0, len(content), chunk_size):
-                await self.stream.emit("response_delta", content[i:i+chunk_size])
-                await asyncio.sleep(0.02)
-            await self.stream.emit("response_end", None)
-        else:
-            await self.stream.emit("response", content)
+
+        # 伪流式推送（仅真流式未使用时）
+        if not _already_streamed:
+            chunk_size = 8
+            if len(content) > chunk_size * 2:
+                await self.stream.emit("response_start", None)
+                for i in range(0, len(content), chunk_size):
+                    await self.stream.emit("response_delta", content[i:i+chunk_size])
+                    await asyncio.sleep(0.02)
+                await self.stream.emit("response_end", None)
+            else:
+                await self.stream.emit("response", content)
         elapsed = time.time() - t0
         usage = response.get("usage", {})
         total_tokens = usage.get("total_tokens", 0)
@@ -297,7 +339,10 @@ class Brain(BrainResilienceMixin, BrainLearningMixin):
         if len(self._ab_stats[mode]) > 100:
             self._ab_stats[mode] = self._ab_stats[mode][-100:]
         logger.info(f"[{session_id}] 回复完成(流式推送): {content[:80]}...")
-        if len(self._history) > 60: self._history = self._history[-60:]
+        # 安全截断：保护 tool_calls/tool 配对
+        if len(self._history) > 60:
+            cut = self._find_safe_cut_point(len(self._history) - 50, len(self._history) - 40)
+            self._history = self._history[cut:]
         # 会话记忆持久化：保存对话摘要到每日日记
         try:
             from memory_journal import save_conversation_summary
@@ -514,6 +559,8 @@ class Brain(BrainResilienceMixin, BrainLearningMixin):
                     s.append(f"可用工具: {', '.join(names)}")
                 else:
                     s.append("可用工具:\n" + "\n".join(f"- {t['function']['name']}: {t['function'].get('description','')[:60]}" for t in tools_list))
+                    # P1c: 工具使用强化 — few-shot 提示
+                    s.append(_TOOL_USAGE_HINTS)
             except Exception:
                 s.append("可用工具: 获取失败")
         s.extend([f"模型: {getattr(self.llm, 'model', '?')}",
@@ -551,15 +598,32 @@ class Brain(BrainResilienceMixin, BrainLearningMixin):
             bootstrap_text = self._load_identity_file(_BOOTSTRAP_PATH)
             if bootstrap_text and "BOOTSTRAP_COMPLETE" not in bootstrap_text:
                 system_content += f"\n\n## 首次启动引导\n{bootstrap_text}"
+            # 可选部分 — 按优先级排列，超预算时从末尾裁剪
+            optional_sections = []
+            # P2a: 多角色人格注入（最高优先）
+            if self._persona_manager:
+                persona_prompt = self._persona_manager.get_persona_prompt()
+                if persona_prompt:
+                    optional_sections.append(f"\n\n## 当前角色\n{persona_prompt}")
+            if self._goal_context:
+                optional_sections.append(f"\n\n{self._goal_context}")
             # 经验库注入（精炼后的高质量经验）— 受A/B开关控制
             if self.lessons_enabled:
                 lessons_text = await self._get_relevant_lessons()
                 if lessons_text:
-                    system_content += f"\n\n## 过往经验（参考）\n{lessons_text}"
+                    optional_sections.append(f"\n\n## 过往经验（参考）\n{lessons_text}")
             if not local and self._reflection_text:
-                system_content += f"\n\n## 自省\n{self._reflection_text}"
-            if self._goal_context:
-                system_content += f"\n\n{self._goal_context}"
+                optional_sections.append(f"\n\n## 自省\n{self._reflection_text}")
+            # Token 预算控制：system prompt 超过 4K tokens 时从末尾裁剪可选部分
+            _MAX_SYSTEM_TOKENS = 4000
+            base_tokens = self._estimate_tokens(system_content)
+            for section in optional_sections:
+                section_tokens = self._estimate_tokens(section)
+                if base_tokens + section_tokens <= _MAX_SYSTEM_TOKENS:
+                    system_content += section
+                    base_tokens += section_tokens
+                else:
+                    logger.debug(f"System prompt 预算已满({base_tokens} tokens)，跳过 {len(section)} 字符")
             messages.append({"role": "system", "content": system_content})
 
         # 本地模型限制历史条数（省 token）

@@ -17,14 +17,14 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       "/ws": {
-        target: "http://localhost:8765",
+        target: "http://localhost:8000",
         ws: true,
       },
       "/api": {
-        target: "http://localhost:8765",
+        target: "http://localhost:8000",
       },
       "/static": {
-        target: "http://localhost:8765",
+        target: "http://localhost:8000",
       },
     },
   },

@@ -20,6 +20,11 @@ logger = get_logger("daemon")
 
 class BrainDaemon(DaemonObserveMixin, TaskExecutorMixin):
     """后台思考+自主行动守护进程。"""
+    # 超时配置集中管理
+    OBSERVE_TIMEOUT = 30
+    ENGINES_TIMEOUT = 120
+    TEACHING_TIMEOUT = 60
+    IDLE_MAX_WAIT = 30
 
     def __init__(self, brain, interval: int = 60, soul_engine=None, goal_system=None,
                  teacher_channel=None, ws_channel=None):
@@ -76,7 +81,7 @@ class BrainDaemon(DaemonObserveMixin, TaskExecutorMixin):
                     continue
                 # === Observe（观察）===
                 td.release_stuck_tasks()
-                await asyncio.wait_for(self._observe(), timeout=30)
+                await asyncio.wait_for(self._observe(), timeout=self.OBSERVE_TIMEOUT)
                 # === Orient + Decide + Act（每轮最多3个任务，防积压）===
                 tasks_done = 0
                 for _ in range(3):
@@ -89,8 +94,8 @@ class BrainDaemon(DaemonObserveMixin, TaskExecutorMixin):
                 if tasks_done == 0:
                     # 无任务时执行后台引擎
                     self._idle_rounds += 1
-                    await asyncio.wait_for(self._run_engines(), timeout=120)
-                    await asyncio.wait_for(self._teaching_cycle(), timeout=60)
+                    await asyncio.wait_for(self._run_engines(), timeout=self.ENGINES_TIMEOUT)
+                    await asyncio.wait_for(self._teaching_cycle(), timeout=self.TEACHING_TIMEOUT)
                     # 每10轮做一次主动健康检查
                     if self._loop_tick % 10 == 0:
                         await self._proactive_health_check()
@@ -106,7 +111,7 @@ class BrainDaemon(DaemonObserveMixin, TaskExecutorMixin):
                 report_issue(f"思考异常: {str(e)[:80]}", "medium", "watchdog")
             wait = td.compute_interval()
             if self._idle_rounds >= 3:
-                wait = max(wait, 30)  # 封顶30s（保证教学消息快速响应）
+                wait = max(wait, self.IDLE_MAX_WAIT)
             self._wake_event.clear()
             try:
                 await asyncio.wait_for(self._wake_event.wait(), timeout=wait)

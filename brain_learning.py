@@ -23,8 +23,9 @@ class BrainLearningMixin:
         """S8: 检索与当前对话相关的经验。追踪注入的经验ID用于有效性评估。"""
         if not self.learning or not self._history:
             return ""
-        recent = [m["content"] for m in self._history[-4:]
-                  if m.get("role") == "user" and m.get("content")]
+        # 从最近20条消息中提取最近4条用户消息（跳过夹在中间的tool消息）
+        recent = [m["content"] for m in self._history[-20:]
+                  if m.get("role") == "user" and m.get("content")][-4:]
         if not recent:
             return ""
         try:
@@ -131,8 +132,13 @@ class BrainLearningMixin:
     async def _detect_learning_signal(self, user_input: str, prev_reply: str) -> str | None:
         """用 LLM 判断用户意图：correction / teaching / None。
         LLM 不可用时回退到关键词匹配。"""
-        # 先做快速关键词预筛，太短或明显无关的直接跳过
-        if len(user_input.strip()) < 4:
+        # 严格预筛：太短、纯肯定词、或明显无关的直接跳过（避免额外 LLM 调用）
+        stripped = user_input.strip()
+        if len(stripped) < 6:
+            return None
+        _TRIVIAL = {'好', '好的', '嘶', '嗯', '行', '可以', '谢谢', '明白', '收到',
+                     'ok', 'yes', 'no', 'thanks', 'got it', 'sure', '继续', '下一步'}
+        if stripped.lower() in _TRIVIAL:
             return None
         # 尝试 LLM 检测
         if self.llm:

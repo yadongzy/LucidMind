@@ -49,12 +49,13 @@ from api.channels import router as channels_router
 from api import channels as channels_api
 from api.security import router as security_router
 from api import security as security_api
+from api.personas import router as personas_router
 from logs import get_logger
 
 logger = get_logger("api")
 
 app = FastAPI(title="LucidMind", version="0.1.0")
-for _r in [upload_router, tasks_router, cron_router, sessions_router, auth_router, data_views.router, brain_init.router, http_chat.router, teacher.router, cascade_inject.router, plugins_router, mcp_router, channels_router, security_router]:
+for _r in [upload_router, tasks_router, cron_router, sessions_router, auth_router, data_views.router, brain_init.router, http_chat.router, teacher.router, cascade_inject.router, plugins_router, mcp_router, channels_router, security_router, personas_router]:
     app.include_router(_r)
 # 前端静态文件 — frontend-v2构建产物(frontend/dist)为主页面
 frontend_dist_dir = os.path.join(ROOT_DIR, "frontend", "dist")
@@ -201,6 +202,9 @@ def _get_brain(stream=None):
     global _brain_singleton
     if _brain_singleton is None:
         _brain_singleton = Brain(llm=llm_adapter, stream=stream, tools=tool_adapter, memory=memory_adapter, learning=learning_adapter, reflection=reflection_adapter)
+        # P2a: 注入人格管理器
+        from identity.personas import get_persona_manager
+        _brain_singleton._persona_manager = get_persona_manager()
         brain_init.set_brain(_brain_singleton)
         data_views._brain_ref = _brain_singleton
         logger.info("🧠 Brain 单例已创建")

@@ -85,21 +85,20 @@ class BrainResilienceMixin:
             return False
 
     async def _auto_create_skill(self, session_id: str, tool_name: str) -> bool:
-        """PluginHub 无结果时，自动创建一个 stub skill。"""
+        """PluginHub 无结果时，用 LLM 自动创建完整 skill（回退 stub）。"""
         try:
-            from skills.skill_creator import create_skill
-            # 从 tool_name 推断 skill 名和描述
+            from skills.skill_creator import create_skill_with_llm
             parts = tool_name.split("_")
-            # 用第一个词或前两个词作为 skill 名
             skill_name = f"auto_{tool_name}" if len(parts) <= 2 else f"auto_{'_'.join(parts[:2])}"
             description = f"自动创建的 skill，提供 {tool_name} 工具"
             tools = [{"name": tool_name, "description": f"Auto-generated tool: {tool_name}",
                        "parameters": {"input": "输入参数"}}]
-            await self.stream.emit("info", f"🛠️ PluginHub 无匹配，正在自动创建 skill: {skill_name}...")
-            result = create_skill(skill_name, description, tools)
+            await self.stream.emit("info", f"🛠️ PluginHub 无匹配，正在用 LLM 自动创建 skill: {skill_name}...")
+            result = await create_skill_with_llm(skill_name, description, tools, llm=self.llm)
             if result.get("success"):
-                await self.stream.emit("info", f"✅ Skill {skill_name} 已自动创建并热加载")
-                logger.info(f"[{session_id}] 自动创建 skill 成功: {skill_name}")
+                tag = "🤖 LLM" if result.get("llm_generated") else "📝 stub"
+                await self.stream.emit("info", f"✅ Skill {skill_name} 已创建({tag})并热加载")
+                logger.info(f"[{session_id}] 自动创建 skill 成功: {skill_name} ({tag})")
                 return True
             else:
                 logger.warning(f"[{session_id}] 自动创建 skill 失败: {result.get('error')}")
@@ -167,9 +166,7 @@ class BrainResilienceMixin:
         if ("permission" in err or "access" in err) and "command" in p:
             if platform.system() == "Windows" and not p["command"].startswith("powershell"):
                 p["command"] = f"powershell -Command \"{p['command']}\""
-            elif platform.system() != "Windows":
-                if not p["command"].startswith("sudo "):
-                    p["command"] = f"sudo {p['command']}"
+            # 不自动加 sudo — 安全风险，由 ToolSafetyGuard 控制权限
         if "not found" in err and "path" in p:
             if platform.system() == "Windows":
                 p["path"] = p["path"].replace("/", "\\")
@@ -213,35 +210,110 @@ class BrainResilienceMixin:
         logger.log(20 if r["healthy"] else 30, f"自检: {r}")
         return r
 
-    def _compact_history_if_needed(self) -> None:
-        """S18-2: 智能历史压缩 — 工具截断 + 旧消息摘要（保护 tool_calls/tool 配对）。"""
-        total = sum(len(m.get("content") or "") for m in self._history)
+    @staticmethod
+    def _estimate_tokens(text: str) -> int:
+        """估算文本 token 数：中文约1.5字/token，英文约4字符/token。"""
+        if not text:
+            return 0
+        cn = sum(1 for c in text if '\u4e00' <= c <= '\u9fff')
+        en = len(text) - cn
+        return int(cn / 1.5 + en / 4)
+
+    def _estimate_history_tokens(self) -> int:
+        """估算当前历史的总 token 数。"""
+        return sum(self._estimate_tokens(m.get("content") or "") for m in self._history)
+
+    def _find_safe_cut_point(self, start: int, end: int) -> int:
+        """在 [start, end) 范围内找到安全的截断点，不破坏 tool_calls/tool 配对。"""
+        cut = start
+        while cut < end:
+            msg = self._history[cut]
+            prev = self._history[cut - 1] if cut > 0 else {}
+            if msg.get("role") == "tool" or prev.get("tool_calls"):
+                cut += 1
+            else:
+                return cut
+        return end
+
+    async def _smart_compact_history(self, session_id: str) -> None:
+        """统一上下文窗口管理 — token-aware 压缩，保护 tool_calls/tool 配对。
+
+        策略（基于 token 估算）：
+        - 阶段0: <4K tokens → 不处理
+        - 阶段1: 截断过长工具结果（>2000字符 → 保留首尾）
+        - 阶段2: >8K tokens 或 >30条 → LLM摘要压缩，保留最近8条
+        - 阶段3: 摘要失败 → 安全截断（保护 tool_calls/tool 配对）
+        """
+        hist_len = len(self._history)
+        total_tokens = self._estimate_history_tokens()
+
+        if total_tokens < 4000 and hist_len <= 15:
+            return
+
         # 阶段1: 截断过长工具结果
-        if total > 30000:
+        if total_tokens > 6000:
             for m in self._history:
                 if m.get("role") == "tool" and len(m.get("content", "")) > 2000:
                     m["content"] = (m["content"][:1000]
                                     + "\n...(已压缩)...\n"
                                     + m["content"][-500:])
-        # 阶段2: 消息数>40 → 摘要压缩旧消息（保护 tool_calls/tool 配对）
-        if len(self._history) > 40:
-            cut = 20
-            while cut < len(self._history) - 10:
-                msg = self._history[cut]
-                prev = self._history[cut - 1] if cut > 0 else {}
-                if msg.get("role") == "tool" or prev.get("tool_calls"):
-                    cut += 1
-                else:
-                    break
-            old = self._history[:cut]
-            summary_parts = []
-            for m in old:
-                r, c = m.get("role", ""), (m.get("content") or "")[:100]
-                if c:
-                    summary_parts.append(f"{r}: {c}")
-            summary = f"对话摘要(前{cut}条):\n" + "\n".join(summary_parts[:10])
-            self._history = [{"role": "system", "content": summary}] + self._history[cut:]
-            logger.info(f"智能压缩: {len(old)}条旧消息→摘要, 剩余{len(self._history)}条")
+            total_tokens = self._estimate_history_tokens()
+
+        # 阶段2: 需要摘要压缩
+        if total_tokens < 8000 and hist_len <= 30:
+            return
+
+        keep_recent = 8
+        if hist_len <= keep_recent + 2:
+            return
+
+        # 找安全截断点
+        cut = self._find_safe_cut_point(max(hist_len - keep_recent - 2, 0), hist_len - keep_recent)
+        old_messages = self._history[:cut]
+        recent_messages = self._history[cut:]
+
+        if not old_messages:
+            return
+
+        # 尝试 LLM 摘要
+        try:
+            summary_lines = []
+            for m in old_messages:
+                role = m.get("role", "")
+                content = (m.get("content") or "")[:150]
+                if content and role in ("user", "assistant"):
+                    summary_lines.append(f"{role}: {content}")
+            summary_text = "\n".join(summary_lines[-20:])
+
+            if summary_text:
+                resp = await asyncio.wait_for(
+                    self.llm.chat([{"role": "user", "content":
+                        f"请用3-5句话概括以下对话的要点（包括完成了什么、讨论了什么、关键结论）：\n\n{summary_text}"}],
+                        tools=None),
+                    timeout=10.0
+                )
+                summary_content = resp.get("content", "").strip()
+                import re
+                summary_content = re.sub(r"<think>.*?</think>\s*", "", summary_content, flags=re.DOTALL).strip()
+                if summary_content and len(summary_content) > 20:
+                    self._history = [{"role": "system", "content": f"[对话摘要] {summary_content}"}] + recent_messages
+                    logger.info(f"[{session_id}] LLM摘要压缩: {hist_len}→{len(self._history)}条, "
+                                f"{total_tokens}→{self._estimate_history_tokens()} tokens")
+                    return
+        except Exception as e:
+            logger.debug(f"[{session_id}] LLM摘要失败({e})，回退安全截断")
+
+        # 阶段3: 回退 — 安全截断（保护配对）
+        self._history = recent_messages
+        logger.info(f"[{session_id}] 安全截断: {hist_len}→{len(self._history)}条")
+
+    def _compact_history_if_needed(self) -> None:
+        """轮间压缩 — 仅截断超长工具结果，不做消息级压缩（由 _smart_compact_history 统一处理）。"""
+        for m in self._history:
+            if m.get("role") == "tool" and len(m.get("content", "")) > 3000:
+                m["content"] = (m["content"][:1200]
+                                + "\n...(已压缩)...\n"
+                                + m["content"][-600:])
 
     def _sanitize_messages(self, messages: list[dict]) -> None:
         """清洗消息列表，修复 tool_calls/tool 配对问题，防止 LLM API 400。"""

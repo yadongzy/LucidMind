@@ -73,6 +73,79 @@ _EXECUTE_CASE_TEMPLATE = '''    if tool_name == "{tool_name}":
 '''
 
 
+async def create_skill_with_llm(
+    name: str,
+    description: str,
+    tools: list[dict[str, Any]],
+    llm=None,
+    scan_before_load: bool = True,
+) -> dict:
+    """P2b: 用 LLM 生成完整 skill 实现代码（非 stub）。
+
+    如果 LLM 不可用或生成失败，回退到 create_skill() 生成 stub。
+    """
+    if not llm:
+        return create_skill(name, description, tools, scan_before_load)
+
+    try:
+        tool_specs = json.dumps(tools, ensure_ascii=False, indent=2)
+        prompt = (
+            f"请为一个名为 '{name}' 的Python工具插件生成完整的 main.py 代码。\n\n"
+            f"描述: {description}\n\n"
+            f"工具定义:\n{tool_specs}\n\n"
+            f"要求:\n"
+            f"1. 必须包含 get_tools() 函数，返回 OpenAI function calling 格式的工具列表\n"
+            f"2. 必须包含 async def execute(tool_name, params) 函数\n"
+            f"3. 实现真实功能逻辑（不要只返回 stub/placeholder）\n"
+            f"4. 只用 Python 标准库，不要第三方依赖\n"
+            f"5. 只输出纯 Python 代码，不要 markdown 代码块标记\n"
+            f"6. 代码必须可以直接运行\n"
+        )
+        response = await llm.chat(
+            [{"role": "user", "content": prompt}],
+            tools=None,
+        )
+        code = response.get("content", "").strip()
+        # 清理 markdown 代码块标记
+        if code.startswith("```"):
+            lines = code.split("\n")
+            lines = [l for l in lines if not l.strip().startswith("```")]
+            code = "\n".join(lines)
+        # 验证代码包含必要函数
+        if "def get_tools" in code and "async def execute" in code:
+            skill_dir = _SKILLS_DIR / name
+            if skill_dir.exists():
+                return {"success": False, "error": f"Skill {name} 已存在"}
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            # manifest
+            manifest = {**_MANIFEST_TEMPLATE, "name": name, "description": description,
+                        "tools": [t["name"] for t in tools]}
+            (skill_dir / "manifest.json").write_text(
+                json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+            (skill_dir / "main.py").write_text(code, encoding="utf-8")
+            logger.info(f"🤖 LLM Skill 已创建: {name} ({len(code)} chars)")
+            # 安全扫描
+            scan = None
+            if scan_before_load:
+                from skills.skill_scanner import scan_skill_directory
+                scan = scan_skill_directory(skill_dir)
+                if scan["block"]:
+                    import shutil
+                    shutil.rmtree(skill_dir, ignore_errors=True)
+                    return {"success": False, "error": f"安全扫描未通过: {scan['summary']}", "scan": scan}
+            # 热加载
+            from skills import hot_reload
+            hot_reload()
+            return {"success": True, "path": str(skill_dir), "tools": [t["name"] for t in tools],
+                    "scan": scan, "llm_generated": True}
+        else:
+            logger.warning(f"LLM 生成的代码缺少必要函数，回退 stub")
+    except Exception as e:
+        logger.warning(f"LLM skill 创建失败({e})，回退 stub")
+
+    return create_skill(name, description, tools, scan_before_load)
+
+
 def create_skill(
     name: str,
     description: str,

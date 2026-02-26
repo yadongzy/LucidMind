@@ -4,6 +4,61 @@
 
 ---
 
+## v1.6 (2026-02-26) — 大脑深度修复
+
+### 修复（🔴 严重）
+- **合并两套冲突压缩逻辑**：`_smart_compact_history()` + `_compact_history_if_needed()` 统一为 token-aware 压缩
+  - 新增 `_estimate_tokens()` 中英文 token 估算
+  - 新增 `_estimate_history_tokens()` 历史总量估算
+  - 新增 `_find_safe_cut_point()` 安全截断（保护 tool_calls/tool 配对）
+  - `_compact_history_if_needed()` 简化为仅截断超长工具结果，不再做消息级压缩
+- **System Prompt token 预算控制**：`_build_messages()` 可选部分按优先级排列，超 4K tokens 自动裁剪
+- **修复 L309 暴力截断**：`_stream_final_reply()` 中 `>60条` 截断改为 `_find_safe_cut_point()` 安全截断
+
+### 修复（🟡 中等）
+- **减少额外 LLM 调用**：`_detect_learning_signal()` 严格预筛，<6字/纯肯定词直接跳过
+- **移除自动 sudo**：`_adapt_params()` 不再自动添加 `sudo` 前缀，由 ToolSafetyGuard 控制
+- **真流式输出**：`_stream_final_reply()` 优先用 LLM `stream=True` 真流式推送，过滤 `<think>` 标签，降级伪流式
+
+### 改进（🟢）
+- **经验检索改进**：`_get_relevant_lessons()` 从最近 20 条消息提取用户输入（跳过 tool 消息）
+- **超时配置集中**：`BrainDaemon` 超时常量集中为类属性（OBSERVE/ENGINES/TEACHING/IDLE_MAX_WAIT）
+
+---
+
+## v1.5 (2026-02-26)
+
+### 新增
+- **P0a: MCP Server 扩展配置**：新增 github/sqlite/brave-search 三个 MCP Server 配置
+- **P1a: 经验质量治理**：`memory_curator.py` 新增 `quality_cleanup()` + `_is_command_like()`
+  - 自动识别并删除用户指令型经验（每天XX/给我XX/提醒XX等），50→41条
+  - 新增 `_COMMAND_PATTERNS` 模式匹配，`should_add_lesson()` 增加入库拦截
+- **P1b: 上下文窗口智能管理**：`brain_resilience.py` `_smart_compact_history()`
+  - ≤10条不处理，11-30条简单截断，>30条 LLM 生成对话摘要压缩
+  - 10秒超时，失败回退简单截断
+- **P1c: 工具使用强化**：`brain.py` `_TOOL_USAGE_HINTS` few-shot 提示注入
+  - 7条工具选择原则注入 system prompt，引导 LLM 正确选择工具
+- **P2a: 多角色/分身系统**：`identity/personas.py` + `api/personas.py`
+  - PersonaManager：创建/切换/删除人格，持久化配置
+  - 预置人格：coder(编程专家)、finance(金融股票分析专家)、ecommerce(电商运营专家)
+  - Brain 集成：当前人格 prompt 自动注入 system message
+  - API：GET /api/persona/list, POST switch/create, DELETE /{name}
+- **P2b: Skill Creator 智能化**：`skill_creator.py` `create_skill_with_llm()`
+  - 用 LLM 生成完整工具实现代码（非 stub），安全扫描后热加载
+  - 失败自动回退 stub 模式，`_auto_create_skill()` 已切换使用
+- **P2c: OAuth MCP 支持**：`mcp_client.py` `_HttpTransport` 增强
+  - 支持 `oauth_token` 和 `headers` 配置项
+  - 自动添加 `Authorization: Bearer` 头
+  - 401 状态码检测和日志
+
+### 修改
+- `brain.py`: 新增 `_persona_manager` 属性，`_build_messages()` 注入角色 prompt
+- `brain_resilience.py`: `_auto_create_skill()` 升级为 LLM 版本
+- `api/main.py`: 注册 personas_router，Brain 初始化时注入 PersonaManager
+- STRATEGY.md: Phase 4 全部标记
+
+---
+
 ## v1.4 (2026-02-26)
 
 ### 新增
