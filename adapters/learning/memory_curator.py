@@ -259,7 +259,7 @@ def _quality_score(lesson: dict[str, Any]) -> float:
     """综合质量评分：有效性 × 时间衰减 × 层级权重。"""
     eff = lesson.get("effectiveness")
     if eff is None:
-        eff = 0.4  # 未验证的默认分数（略低于中等）
+        eff = 0.2  # 未验证的默认分数（低于中等，避免虚高）
     tier = lesson.get("tier", "fact")
     tier_weight = {"strategy": 2.0, "fact": 1.0, "temp": 0.5}.get(tier, 1.0)
     half_life = get_half_life_days(tier)

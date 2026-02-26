@@ -1,4 +1,4 @@
-# Core
+# === Core ===
 fastapi>=0.110.0
 uvicorn>=0.27.0
 httpx>=0.27.0
@@ -10,16 +10,24 @@ numpy>=1.26.0
 psutil>=5.9.0
 websockets>=12.0
 croniter>=2.0.0
+pydantic>=2.0.0
 
-# Search
+# === Search ===
 duckduckgo-search>=6.0.0
 
-# Telegram (optional)
-python-telegram-bot>=21.0
+# === Document/Media (optional) ===
+python-pptx>=0.6.21
+openpyxl>=3.1.0
+Pillow>=10.0.0
+matplotlib>=3.8.0
 
-# Feishu (飞书长连接模式)
+# === Browser (optional) ===
+playwright>=1.40.0
+
+# === Channels (optional) ===
+python-telegram-bot>=21.0
 lark-oapi>=1.4.0
 
-# Testing
+# === Testing ===
 pytest>=8.0.0
 pytest-asyncio>=0.23.0

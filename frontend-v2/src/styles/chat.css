@@ -251,6 +251,29 @@
   font-size: 13px;
 }
 
+.code-block {
+  position: relative;
+  margin: 8px 0;
+}
+
+.code-lang {
+  position: absolute;
+  top: 0;
+  right: 0;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--muted);
+  background: var(--bg-hover);
+  border-radius: 0 var(--radius-sm) 0 var(--radius-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.code-block pre {
+  margin: 0;
+}
+
 .chat-bubble p + p { margin-top: 8px; }
 .chat-bubble ul, .chat-bubble ol { padding-left: 20px; margin: 8px 0; }
 .chat-bubble h1, .chat-bubble h2, .chat-bubble h3 {

@@ -109,6 +109,14 @@ export async function setAutoAsk(enabled) {
   });
 }
 
+export async function switchProvider(provider) {
+  return request("/api/switch-provider", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ provider }),
+  });
+}
+
 export async function verifyConnection(provider, apiKey, model) {
   return request("/api/verify", {
     method: "POST",

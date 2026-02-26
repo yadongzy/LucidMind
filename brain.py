@@ -77,9 +77,34 @@ class Brain(BrainResilienceMixin, BrainLearningMixin):
         self._awake = False
         self._goal_context = ""
         self.lessons_enabled = True  # A/B开关：经验注入
-        self._ab_stats: dict[str, list] = {"with_lessons": [], "without_lessons": []}  # A/B质量追踪
+        self._ab_stats: dict[str, list] = self._load_ab_stats()  # A/B质量追踪（持久化）
         self._persona_manager = None  # P2a: 多角色系统（延迟初始化）
         self._reload_soul_if_changed()
+
+    _AB_STATS_PATH = Path(__file__).parent / "data" / "ab_stats.json"
+
+    @classmethod
+    def _load_ab_stats(cls) -> dict[str, list]:
+        """从 data/ab_stats.json 加载 A/B 追踪数据。"""
+        try:
+            if cls._AB_STATS_PATH.exists():
+                data = json.loads(cls._AB_STATS_PATH.read_text())
+                if isinstance(data, dict):
+                    return {
+                        "with_lessons": data.get("with_lessons", [])[-100:],
+                        "without_lessons": data.get("without_lessons", [])[-100:],
+                    }
+        except Exception:
+            pass
+        return {"with_lessons": [], "without_lessons": []}
+
+    def _save_ab_stats(self) -> None:
+        """持久化 A/B 追踪数据到 data/ab_stats.json。"""
+        try:
+            self._AB_STATS_PATH.parent.mkdir(parents=True, exist_ok=True)
+            self._AB_STATS_PATH.write_text(json.dumps(self._ab_stats, ensure_ascii=False))
+        except Exception:
+            pass
 
     def set_stream(self, stream: StreamPort) -> None:
         self.stream = stream
@@ -277,7 +302,8 @@ class Brain(BrainResilienceMixin, BrainLearningMixin):
         content = re.sub(r"<think>.*?</think>\s*", "", raw, flags=re.DOTALL).strip() if raw else ""
         _already_streamed = False
 
-        # 尝试真流式：用 LLM stream=True 直接推送（仅已有内容为空时）
+        # 真流式：当非流式调用返回空内容时，用 stream=True 重新调用
+        # 注意：当 content 已有值时不重复调用（省 token），走下方伪流式即可
         if not content and not response.get("tool_calls"):
             try:
                 stream_iter = await self.llm.chat(messages, tools=None, stream=True)
@@ -335,9 +361,10 @@ class Brain(BrainResilienceMixin, BrainLearningMixin):
             "elapsed": round(elapsed, 2), "tokens": total_tokens,
             "response_len": len(content), "ts": time.time(),
         })
-        # 最多保留100条每组
+        # 最多保留100条每组，持久化
         if len(self._ab_stats[mode]) > 100:
             self._ab_stats[mode] = self._ab_stats[mode][-100:]
+        self._save_ab_stats()
         logger.info(f"[{session_id}] 回复完成(流式推送): {content[:80]}...")
         # 安全截断：保护 tool_calls/tool 配对
         if len(self._history) > 60:

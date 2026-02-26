@@ -4,6 +4,30 @@
 
 ---
 
+## v1.7 (2026-02-26) — 模型切换 + 记忆优化 + 自动构建 + pip 打包
+
+### 修复
+- **模型切换完整修复**：
+  - 新增 `/api/switch-provider` API（不验证连接，快速切换）
+  - `FallbackLLMAdapter.set_primary()` 切换主模型优先级
+  - 持久化到 `data/active_provider.json`，启动时 `_restore_active_provider()` 恢复
+  - 前端顶部下拉框改用 provider 名称绑定，切换后聊天区显示确认消息
+- **向量检索融合失效**：`retrieval.py` 用 `id(obj)` 做 key 导致 BM25/向量结果无法匹配，改为 `_stable_key()`
+- **MCP HTTP 传输变量名 bug**：`mcp_client.py` L264 `cfg` → `srv`
+- **A/B 质量追踪持久化**：`brain.py` 新增 `_load_ab_stats()` / `_save_ab_stats()`
+- **测试文件端口修正**：`test_e2e_api.py` 默认端口 8765 → 8000
+
+### 新增
+- **前端自动构建**：后端启动时检测 `frontend-v2/src` 是否有更新，自动执行 `vite build`
+- **代码块语言标签**：Markdown 渲染增加语言标识 + 样式
+- **pip 打包**：`pyproject.toml` 完善依赖声明、可选依赖分组、CLI 入口点
+
+### 变更
+- **STRATEGY.md 同步**：Phase 4 多角色配置标记✅，v1.6 大脑修复标记✅
+- **requirements.txt 补全**：添加 python-pptx、openpyxl、Pillow、matplotlib、playwright 等
+
+---
+
 ## v1.6 (2026-02-26) — 大脑深度修复
 
 ### 修复（🔴 严重）

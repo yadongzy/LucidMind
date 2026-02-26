@@ -303,7 +303,8 @@ mcporter (npm CLI 工具)
 
 | 功能 | 状态 | 说明 |
 |------|------|------|
-| 多角色配置 | 🔲 | 多个分身共享记忆独立上下文，对标 OpenClaw agents/ |
+| 多角色配置 | ✅ | PersonaManager + 4人格(default/coder/finance/ecommerce) + API |
+| v1.6 大脑深度修复 | ✅ | token-aware压缩/System Prompt预算/安全截断/真流式/移除sudo |
 | Discord 通道 | 🔲 | 社区贡献即可 |
 | pip 打包发布 | 🔲 | Phase 3 稳定后 |
 

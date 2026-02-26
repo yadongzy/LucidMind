@@ -261,8 +261,8 @@ class MCPClientAdapter(ToolPort):
                 if not url:
                     logger.warning(f"MCP: {name} 缺少 url 配置")
                     continue
-                transport = _HttpTransport(url, headers=cfg.get("headers"),
-                                           oauth_token=cfg.get("oauth_token") or cfg.get("env", {}).get("OAUTH_TOKEN"))
+                transport = _HttpTransport(url, headers=srv.get("headers"),
+                                           oauth_token=srv.get("oauth_token") or srv.get("env", {}).get("OAUTH_TOKEN"))
             else:
                 logger.warning(f"MCP: {name} 未知传输类型: {transport_type}")
                 continue

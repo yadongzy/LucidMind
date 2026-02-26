@@ -59,6 +59,42 @@ for _r in [upload_router, tasks_router, cron_router, sessions_router, auth_route
     app.include_router(_r)
 # 前端静态文件 — frontend-v2构建产物(frontend/dist)为主页面
 frontend_dist_dir = os.path.join(ROOT_DIR, "frontend", "dist")
+# 启动时自动构建前端（如果 frontend-v2 源码比 dist 更新）
+_fv2_dir = os.path.join(ROOT_DIR, "frontend-v2")
+def _auto_build_frontend():
+    """检测 frontend-v2/src 是否比 frontend/dist 更新，自动执行 vite build。"""
+    try:
+        dist_index = os.path.join(frontend_dist_dir, "index.html")
+        src_dir = os.path.join(_fv2_dir, "src")
+        if not os.path.exists(src_dir):
+            return
+        # 获取 dist/index.html 的修改时间（不存在则视为 0）
+        dist_mtime = os.path.getmtime(dist_index) if os.path.exists(dist_index) else 0
+        # 获取 src/ 下最新文件的修改时间
+        src_mtime = 0
+        for root, _, files in os.walk(src_dir):
+            for f in files:
+                t = os.path.getmtime(os.path.join(root, f))
+                if t > src_mtime:
+                    src_mtime = t
+        if src_mtime > dist_mtime:
+            logger.info("前端源码有更新，自动构建 frontend-v2...")
+            import subprocess
+            result = subprocess.run(
+                ["npx", "vite", "build"],
+                cwd=_fv2_dir, capture_output=True, text=True, timeout=60,
+            )
+            if result.returncode == 0:
+                logger.info("前端自动构建成功 ✅")
+            else:
+                logger.warning(f"前端自动构建失败: {result.stderr[:200]}")
+        else:
+            logger.info("前端构建产物已是最新，跳过构建")
+    except Exception as e:
+        logger.warning(f"前端自动构建跳过: {e}")
+
+_auto_build_frontend()
+os.makedirs(os.path.join(frontend_dist_dir, "assets"), exist_ok=True)
 app.mount("/static/output", StaticFiles(directory=os.path.join(ROOT_DIR, "data", "output")), name="output")
 app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist_dir, "assets")), name="assets")
 
@@ -86,6 +122,36 @@ _local.provider_name = "local"
 _special_kb = SpecialKB()
 llm_adapter = FallbackLLMAdapter(primary=_deepseek, fallbacks=[_minimax, _local], special_kb=_special_kb)
 llm_adapter.provider_name = "deepseek+minimax+local"
+
+# 活跃 provider 持久化（刷新页面后恢复用户选择的模型）
+_ACTIVE_PROVIDER_PATH = os.path.join(ROOT_DIR, "data", "active_provider.json")
+_provider_adapter_map = {"deepseek": _deepseek, "minimax": _minimax, "local": _local}
+
+def _save_active_provider(provider: str):
+    """保存用户选择的活跃 provider。"""
+    try:
+        os.makedirs(os.path.dirname(_ACTIVE_PROVIDER_PATH), exist_ok=True)
+        with open(_ACTIVE_PROVIDER_PATH, "w") as f:
+            json.dump({"provider": provider}, f)
+    except Exception:
+        pass
+
+def _restore_active_provider():
+    """启动时恢复用户上次选择的 provider。"""
+    try:
+        if os.path.exists(_ACTIVE_PROVIDER_PATH):
+            with open(_ACTIVE_PROVIDER_PATH) as f:
+                data = json.load(f)
+            provider = data.get("provider", "")
+            target = _provider_adapter_map.get(provider)
+            if target:
+                llm_adapter.set_primary(target)
+                llm_adapter.provider_name = provider
+                logger.info(f"恢复活跃 provider: {provider}")
+    except Exception:
+        pass
+
+_restore_active_provider()
 # 聚合工具适配器（内置 + 插件）
 _sub_agent = SubAgentAdapter()
 _builtin_tools = [ShellAdapter(), FileAdapter(), WebSearchAdapter(), SearchFilesAdapter(),
@@ -175,6 +241,22 @@ _PROVIDERS = {
     "local": ("http://localhost:11434/v1", "qwen3:8b"),
 }
 
+class SwitchProviderRequest(BaseModel):
+    provider: str
+
+@app.post("/api/switch-provider")
+async def switch_provider(req: SwitchProviderRequest):
+    """切换活跃模型（不验证连接，用于顶部下拉框快速切换）。"""
+    target = _provider_adapter_map.get(req.provider)
+    if not target:
+        raise HTTPException(status_code=400, detail=f"Unknown provider: {req.provider}")
+    llm_adapter.set_primary(target)
+    llm_adapter.provider_name = req.provider
+    _save_active_provider(req.provider)
+    model_name = getattr(target, "model", "?")
+    logger.info(f"模型已切换: {req.provider} ({model_name})")
+    return {"status": "ok", "provider": req.provider, "model": model_name}
+
 @app.post("/api/verify")
 async def verify_config(req: ConfigRequest):
     """验证并应用配置。"""
@@ -195,6 +277,11 @@ async def verify_config(req: ConfigRequest):
     target.provider_name = req.provider
     # 清除可用性缓存，让新 key 立即生效
     target._avail_ts = 0
+    # 切换 FallbackLLMAdapter 主模型
+    llm_adapter.set_primary(target)
+    llm_adapter.provider_name = req.provider
+    # 持久化活跃 provider 选择（刷新页面后恢复）
+    _save_active_provider(req.provider)
     logger.info(f"配置已更新: Provider={req.provider}, Model={model}")
     return {"status": "ok", "message": "Connection verified and applied"}
 

@@ -147,6 +147,15 @@ def mmr_rerank(items: list[dict[str, Any]], lam: float = 0.7, limit: int = 5) ->
     return [items[i] for i in selected]
 
 
+def _stable_key(item: dict[str, Any], text_fields: list[str]) -> str:
+    """生成稳定的内容 key，用于 BM25 与向量结果融合匹配。
+    优先用 id 字段，没有则用内容哈希。"""
+    if item.get("id"):
+        return str(item["id"])
+    text = "|".join(str(item.get(f, ""))[:80] for f in text_fields)
+    return text[:200]
+
+
 # === 混合检索主函数 ===
 
 def hybrid_search(
@@ -210,20 +219,20 @@ def hybrid_search(
             vec_results = vs.semantic_search(query, items, text_fields, limit=limit * 2)
             vec_map = {}
             for vr in vec_results:
-                key = str(vr.get("id", id(vr)))
+                key = _stable_key(vr, text_fields)
                 vec_map[key] = vr.get("_vec_score", 0)
             # 融合: final = 0.6 * bm25_norm + 0.4 * vec_score
             max_bm25 = max((s["_score"] for s in scored), default=1.0) or 1.0
             for s in scored:
-                key = str(s.get("id", id(s)))
+                key = _stable_key(s, text_fields)
                 bm25_norm = s["_score"] / max_bm25
                 vec_s = vec_map.get(key, 0)
                 s["_score"] = 0.6 * bm25_norm + 0.4 * vec_s
             # 添加仅向量命中的结果
-            scored_ids = {str(s.get("id", id(s))) for s in scored}
+            scored_keys = {_stable_key(s, text_fields) for s in scored}
             for vr in vec_results:
-                key = str(vr.get("id", id(vr)))
-                if key not in scored_ids:
+                key = _stable_key(vr, text_fields)
+                if key not in scored_keys:
                     vr["_score"] = 0.4 * vr.get("_vec_score", 0)
                     scored.append(vr)
     except Exception:

@@ -41,6 +41,15 @@ class FallbackLLMAdapter(LLMPort):
     def model(self) -> str:
         return getattr(self._primary, "model", "unknown")
 
+    def set_primary(self, adapter: LLMPort) -> None:
+        """切换主模型：将指定 adapter 设为 primary，其余为 fallback。"""
+        if adapter not in self._all:
+            self._all.append(adapter)
+        self._primary = adapter
+        self._fallbacks = [a for a in self._all if a is not adapter]
+        self._all = [adapter] + self._fallbacks
+        logger.info(f"主模型已切换: {getattr(adapter, 'model', '?')}")
+
     def _extract_user_question(self, messages: list[dict]) -> str:
         """提取最后一条用户消息。"""
         for m in reversed(messages):

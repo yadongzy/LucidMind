@@ -9,7 +9,7 @@ import pytest
 import requests
 import time
 
-BASE = os.environ.get("LUCIDMIND_TEST_URL", "http://127.0.0.1:8765")
+BASE = os.environ.get("LUCIDMIND_TEST_URL", "http://127.0.0.1:8000")
 TIMEOUT = 120
 
 

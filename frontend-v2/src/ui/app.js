@@ -467,11 +467,11 @@ class LucidMindApp extends LitElement {
             <div class="pill pill--model" title="当前模型 (点击切换)">
               <span class="statusDot ${this.status?.llm?.available ? 'ok' : ''}"></span>
               <select class="model-select"
-                .value=${this.modelInfo.model}
+                .value=${this.modelInfo.provider}
                 @change=${(e) => this._switchModel(e.target.value)}>
-                <option value="deepseek-chat" ?selected=${this.modelInfo.model === 'deepseek-chat'}>deepseek-chat</option>
-                <option value="minimax" ?selected=${this.modelInfo.model === 'minimax'}>minimax</option>
-                <option value="qwen2.5:7b" ?selected=${this.modelInfo.model === 'qwen2.5:7b'}>qwen2.5:7b (本地)</option>
+                <option value="deepseek" ?selected=${this.modelInfo.provider === 'deepseek'}>DeepSeek</option>
+                <option value="minimax" ?selected=${this.modelInfo.provider === 'minimax'}>MiniMax</option>
+                <option value="local" ?selected=${this.modelInfo.provider === 'local'}>Local (Ollama)</option>
               </select>
             </div>
             <button class="theme-toggle" @click=${(e) => this._toggleTheme(e)}
@@ -587,20 +587,37 @@ class LucidMindApp extends LitElement {
   async _switchModel(model) {
     const providerMap = {
       "deepseek-chat": "deepseek",
+      "MiniMax-M1": "minimax",
       "minimax": "minimax",
       "qwen2.5:7b": "local",
+      "gemma3:4b": "local",
     };
-    const provider = providerMap[model] || "deepseek";
-    this._log("sys", `切换模型: ${model} (${provider})`);
+    const provider = providerMap[model] || model;
+    this._log("sys", `切换模型: ${provider}...`);
     try {
-      const data = await api.verifyConnection(provider, "", model);
+      const data = await api.switchProvider(provider);
       if (data.status === "ok") {
-        this._log("sys", `模型切换成功: ${model}`);
+        this.messages = [...this.messages, {
+          role: "assistant",
+          content: `✅ 模型已切换为 **${data.model}** (${data.provider})`,
+          timestamp: Date.now(),
+        }];
+        this._log("sys", `✅ 模型切换成功: ${data.model} (${data.provider})`);
       } else {
-        this._log("error", `模型切换失败: ${data.message || "未知错误"}`);
+        this.messages = [...this.messages, {
+          role: "assistant",
+          content: `❌ 模型切换失败: ${data.detail || "未知错误"}`,
+          timestamp: Date.now(),
+        }];
+        this._log("error", `模型切换失败`);
       }
       await this._refreshStatus();
     } catch (e) {
+      this.messages = [...this.messages, {
+        role: "assistant",
+        content: `❌ 模型切换异常: ${e.message}`,
+        timestamp: Date.now(),
+      }];
       this._log("error", `模型切换异常: ${e.message}`);
     }
   }

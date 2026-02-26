@@ -12,9 +12,9 @@ export function renderConfig(app) {
       <div class="form-group">
         <label class="form-label">提供商</label>
         <select class="form-select" id="cfg-provider">
-          <option value="deepseek">DeepSeek</option>
-          <option value="minimax">MiniMax</option>
-          <option value="local">Local (Ollama)</option>
+          <option value="deepseek" ?selected=${app.modelInfo?.provider === "deepseek"}>DeepSeek</option>
+          <option value="minimax" ?selected=${app.modelInfo?.provider === "minimax"}>MiniMax</option>
+          <option value="local" ?selected=${app.modelInfo?.provider === "local"}>Local (Ollama)</option>
         </select>
       </div>
       <div class="form-group">

@@ -23,9 +23,12 @@ class BrainLearningMixin:
         """S8: 检索与当前对话相关的经验。追踪注入的经验ID用于有效性评估。"""
         if not self.learning or not self._history:
             return ""
-        # 从最近20条消息中提取最近4条用户消息（跳过夹在中间的tool消息）
-        recent = [m["content"] for m in self._history[-20:]
-                  if m.get("role") == "user" and m.get("content")][-4:]
+        # 从最近20条消息中提取用户消息 + assistant回复摘要，拓宽检索上下文
+        recent_user = [m["content"] for m in self._history[-20:]
+                       if m.get("role") == "user" and m.get("content")][-4:]
+        recent_asst = [m["content"][:60] for m in self._history[-10:]
+                       if m.get("role") == "assistant" and m.get("content")][-2:]
+        recent = recent_user + recent_asst
         if not recent:
             return ""
         try:
