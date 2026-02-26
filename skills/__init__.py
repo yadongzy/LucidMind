@@ -37,6 +37,19 @@ _SKILLS_DIR = pathlib.Path(__file__).parent
 # 全局插件注册表：name → PluginInfo
 _registry: dict[str, dict] = {}
 
+_PLUGIN_NAME_RE = __import__('re').compile(r'^[a-z0-9][a-z0-9_-]{0,63}$')
+
+
+def _validate_plugin_name(name: str) -> bool:
+    """插件名安全验证：拒绝路径穿越、特殊字符、超长名称。"""
+    if not name or not _PLUGIN_NAME_RE.match(name):
+        return False
+    # 双重保护：resolve 后确认仍在 skills 目录内
+    target = (_SKILLS_DIR / name).resolve()
+    if not str(target).startswith(str(_SKILLS_DIR.resolve())):
+        return False
+    return True
+
 
 def _load_adapter_from_file(py_path: pathlib.Path, module_name: str) -> list[Any]:
     """从Python文件加载所有 Adapter 类实例。"""
@@ -61,6 +74,7 @@ def discover_skills() -> list[Any]:
     all_adapters = []
     current_platform = platform.system().lower()
 
+    import time as _time
     # 1. 扫描子目录（新格式：含 manifest.json）
     for sub_dir in sorted(_SKILLS_DIR.iterdir()):
         if not sub_dir.is_dir() or sub_dir.name.startswith("_"):
@@ -69,11 +83,20 @@ def discover_skills() -> list[Any]:
         if not manifest_path.exists():
             continue
         try:
+            # Safety by Default: 加载前安全检查
+            from skills.discovery_safety import check_plugin_safety
+            safety = check_plugin_safety(sub_dir)
+            if safety["blocked"]:
+                logger.warning(f"🛡️ 插件安全阻断: {sub_dir.name} — {safety['blocked_reason']}")
+                _registry[sub_dir.name] = {"name": sub_dir.name, "status": "security_blocked",
+                                           "security": safety, "adapters": []}
+                continue
+
             manifest = json.loads(manifest_path.read_text("utf-8"))
             name = manifest.get("name", sub_dir.name)
             if not manifest.get("enabled", True):
                 logger.info(f"⏸️  插件已禁用: {name}")
-                _registry[name] = {**manifest, "status": "disabled", "adapters": []}
+                _registry[name] = {**manifest, "status": "disabled", "adapters": [], "security": safety}
                 continue
             # 平台检查（"all" 匹配所有平台）
             plats = manifest.get("platform", [])
@@ -94,10 +117,20 @@ def discover_skills() -> list[Any]:
             tools = []
             for a in adapters:
                 tools.extend(t["function"]["name"] for t in a.list_tools())
-            _registry[name] = {**manifest, "status": "loaded", "tools_actual": tools, "adapters": adapters}
+            _registry[name] = {**manifest, "status": "loaded", "tools_actual": tools, "adapters": adapters, "security": safety}
             logger.info(f"✅ 加载插件: {name} v{manifest.get('version', '?')} → {', '.join(tools)}")
+            try:
+                from diagnostics import record_event
+                record_event("plugin_load", "discover", "success", 0, input_summary=f"plugin={name}", output_summary=f"tools={','.join(tools)}")
+            except Exception:
+                pass
         except Exception as e:
             logger.warning(f"❌ 加载插件失败: {sub_dir.name} — {e}")
+            try:
+                from diagnostics import record_event
+                record_event("plugin_load", "discover", "failure", 0, input_summary=f"plugin={sub_dir.name}", error=str(e)[:200])
+            except Exception:
+                pass
 
     # 2. 扫描单文件（旧格式兼容）
     for py_file in sorted(_SKILLS_DIR.glob("*.py")):
@@ -133,6 +166,42 @@ def get_registry() -> dict[str, dict]:
         safe = {k: v for k, v in info.items() if k != "adapters"}
         result[name] = safe
     return result
+
+
+_BUILTIN_PLUGINS = frozenset({
+    "bookmarks", "calculator", "clipboard", "code_runner", "daily_digest",
+    "docker_ops", "email_sender", "git_helper", "github_ops", "identity",
+    "knowledge_base", "notes", "project_context", "reminder", "weather",
+    "web_monitor", "discovery_safety", "skill_creator", "skill_scanner",
+})
+
+
+def is_builtin(name: str) -> bool:
+    """判断是否为内置插件。"""
+    return name in _BUILTIN_PLUGINS
+
+
+def delete_plugin(name: str) -> dict:
+    """删除非内置插件（删除目录 + 热加载）。"""
+    import shutil
+    if not _validate_plugin_name(name):
+        return {"success": False, "error": f"插件名不合法: {name}"}
+    if is_builtin(name):
+        return {"success": False, "error": f"内置插件不可删除: {name}"}
+    plugin_dir = _SKILLS_DIR / name
+    if not plugin_dir.exists():
+        # 也检查旧格式单文件
+        py_file = _SKILLS_DIR / f"{name}.py"
+        if py_file.exists():
+            return {"success": False, "error": f"旧格式系统模块不可删除: {name}"}
+        return {"success": False, "error": f"插件不存在: {name}"}
+    try:
+        shutil.rmtree(plugin_dir)
+        logger.info(f"🗑️ 插件已删除: {name}")
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"删除插件失败: {name} — {e}")
+        return {"success": False, "error": str(e)}
 
 
 def set_plugin_enabled(name: str, enabled: bool) -> bool:
@@ -244,6 +313,8 @@ def install_from_hub(name: str) -> dict:
 
     优先检查本地是否已存在（已有则直接启用+热加载），否则从远程下载。
     """
+    if not _validate_plugin_name(name):
+        return {"success": False, "error": f"插件名不合法(\u4ec5允许 a-z0-9_- 且长度\u22641-64): {name}"}
     hub = refresh_hub_registry()
     plugin_info = next((p for p in hub if p.get("name") == name), None)
     if not plugin_info:

@@ -56,3 +56,27 @@ async def approve_tool(request_id: str, approved: bool, reason: str = ""):
     """处理前端发来的审批响应。"""
     ok = _guard.handle_approval_response(request_id, approved, reason)
     return {"status": "ok" if ok else "not_found", "request_id": request_id}
+
+
+@router.post("/scan/{plugin_name}")
+async def scan_plugin(plugin_name: str):
+    """手动触发对已安装插件的安全扫描。"""
+    from fastapi import HTTPException
+    from skills import _validate_plugin_name
+    import pathlib
+    if not _validate_plugin_name(plugin_name):
+        raise HTTPException(status_code=400, detail=f"插件名不合法: {plugin_name}")
+    skill_dir = pathlib.Path(__file__).parent.parent / "skills" / plugin_name
+    if not skill_dir.is_dir():
+        raise HTTPException(status_code=404, detail=f"插件不存在: {plugin_name}")
+    from skills.skill_scanner import scan_skill_directory
+    result = scan_skill_directory(skill_dir)
+    return result
+
+
+@router.get("/scan-history")
+async def scan_history(limit: int = 50):
+    """查询扫描历史记录。"""
+    from skills.skill_scanner import get_scan_history
+    records = get_scan_history(limit=limit)
+    return {"records": records, "total": len(records)}

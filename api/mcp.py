@@ -1,6 +1,6 @@
 """MCP 管理 API — 服务器配置/连接/断开/工具列表。"""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 router = APIRouter(prefix="/api/mcp", tags=["mcp"])
 
@@ -28,27 +28,44 @@ async def list_servers():
 async def add_server(body: dict):
     """添加一个 MCP Server 配置。"""
     if not _mcp_client:
-        return {"error": "MCP 客户端未初始化"}
+        raise HTTPException(status_code=500, detail="MCP 客户端未初始化")
     name = body.get("name", "")
     if not name:
-        return {"error": "name 不能为空"}
+        raise HTTPException(status_code=400, detail="name 不能为空")
     transport = body.get("transport", "stdio")
-    if transport == "stdio" and not body.get("command"):
-        return {"error": "stdio 传输需要 command 参数"}
-    if transport == "http" and not body.get("url"):
-        return {"error": "http 传输需要 url 参数"}
+    # Safety by Default: 安全验证
+    from adapters.tools.mcp_client import validate_server_config
+    valid, reason = validate_server_config(body)
+    if not valid:
+        raise HTTPException(status_code=400, detail=reason)
     _mcp_client.add_server(body)
     return {"status": "ok", "message": f"MCP Server {name} 已添加"}
+
+
+@router.put("/servers/{name}")
+async def update_server(name: str, body: dict):
+    """更新 MCP Server 配置（env、enabled 等字段）。"""
+    if not _mcp_client:
+        raise HTTPException(status_code=500, detail="MCP 客户端未初始化")
+    srv = next((s for s in _mcp_client._servers if s.get("name") == name), None)
+    if not srv:
+        raise HTTPException(status_code=404, detail=f"未找到: {name}")
+    if "env" in body:
+        srv["env"] = {**(srv.get("env") or {}), **body["env"]}
+    if "enabled" in body:
+        srv["enabled"] = bool(body["enabled"])
+    _mcp_client.save_config()
+    return {"status": "ok", "message": f"MCP Server {name} 已更新", "server": srv}
 
 
 @router.delete("/servers/{name}")
 async def remove_server(name: str):
     """移除一个 MCP Server 配置。"""
     if not _mcp_client:
-        return {"error": "MCP 客户端未初始化"}
+        raise HTTPException(status_code=500, detail="MCP 客户端未初始化")
     ok = _mcp_client.remove_server(name)
     if not ok:
-        return {"error": f"未找到: {name}"}
+        raise HTTPException(status_code=404, detail=f"未找到: {name}")
     return {"status": "ok", "message": f"MCP Server {name} 已移除"}
 
 
@@ -56,7 +73,7 @@ async def remove_server(name: str):
 async def discover():
     """重新发现所有 MCP Server 的工具。"""
     if not _mcp_client:
-        return {"error": "MCP 客户端未初始化"}
+        raise HTTPException(status_code=500, detail="MCP 客户端未初始化")
     count = await _mcp_client.discover()
     if _tool_adapter:
         _tool_adapter._rebuild_map()

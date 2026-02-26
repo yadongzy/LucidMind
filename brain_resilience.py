@@ -9,6 +9,7 @@
 import asyncio
 import os
 import platform
+import re
 
 from logs import get_logger
 
@@ -18,12 +19,18 @@ logger = get_logger("brain")
 class BrainResilienceMixin:
     """韧性能力混入 — 让大脑能自愈、重试、自检。"""
 
-    async def _llm_call_with_retry(self, session_id: str, messages: list, tools) -> dict:
-        """S7 Ralph: LLM 调用失败时自动重试，每次重试透明告知用户。"""
+    async def _llm_call_with_retry(self, session_id: str, messages: list, tools,
+                                    tool_choice: str | None = None,
+                                    llm_override=None) -> dict:
+        """S7 Ralph: LLM 调用失败时自动重试，每次重试透明告知用户。
+        tool_choice: "auto"/"required"/None — 控制是否强制工具调用
+        llm_override: 可选备用 LLM adapter（Layer 3 用，不修改 self.llm）
+        """
+        llm = llm_override or self.llm
         last_error = None
         for attempt in range(self.ralph_max_retries + 1):
             try:
-                return await self.llm.chat(messages, tools=tools)
+                return await llm.chat(messages, tools=tools, tool_choice=tool_choice)
             except Exception as e:
                 last_error = e
                 remaining = self.ralph_max_retries - attempt
@@ -238,32 +245,32 @@ class BrainResilienceMixin:
     async def _smart_compact_history(self, session_id: str) -> None:
         """统一上下文窗口管理 — token-aware 压缩，保护 tool_calls/tool 配对。
 
-        策略（基于 token 估算）：
-        - 阶段0: <4K tokens → 不处理
-        - 阶段1: 截断过长工具结果（>2000字符 → 保留首尾）
-        - 阶段2: >8K tokens 或 >30条 → LLM摘要压缩，保留最近8条
+        策略（基于 token 估算，P9 OpenClaw 对标收紧）：
+        - 阶段0: <2.5K tokens 且 <=10条 → 不处理
+        - 阶段1: 截断过长工具结果（>1500字符 → 保留首800+尾400）
+        - 阶段2: >4K tokens 或 >20条 → LLM摘要压缩，保留最近6条
         - 阶段3: 摘要失败 → 安全截断（保护 tool_calls/tool 配对）
         """
         hist_len = len(self._history)
         total_tokens = self._estimate_history_tokens()
 
-        if total_tokens < 4000 and hist_len <= 15:
+        if total_tokens < 2500 and hist_len <= 10:
             return
 
         # 阶段1: 截断过长工具结果
-        if total_tokens > 6000:
+        if total_tokens > 3500:
             for m in self._history:
-                if m.get("role") == "tool" and len(m.get("content", "")) > 2000:
-                    m["content"] = (m["content"][:1000]
+                if m.get("role") == "tool" and len(m.get("content", "")) > 1500:
+                    m["content"] = (m["content"][:800]
                                     + "\n...(已压缩)...\n"
-                                    + m["content"][-500:])
+                                    + m["content"][-400:])
             total_tokens = self._estimate_history_tokens()
 
         # 阶段2: 需要摘要压缩
-        if total_tokens < 8000 and hist_len <= 30:
+        if total_tokens < 4000 and hist_len <= 20:
             return
 
-        keep_recent = 8
+        keep_recent = 6
         if hist_len <= keep_recent + 2:
             return
 
@@ -293,7 +300,6 @@ class BrainResilienceMixin:
                     timeout=10.0
                 )
                 summary_content = resp.get("content", "").strip()
-                import re
                 summary_content = re.sub(r"<think>.*?</think>\s*", "", summary_content, flags=re.DOTALL).strip()
                 if summary_content and len(summary_content) > 20:
                     self._history = [{"role": "system", "content": f"[对话摘要] {summary_content}"}] + recent_messages

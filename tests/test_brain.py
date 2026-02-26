@@ -73,7 +73,7 @@ def test_brain_with_thinking():
     from ports.stream_port import StreamPort
 
     class MockLLM(LLMPort):
-        async def chat(self, messages, tools=None, stream=False):
+        async def chat(self, messages, tools=None, stream=False, **kwargs):
             return {
                 "content": "<think>用户在打招呼，简短回复即可。</think>\n你好！",
                 "usage": {"total_tokens": 50},
@@ -119,7 +119,7 @@ def test_brain_no_thinking():
     from ports.stream_port import StreamPort
 
     class MockLLM(LLMPort):
-        async def chat(self, messages, tools=None, stream=False):
+        async def chat(self, messages, tools=None, stream=False, **kwargs):
             return {"content": "直接回复"}
         async def is_available(self):
             return True
@@ -153,7 +153,7 @@ def test_brain_reasoning_content():
     from ports.stream_port import StreamPort
 
     class MockLLM(LLMPort):
-        async def chat(self, messages, tools=None, stream=False):
+        async def chat(self, messages, tools=None, stream=False, **kwargs):
             return {
                 "content": "你好！",
                 "reasoning_content": "这是一个简单的问候，不需要工具。",
@@ -185,7 +185,7 @@ def test_brain_error_handling():
     from ports.stream_port import StreamPort
 
     class FailingLLM(LLMPort):
-        async def chat(self, messages, tools=None, stream=False):
+        async def chat(self, messages, tools=None, stream=False, **kwargs):
             raise ConnectionError("API 连接失败")
         async def is_available(self):
             return False

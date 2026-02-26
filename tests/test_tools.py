@@ -32,7 +32,7 @@ def test_brain_tool_call():
     call_count = 0
 
     class MockLLMWithTools(LLMPort):
-        async def chat(self, messages, tools=None, stream=False):
+        async def chat(self, messages, tools=None, stream=False, **kwargs):
             nonlocal call_count
             call_count += 1
             if call_count == 1:

@@ -12,6 +12,16 @@ logger = get_logger("brain")
 class BrainLearningMixin:
     """学习能力混入 — 让大脑能从经验中学习。"""
 
+    async def _ace_reflect_and_merge(self, session_id: str) -> None:
+        """ACE Reflector: 工具调用后异步反思并合并经验。Phase R6 将完整实现。"""
+        try:
+            from memory import reflect_on_session
+            await reflect_on_session(session_id, self._history, self.learning)
+        except ImportError:
+            pass
+        except Exception as e:
+            logger.debug(f"[{session_id}] ACE reflect 跳过: {e}")
+
     async def _learn_pattern(self, sid: str, trigger: str, lesson: str, source: str = "auto") -> None:
         """记录成功/失败模式到经验库。"""
         try:

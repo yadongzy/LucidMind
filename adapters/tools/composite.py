@@ -19,7 +19,12 @@ class CompositeToolAdapter(ToolPort):
         self._adapters: list[ToolPort] = adapters or []
         self._builtin_tools: list[ToolPort] = list(self._adapters)  # 记住内建工具
         self._tool_map: dict[str, ToolPort] = {}
+        self._safety_guard = None
         self._rebuild_map()
+
+    def set_safety_guard(self, guard) -> None:
+        """注入 ToolSafetyGuard，execute() 将在路由前调用 guard.check()。"""
+        self._safety_guard = guard
 
     def _refresh(self) -> None:
         """热加载后刷新工具映射。"""
@@ -55,8 +60,43 @@ class CompositeToolAdapter(ToolPort):
 
     async def execute(self, tool_name: str, params: dict[str, Any],
                       session_id: str = "") -> dict[str, Any]:
-        """路由到对应的适配器执行。"""
+        """路由到对应的适配器执行（经过安全审批 + 诊断记录）。"""
+        import time as _time
+        _t0 = _time.time()
         adapter = self._tool_map.get(tool_name)
         if not adapter:
+            self._record_diagnostic(tool_name, "failure", 0, "未知工具", session_id=session_id)
             return {"success": False, "result": None, "error": f"未知工具: {tool_name}"}
-        return await adapter.execute(tool_name, params)
+        # Safety by Default: 执行前经过 ToolSafetyGuard 审批
+        if self._safety_guard:
+            try:
+                check = await self._safety_guard.check(session_id, tool_name, params)
+                if not check.get("approved"):
+                    reason = check.get("reason", "用户拒绝或审批超时")
+                    logger.warning(f"工具被安全审批拦截: {tool_name} — {reason}")
+                    self._record_diagnostic(tool_name, "blocked", (_time.time() - _t0) * 1000, reason, session_id=session_id)
+                    return {"success": False, "result": None, "error": f"安全审批未通过: {reason}"}
+            except Exception as e:
+                logger.error(f"安全审批异常(放行): {tool_name} — {e}")
+        result = await adapter.execute(tool_name, params)
+        duration = (_time.time() - _t0) * 1000
+        status = "success" if result.get("success") else "failure"
+        error = result.get("error") if not result.get("success") else None
+        self._record_diagnostic(tool_name, status, duration, error, session_id=session_id)
+        return result
+
+    @staticmethod
+    def _record_diagnostic(tool_name: str, status: str, duration_ms: float,
+                           error: str | None = None, session_id: str = "") -> None:
+        """记录工具调用诊断事件（失败不影响主流程）。"""
+        try:
+            from diagnostics import record_event
+            record_event(
+                category="tool_call", action="execute", status=status,
+                duration_ms=duration_ms, input_summary=f"tool={tool_name}",
+                output_summary=status, error=error,
+                metadata={"tool_name": tool_name, "session_id": session_id},
+                level="warning" if status != "success" else "info",
+            )
+        except Exception:
+            pass

@@ -62,6 +62,7 @@ class FallbackLLMAdapter(LLMPort):
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
         stream: bool = False,
+        **kwargs,
     ) -> dict[str, Any] | AsyncIterator[str]:
         question = self._extract_user_question(messages)
 
@@ -81,7 +82,7 @@ class FallbackLLMAdapter(LLMPort):
                 local = self._fallbacks[0]
                 local_name = getattr(local, "model", "local")
                 try:
-                    result = await local.chat(enhanced, tools=tools, stream=stream)
+                    result = await local.chat(enhanced, tools=tools, stream=stream, **kwargs)
                     logger.info(f"SpecialKB 路由成功: 本地模型 {local_name} 使用缓存回答 (省外部token)")
                     self._kb.boost_quality(question)
                     return result
@@ -131,7 +132,7 @@ class FallbackLLMAdapter(LLMPort):
             # 尝试调用（瞬态错误重试1次）
             for attempt in range(2):
                 try:
-                    result = await adapter.chat(messages, tools=call_tools, stream=stream)
+                    result = await adapter.chat(messages, tools=call_tools, stream=stream, **kwargs)
                     if i > 0: logger.info(f"Fallback 成功: 使用备用模型 {model_name}")
                     h["failures"] = 0  # 成功则重置
                     if i == 0 and not stream:

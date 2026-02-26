@@ -22,17 +22,14 @@ from brain import Brain
 from adapters.llm.deepseek import DeepSeekAdapter
 from adapters.llm.fallback_llm import FallbackLLMAdapter
 from adapters.channel.websocket_channel import WebSocketChannelAdapter
-from adapters.tools.shell import ShellAdapter; from adapters.tools.file import FileAdapter
-from adapters.tools.web_search import WebSearchAdapter; from adapters.tools.composite import CompositeToolAdapter
-from adapters.tools.search_files import SearchFilesAdapter; from adapters.tools.document import DocumentAdapter
-from adapters.tools.browser_tool import BrowserToolAdapter; from adapters.tools.image_tool import ImageToolAdapter
-from adapters.tools.file_analyze import FileAnalyzeAdapter; from adapters.tools.sub_agent import SubAgentAdapter
-from adapters.tools.introspect import IntrospectAdapter; from adapters.tools.teaching import TeachingAdapter
-from adapters.tools.weather import WeatherAdapter; from adapters.tools.system_monitor import SystemMonitorAdapter
-from adapters.tools.scheduler import SchedulerAdapter; from adapters.tools.hw_scanner import HWScannerAdapter, get_optimal_model_name
-from adapters.tools.deep_research import DeepResearchAdapter
+from adapters.tools.composite import CompositeToolAdapter
+from adapters.tools.sub_agent import SubAgentAdapter
+from adapters.tools.introspect import IntrospectAdapter
+from adapters.tools.hw_scanner import get_optimal_model_name
+from adapters.tools.discover import discover_tool_adapters
 from adapters.memory.json_memory import JSONMemoryAdapter
 from adapters.learning.json_lessons import JSONLessonsAdapter
+from adapters.learning.memory_store_adapter import MemoryStoreLearningAdapter
 from adapters.reflection.json_reflection import JSONReflectionAdapter
 from adapters.learning.special_kb import SpecialKB
 
@@ -50,12 +47,14 @@ from api import channels as channels_api
 from api.security import router as security_router
 from api import security as security_api
 from api.personas import router as personas_router
+from api.diagnostics import router as diagnostics_router
+from api.memory import router as memory_router
 from logs import get_logger
 
 logger = get_logger("api")
 
 app = FastAPI(title="LucidMind", version="0.1.0")
-for _r in [upload_router, tasks_router, cron_router, sessions_router, auth_router, data_views.router, brain_init.router, http_chat.router, teacher.router, cascade_inject.router, plugins_router, mcp_router, channels_router, security_router, personas_router]:
+for _r in [upload_router, tasks_router, cron_router, sessions_router, auth_router, data_views.router, brain_init.router, http_chat.router, teacher.router, cascade_inject.router, plugins_router, mcp_router, channels_router, security_router, personas_router, diagnostics_router, memory_router]:
     app.include_router(_r)
 # 前端静态文件 — frontend-v2构建产物(frontend/dist)为主页面
 frontend_dist_dir = os.path.join(ROOT_DIR, "frontend", "dist")
@@ -106,7 +105,7 @@ _deepseek = DeepSeekAdapter(
 )
 _deepseek.provider_name = "deepseek"
 _minimax = DeepSeekAdapter(
-    api_key=os.getenv("MINIMAX_API_KEY", "sk-cp-LbE4ilWhHLWMvYDEnqCST8j564oVcZ29AYpxRlITfOuRlHJhvW0KDNKWhvbECRCYbxrW3NPaOCsFB2E-QN4mHuofvI8HnslSC-covqXrphIK7eBWtKThi5o"),
+    api_key=os.getenv("MINIMAX_API_KEY", ""),
     base_url="https://api.minimax.chat/v1", model="MiniMax-M1",
 )
 _minimax.provider_name = "minimax"
@@ -152,12 +151,10 @@ def _restore_active_provider():
         pass
 
 _restore_active_provider()
-# 聚合工具适配器（内置 + 插件）
+# 聚合工具适配器（自动发现 + 手动补充特殊工具）
 _sub_agent = SubAgentAdapter()
-_builtin_tools = [ShellAdapter(), FileAdapter(), WebSearchAdapter(), SearchFilesAdapter(),
-    DocumentAdapter(), BrowserToolAdapter(), ImageToolAdapter(), FileAnalyzeAdapter(), _sub_agent,
-    IntrospectAdapter(), TeachingAdapter(),
-    WeatherAdapter(), SystemMonitorAdapter(), SchedulerAdapter(), HWScannerAdapter(), DeepResearchAdapter()]
+_builtin_tools = discover_tool_adapters()  # 自动扫描 adapters/tools/ 下所有 ToolPort 子类
+_builtin_tools.append(_sub_agent)  # SubAgentAdapter 需要注入 llm，单独处理
 # 自动发现 skills/ 目录下的插件
 from skills import discover_skills
 _skill_tools = discover_skills()
@@ -165,12 +162,16 @@ _skill_tools = discover_skills()
 from adapters.tools.mcp_client import MCPClientAdapter
 _mcp_client = MCPClientAdapter()
 _builtin_tools.append(_mcp_client)
-tool_adapter = CompositeToolAdapter(_builtin_tools + _skill_tools)
+tool_adapter = CompositeToolAdapter(_builtin_tools)  # 只传内建工具，_builtin_tools 正确记录
+# 添加 skill 工具（不进入 _builtin_tools，hot_reload 时会替换）
+for _sa in _skill_tools:
+    tool_adapter._adapters.append(_sa)
+tool_adapter._refresh()
 # 注入 tool_adapter 引用到 skills 模块，支持热加载
 from skills import set_tool_adapter_ref
 set_tool_adapter_ref(tool_adapter)
 _sub_agent.set_llm(llm_adapter)
-memory_adapter, learning_adapter, reflection_adapter = JSONMemoryAdapter(), JSONLessonsAdapter(), JSONReflectionAdapter()
+memory_adapter, learning_adapter, reflection_adapter = JSONMemoryAdapter(), MemoryStoreLearningAdapter(), JSONReflectionAdapter()
 IntrospectAdapter._learning_adapter = learning_adapter
 # 多通道适配器
 from adapters.channel.telegram_channel import TelegramChannelAdapter
@@ -389,6 +390,7 @@ channels_api.init(_telegram_channel, _feishu_channel, _wecom_channel, _wechat_ch
 from adapters.tools.tool_safety import get_safety_guard
 _safety_guard = get_safety_guard()
 _safety_guard.set_ws_channel(_ws_channel)
+tool_adapter.set_safety_guard(_safety_guard)  # Safety by Default: 审批链闭环
 security_api.init(_safety_guard)
 data_views.init(memory_adapter, learning_adapter, brain=None)  # brain注入在_get_brain中延迟设置
 http_chat.init(lambda s: _get_brain(s))

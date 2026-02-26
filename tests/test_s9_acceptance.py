@@ -12,7 +12,7 @@ import pytest
 
 class MockLLM:
     model = "test-model"
-    async def chat(self, messages, tools=None, stream=False):
+    async def chat(self, messages, tools=None, stream=False, **kwargs):
         return {"content": "S9 验收回复", "usage": {"total_tokens": 42}}
     async def is_available(self):
         return True
@@ -41,7 +41,7 @@ def test_s9_s1_basic_chat():
 def test_s9_s2_thinking_extraction():
     from brain import Brain
     class ThinkLLM(MockLLM):
-        async def chat(self, messages, tools=None, stream=False):
+        async def chat(self, messages, tools=None, stream=False, **kwargs):
             return {"content": "<think>我在想...</think>最终答案", "usage": {}}
     stream = MockStream()
     brain = Brain(llm=ThinkLLM(), stream=stream)
@@ -132,7 +132,7 @@ def test_s9_s7_ralph_retry():
     call_count = 0
     class FailTwiceLLM:
         model = "test"
-        async def chat(self, messages, tools=None, stream=False):
+        async def chat(self, messages, tools=None, stream=False, **kwargs):
             nonlocal call_count
             call_count += 1
             if call_count < 3:
@@ -190,7 +190,7 @@ def test_s9_pressure_llm_failure():
     from brain import Brain
     class DeadLLM:
         model = "dead"
-        async def chat(self, messages, tools=None, stream=False):
+        async def chat(self, messages, tools=None, stream=False, **kwargs):
             raise RuntimeError("LLM is dead")
         async def is_available(self):
             return False

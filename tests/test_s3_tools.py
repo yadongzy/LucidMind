@@ -36,7 +36,7 @@ class MockToolLLM:
     def __init__(self):
         self.call_count = 0
 
-    async def chat(self, messages, tools=None, stream=False):
+    async def chat(self, messages, tools=None, stream=False, **kwargs):
         self.call_count += 1
         # Round 1: Request tool
         if self.call_count == 1:

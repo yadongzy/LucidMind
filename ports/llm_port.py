@@ -13,6 +13,7 @@ class LLMPort(ABC):
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
         stream: bool = False,
+        **kwargs,
     ) -> dict[str, Any] | AsyncIterator[str]:
         """发送消息给 LLM，返回回复。
 
@@ -20,6 +21,7 @@ class LLMPort(ABC):
             messages: 对话消息列表 [{"role": "user", "content": "..."}]
             tools: 可用工具定义列表（可选）
             stream: 是否流式返回
+            **kwargs: 扩展参数（如 tool_choice="required"）
 
         Returns:
             非流式: {"content": "...", "tool_calls": [...]} 

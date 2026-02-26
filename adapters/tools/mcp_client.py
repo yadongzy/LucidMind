@@ -17,8 +17,11 @@ import asyncio
 import json
 import os
 import pathlib
+import re
+import shutil
 import sys
 from typing import Any
+from urllib.parse import urlparse
 
 from ports.tool_port import ToolPort
 from logs import get_logger
@@ -27,6 +30,59 @@ logger = get_logger("mcp")
 
 _MCP_TIMEOUT = 30
 _CONFIG_PATH = pathlib.Path(__file__).parent.parent.parent / "data" / "mcp_servers.json"
+
+# Safety by Default: MCP Server 配置安全验证
+_SAFE_COMMANDS = {"npx", "node", "bun", "python", "python3", "uvx", "uv", "deno"}
+_SHELL_META_CHARS = re.compile(r'[|;&`$(){}\[\]<>]')
+_PROTECTED_ENV_KEYS = {"PATH", "HOME", "USER", "SHELL", "LOGNAME", "LANG", "LC_ALL"}
+
+
+def validate_server_config(config: dict) -> tuple[bool, str]:
+    """验证 MCP Server 配置的安全性。
+
+    Returns:
+        (valid, reason) — valid=True 表示安全，reason 为拒绝原因。
+    """
+    transport = config.get("transport", "stdio")
+
+    if transport == "stdio":
+        command = config.get("command", "")
+        if not command:
+            return False, "stdio 传输需要 command 参数"
+        # 检查命令是否在白名单或是完整路径
+        cmd_base = os.path.basename(command)
+        if cmd_base not in _SAFE_COMMANDS:
+            # 完整路径必须存在
+            if not os.path.isabs(command):
+                resolved = shutil.which(command)
+                if not resolved:
+                    return False, f"command '{command}' 不在安全白名单且未找到可执行文件"
+            elif not os.path.exists(command):
+                return False, f"command 路径不存在: {command}"
+
+        # 检查 args 中是否有 shell 元字符
+        args = config.get("args", [])
+        for i, arg in enumerate(args):
+            if _SHELL_META_CHARS.search(str(arg)):
+                return False, f"args[{i}] 包含 shell 元字符: {arg!r}"
+
+        # 检查 env 中是否覆盖保护变量
+        env = config.get("env") or {}
+        for key in env:
+            if key in _PROTECTED_ENV_KEYS:
+                return False, f"env 不允许覆盖受保护的环境变量: {key}"
+
+    elif transport == "http":
+        url = config.get("url", "")
+        if not url:
+            return False, "http 传输需要 url 参数"
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return False, f"url 协议不安全: {parsed.scheme}:// （仅允许 http/https）"
+        if not parsed.hostname:
+            return False, f"url 缺少主机名: {url}"
+
+    return True, ""
 
 
 class _StdioTransport:
@@ -89,9 +145,12 @@ class _StdioTransport:
                 await self._process.stdin.drain()
                 # 读取响应（跳过通知，等待匹配 id 的响应）
                 deadline = asyncio.get_event_loop().time() + _MCP_TIMEOUT
-                while asyncio.get_event_loop().time() < deadline:
+                while True:
+                    remaining = deadline - asyncio.get_event_loop().time()
+                    if remaining <= 0:
+                        return None
                     resp_line = await asyncio.wait_for(
-                        self._process.stdout.readline(), timeout=_MCP_TIMEOUT
+                        self._process.stdout.readline(), timeout=max(0.1, remaining)
                     )
                     if not resp_line:
                         return None
@@ -132,25 +191,39 @@ class _HttpTransport:
         self._headers = headers or {}
         if oauth_token:
             self._headers["Authorization"] = f"Bearer {oauth_token}"
+        self._client = None  # httpx.AsyncClient 复用
+        self._request_id = 0
 
     async def start(self) -> bool:
+        try:
+            import httpx
+            self._client = httpx.AsyncClient(timeout=_MCP_TIMEOUT, headers=self._headers)
+        except Exception as e:
+            logger.warning(f"MCP HTTP 客户端初始化失败: {e}")
         return True
 
     async def stop(self):
-        pass
+        if self._client:
+            try:
+                await self._client.aclose()
+            except Exception:
+                pass
+            self._client = None
 
     async def request(self, method: str, params: dict | None = None) -> dict | None:
+        self._request_id += 1
         try:
             import httpx
-            async with httpx.AsyncClient(timeout=_MCP_TIMEOUT) as client:
-                resp = await client.post(self.url, json={
-                    "jsonrpc": "2.0", "id": 1,
-                    "method": method, "params": params or {}
-                }, headers=self._headers)
-                if resp.status_code == 401:
-                    logger.warning(f"MCP HTTP 认证失败(401): {self.url}")
-                    return None
-                return resp.json()
+            if not self._client:
+                self._client = httpx.AsyncClient(timeout=_MCP_TIMEOUT, headers=self._headers)
+            resp = await self._client.post(self.url, json={
+                "jsonrpc": "2.0", "id": self._request_id,
+                "method": method, "params": params or {}
+            })
+            if resp.status_code == 401:
+                logger.warning(f"MCP HTTP 认证失败(401): {self.url}")
+                return None
+            return resp.json()
         except Exception as e:
             logger.warning(f"MCP HTTP 请求失败: {e}")
             return None

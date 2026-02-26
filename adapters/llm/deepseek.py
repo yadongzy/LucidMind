@@ -42,6 +42,7 @@ class DeepSeekAdapter(LLMPort):
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
         stream: bool = False,
+        **kwargs,
     ) -> dict[str, Any] | AsyncIterator[str]:
         """调用 DeepSeek API。"""
 
@@ -60,7 +61,7 @@ class DeepSeekAdapter(LLMPort):
 
         if tools:
             body["tools"] = tools
-            body["tool_choice"] = "auto"
+            body["tool_choice"] = kwargs.get("tool_choice", "auto") or "auto"
 
         if stream:
             return self._stream_chat(headers, body)

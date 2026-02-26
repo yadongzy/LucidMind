@@ -1,118 +1,151 @@
 {
   "version": "1.0.0",
-  "updated": "2026-02-25",
+  "updated": "2026-02-26",
+  "base_url": "https://raw.githubusercontent.com/lucidmind-plugins/registry/main/plugins",
   "plugins": [
     {
       "name": "weather",
       "version": "1.0.0",
       "description": "天气查询：当前天气和预报（wttr.in 免费 API）",
+      "author": "LucidMind",
       "tools": ["get_weather"],
-      "keywords": ["天气", "weather", "forecast", "温度", "预报"]
+      "keywords": ["天气", "weather", "forecast", "温度", "预报"],
+      "download_url": "https://raw.githubusercontent.com/lucidmind-plugins/registry/main/plugins/weather"
     },
     {
       "name": "calculator",
       "version": "1.0.0",
       "description": "计算器：数学运算、单位换算",
+      "author": "LucidMind",
       "tools": ["calc", "unit_convert"],
-      "keywords": ["计算", "calculator", "数学", "换算", "convert"]
+      "keywords": ["计算", "calculator", "数学", "换算", "convert"],
+      "download_url": "https://raw.githubusercontent.com/lucidmind-plugins/registry/main/plugins/calculator"
     },
     {
       "name": "notes",
       "version": "1.0.0",
       "description": "Markdown 笔记本：创建、搜索、列出笔记",
+      "author": "LucidMind",
       "tools": ["create_note", "search_notes", "list_notes"],
-      "keywords": ["笔记", "notes", "markdown", "记录", "备忘"]
+      "keywords": ["笔记", "notes", "markdown", "记录", "备忘"],
+      "download_url": "https://raw.githubusercontent.com/lucidmind-plugins/registry/main/plugins/notes"
     },
     {
       "name": "bookmarks",
       "version": "1.0.0",
       "description": "网址收藏夹：保存、搜索、分类网址",
+      "author": "LucidMind",
       "tools": ["add_bookmark", "search_bookmarks", "list_bookmarks"],
-      "keywords": ["收藏", "bookmarks", "网址", "链接", "url"]
+      "keywords": ["收藏", "bookmarks", "网址", "链接", "url"],
+      "download_url": "https://raw.githubusercontent.com/lucidmind-plugins/registry/main/plugins/bookmarks"
     },
     {
       "name": "clipboard",
       "version": "1.0.0",
       "description": "系统剪贴板读写工具（macOS）",
+      "author": "LucidMind",
       "tools": ["clipboard_read", "clipboard_write"],
-      "keywords": ["剪贴板", "clipboard", "复制", "粘贴", "copy", "paste"]
+      "keywords": ["剪贴板", "clipboard", "复制", "粘贴", "copy", "paste"],
+      "download_url": "https://raw.githubusercontent.com/lucidmind-plugins/registry/main/plugins/clipboard"
     },
     {
       "name": "code_runner",
       "version": "1.0.0",
       "description": "安全代码执行器：沙盒运行 Python/Node/Shell 代码片段",
+      "author": "LucidMind",
       "tools": ["run_python", "run_script"],
-      "keywords": ["代码", "code", "python", "shell", "执行", "运行", "script"]
+      "keywords": ["代码", "code", "python", "shell", "执行", "运行", "script"],
+      "download_url": "https://raw.githubusercontent.com/lucidmind-plugins/registry/main/plugins/code_runner"
     },
     {
       "name": "daily_digest",
       "version": "1.0.0",
       "description": "每日摘要：汇总今日笔记、提醒、任务",
+      "author": "LucidMind",
       "tools": ["generate_digest"],
-      "keywords": ["摘要", "digest", "日报", "汇总", "daily"]
+      "keywords": ["摘要", "digest", "日报", "汇总", "daily"],
+      "download_url": "https://raw.githubusercontent.com/lucidmind-plugins/registry/main/plugins/daily_digest"
     },
     {
       "name": "docker_ops",
       "version": "1.0.0",
       "description": "Docker 容器管理：列表、日志、重启",
+      "author": "LucidMind",
       "tools": ["docker_ps", "docker_logs", "docker_restart"],
-      "keywords": ["docker", "容器", "container", "部署", "日志"]
+      "keywords": ["docker", "容器", "container", "部署", "日志"],
+      "download_url": "https://raw.githubusercontent.com/lucidmind-plugins/registry/main/plugins/docker_ops"
     },
     {
       "name": "email_sender",
       "version": "1.0.0",
       "description": "邮件发送：通过 SMTP 发送邮件",
+      "author": "LucidMind",
       "tools": ["send_email"],
-      "keywords": ["邮件", "email", "smtp", "发送", "mail"]
+      "keywords": ["邮件", "email", "smtp", "发送", "mail"],
+      "download_url": "https://raw.githubusercontent.com/lucidmind-plugins/registry/main/plugins/email_sender"
     },
     {
       "name": "git_helper",
       "version": "1.0.0",
       "description": "Git 操作：状态、差异、日志、提交",
+      "author": "LucidMind",
       "tools": ["git_status", "git_diff", "git_log", "git_commit"],
-      "keywords": ["git", "版本控制", "提交", "commit", "diff", "日志"]
+      "keywords": ["git", "版本控制", "提交", "commit", "diff", "日志"],
+      "download_url": "https://raw.githubusercontent.com/lucidmind-plugins/registry/main/plugins/git_helper"
     },
     {
       "name": "github_ops",
       "version": "1.0.0",
       "description": "GitHub 操作：Issue/PR 查询和创建（需配置 GITHUB_TOKEN）",
+      "author": "LucidMind",
       "tools": ["gh_issues", "gh_create_issue", "gh_prs", "gh_repo_info"],
-      "keywords": ["github", "issue", "pr", "pull request", "仓库"]
+      "keywords": ["github", "issue", "pr", "pull request", "仓库"],
+      "download_url": "https://raw.githubusercontent.com/lucidmind-plugins/registry/main/plugins/github_ops"
     },
     {
       "name": "identity",
       "version": "1.0.0",
       "description": "身份文件管理：读取和演化 SOUL/USER/BOOTSTRAP",
+      "author": "LucidMind",
       "tools": ["identity_read", "identity_update"],
-      "keywords": ["身份", "identity", "soul", "人格", "自我"]
+      "keywords": ["身份", "identity", "soul", "人格", "自我"],
+      "download_url": "https://raw.githubusercontent.com/lucidmind-plugins/registry/main/plugins/identity"
     },
     {
       "name": "knowledge_base",
       "version": "1.0.0",
       "description": "个人知识库：文本/URL 导入，关键词搜索",
+      "author": "LucidMind",
       "tools": ["kb_add", "kb_search", "kb_list"],
-      "keywords": ["知识库", "knowledge", "搜索", "学习", "文档"]
+      "keywords": ["知识库", "knowledge", "搜索", "学习", "文档"],
+      "download_url": "https://raw.githubusercontent.com/lucidmind-plugins/registry/main/plugins/knowledge_base"
     },
     {
       "name": "project_context",
       "version": "1.0.0",
       "description": "扫描项目目录结构，提供代码库上下文和技术栈信息",
+      "author": "LucidMind",
       "tools": ["scan_project"],
-      "keywords": ["项目", "project", "代码", "目录", "技术栈", "context"]
+      "keywords": ["项目", "project", "代码", "目录", "技术栈", "context"],
+      "download_url": "https://raw.githubusercontent.com/lucidmind-plugins/registry/main/plugins/project_context"
     },
     {
       "name": "reminder",
       "version": "1.0.0",
       "description": "定时提醒工具，支持相对/绝对时间，到期通过 WebSocket 推送",
+      "author": "LucidMind",
       "tools": ["set_reminder", "list_reminders"],
-      "keywords": ["提醒", "reminder", "定时", "闹钟", "待办", "timer"]
+      "keywords": ["提醒", "reminder", "定时", "闹钟", "待办", "timer"],
+      "download_url": "https://raw.githubusercontent.com/lucidmind-plugins/registry/main/plugins/reminder"
     },
     {
       "name": "web_monitor",
       "version": "1.0.0",
       "description": "网页监控：定期检查网页变化，变化时推送通知",
+      "author": "LucidMind",
       "tools": ["monitor_add", "monitor_check", "monitor_list"],
-      "keywords": ["监控", "monitor", "网页", "变化", "watch"]
+      "keywords": ["监控", "monitor", "网页", "变化", "watch"],
+      "download_url": "https://raw.githubusercontent.com/lucidmind-plugins/registry/main/plugins/web_monitor"
     }
   ]
 }
