@@ -21,11 +21,9 @@
 - **修复**: (1) `metacognition.py` 复杂度阈值从200→100字符，增加多步骤关键词，多意图自动升级；(2) `brain_engines.py` 学习引擎改为连续空闲5轮即触发，不再仅限3-6AM。
 
 ### ISS-004: 向量检索仍降级运行
-- **状态**: 📋 待实施
-- **描述**: Ollama embedding (nomic-embed-text) 未接入，ACE 记忆系统的向量搜索实际走 FTS5 纯文本检索。
-- **来源**: `docs/工程深度提升实施方案.md` Phase 9.6 后续优先级
-- **影响**: 记忆检索质量受限，ACE 的语义去重/合并效果打折。
-- **建议**: 接入 Ollama embedding，验证向量检索 vs FTS5 的效果差异。
+- **状态**: ✅ 已修复 (2026-02-27) → ISS-017
+- **描述**: Ollama embedding 已接入，`MemoryStoreLearningAdapter` 的 `learn()` 和 `get_lessons()` 均通过 `VectorStore.embed()` 生成嵌入，`search_hybrid()` 使用真实向量搜索。
+- **文件**: `adapters/learning/memory_store_adapter.py`, `adapters/memory/vector_store.py`
 
 ### ISS-005: 前端浏览器 E2E 未完整验证 (D7)
 - **状态**: ✅ 已完成 (2026-02-27)
@@ -101,12 +99,37 @@
 - **描述**: 新增5个真实API测试：update server、安全拒绍shell注入、拒绍PATH覆盖、删除404、完整生命周期。
 - **文件**: `tests/test_e2e_realops.py`
 
+### ISS-017: 向量检索接入 Ollama embedding
+- **状态**: ✅ 已修复 (2026-02-27)
+- **描述**: `MemoryStoreLearningAdapter` 接入 `VectorStore`，`learn()` 存储时生成嵌入，`get_lessons()` 检索时用向量混合搜索。降级兼容: Ollama 不可用时自动回退 FTS5。
+- **文件**: `adapters/learning/memory_store_adapter.py`
+
+### ISS-018: test_phase8_ace.py 3个预存失败
+- **状态**: ✅ 已修复 (2026-02-27)
+- **描述**: `TestPlaybookInjection._make_mixin()` 缺少 `_current_sid` 和 `_lesson_cache` 属性，导致 3 个测试 AttributeError。
+- **文件**: `tests/test_phase8_ace.py`
+
+### ISS-019: 前端输入框安装 skills
+- **状态**: ✅ 已修复 (2026-02-27)
+- **描述**: 聊天输入框新增 `/install` 和 `/skills` 斜杠命令，调用 PluginHub API 实现搜索+安装+热加载闭环，结果内联显示。
+- **文件**: `frontend-v2/src/ui/views/chat.js`
+
+### ISS-020: 大脑自动搜索下载安装 skill 闭环
+- **状态**: ✅ 已确认 (2026-02-27)
+- **描述**: `_on_tool_not_found` → `search_hub` → `install_from_hub` → 热加载 → 重试，链路完整。`_try_auto_provision_tool` 从用户输入推断缺失工具并触发。10/10 测试通过。
+- **文件**: `brain_resilience.py`, `brain.py`, `skills/__init__.py`
+
+### ISS-021: MCP 真实工作流验证
+- **状态**: ✅ 已完成 (2026-02-27)
+- **描述**: 新增 7 个 MCP 工作流测试: discover→list→execute 完整链路、工具名冲突检测(B6)、health_check、disconnected 检测、shutdown 清理、CRUD。
+- **文件**: `tests/test_mcp_workflow.py`
+
 ---
 
 ## 📊 统计
 
 | 状态 | 数量 |
 |------|------|
-| ✅ 已完成 | 16/16 全部完成 |
+| ✅ 已完成 | 21/21 全部完成 |
 | 📋 待处理 | 0 |
-| **总计** | **16** |
+| **总计** | **21** |

@@ -20,6 +20,7 @@ from ports.learning_port import LearningPort
 from memory.store import MemoryStore
 from memory.types import MemoryConfig
 from memory.config import load_config
+from adapters.memory.vector_store import get_vector_store
 from logs import get_logger
 
 logger = get_logger("learning.memory_store")
@@ -76,7 +77,8 @@ class MemoryStoreLearningAdapter(LearningPort):
         self.db_path = db_path or _DEFAULT_DB_PATH
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.store = MemoryStore(self.db_path, embedding_dim=self.config.embedding_dim)
-        logger.info(f"MemoryStoreLearningAdapter 初始化: {self.db_path} (条目={self.store.count()})")
+        self._vec_store = get_vector_store()
+        logger.info(f"MemoryStoreLearningAdapter 初始化: {self.db_path} (条目={self.store.count()}, vec={self._vec_store.is_available()})")
 
     async def learn(self, experience: dict[str, Any]) -> None:
         """记录一条经验到 MemoryStore，使用 ACE Bullet 结构。"""
@@ -106,8 +108,12 @@ class MemoryStoreLearningAdapter(LearningPort):
             "effectiveness": None,
         }
 
+        # ISS-017: 生成向量嵌入用于语义检索
+        content_text = f"{trigger}: {lesson}"
+        embedding = self._vec_store.embed(content_text) if self._vec_store.is_available() else None
+
         # 使用 merge_deltas 实现去重 + 合并
-        deltas = [{"content": f"{trigger}: {lesson}", "metadata": metadata}]
+        deltas = [{"content": content_text, "metadata": metadata, "embedding": embedding}]
         result = self.store.merge_deltas(deltas, collection=collection, dedup_threshold=0.85)
 
         if result["merged"] > 0:
@@ -121,10 +127,13 @@ class MemoryStoreLearningAdapter(LearningPort):
             all_items = self.store.get_all(limit=limit)
             return [self._to_lesson_dict(r) for r in all_items]
 
+        # 向量嵌入（ISS-017: 接入 Ollama embedding）
+        query_embedding = self._vec_store.embed(context) if self._vec_store.is_available() else None
+
         # 混合搜索（跨 lessons + facts + skills 集合）
         results = self.store.search_hybrid(
             query_text=context,
-            query_embedding=None,  # 向量搜索需要 embed_fn，此处仅文本
+            query_embedding=query_embedding,
             collection=None,  # 跨集合搜索
             vector_weight=self.config.vector_weight,
             text_weight=self.config.text_weight,

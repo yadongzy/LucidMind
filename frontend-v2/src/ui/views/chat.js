@@ -22,6 +22,8 @@ const SLASH_COMMANDS = [
   { cmd: "/代码", desc: "写代码", template: "请帮我写一段{lang}代码：{desc}", placeholder: "语言 描述" },
   { cmd: "/提醒", desc: "设置提醒", template: "{time}提醒我{task}", placeholder: "时间 事项" },
   { cmd: "/清空", desc: "清空对话", template: "__CLEAR__" },
+  { cmd: "/install", desc: "安装插件", template: "__INSTALL__", placeholder: "插件名称" },
+  { cmd: "/skills", desc: "搜索插件", template: "__SKILL_SEARCH__", placeholder: "搜索关键词" },
 ];
 
 function _getSlashMatches(text) {
@@ -34,11 +36,71 @@ function _getSlashMatches(text) {
   return SLASH_COMMANDS.filter(c => c.cmd.includes(keyword) || c.desc.includes(keyword));
 }
 
+async function _handleSkillInstall(app, name) {
+  app.messages = [...app.messages, { role: "assistant", content: `🔍 正在安装插件 **${name}**...` }];
+  app.requestUpdate();
+  try {
+    const res = await fetch("/api/plugins/hub/install", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    const data = await res.json();
+    if (data.status === "ok" || data.status === "installed") {
+      await fetch("/api/plugins/reload", { method: "POST" });
+      app.messages = [...app.messages, { role: "assistant", content: `✅ 插件 **${name}** 安装并热加载成功！` }];
+    } else {
+      app.messages = [...app.messages, { role: "assistant", content: `❌ 安装失败: ${data.message || data.error || "未知错误"}` }];
+    }
+  } catch (e) {
+    app.messages = [...app.messages, { role: "assistant", content: `❌ 安装异常: ${e.message}` }];
+  }
+  app.requestUpdate();
+}
+
+async function _handleSkillSearch(app, query) {
+  app.messages = [...app.messages, { role: "assistant", content: `🔍 正在搜索插件 **${query}**...` }];
+  app.requestUpdate();
+  try {
+    const res = await fetch(`/api/plugins/hub/search?q=${encodeURIComponent(query)}`);
+    const data = await res.json();
+    const results = data.results || [];
+    if (results.length === 0) {
+      app.messages = [...app.messages, { role: "assistant", content: `未找到匹配 "${query}" 的插件。` }];
+    } else {
+      const list = results.slice(0, 5).map(r => `- **${r.name}** v${r.version || '?'}: ${r.description || ''}`).join("\n");
+      app.messages = [...app.messages, { role: "assistant", content: `找到 ${results.length} 个插件:\n${list}\n\n使用 \`/install 插件名\` 安装。` }];
+    }
+  } catch (e) {
+    app.messages = [...app.messages, { role: "assistant", content: `❌ 搜索失败: ${e.message}` }];
+  }
+  app.requestUpdate();
+}
+
 function _applySlashCmd(cmd, app) {
   if (cmd.template === "__CLEAR__") {
     app.messages = []; app.chatDraft = ""; app._slashOpen = false;
     fetch('/api/sessions/' + app.currentSession + '/history', { method: 'DELETE' }).catch(() => {});
     app.requestUpdate();
+    return;
+  }
+  if (cmd.template === "__INSTALL__") {
+    app._slashOpen = false;
+    const name = prompt("插件名称:");
+    if (!name) { app.chatDraft = ""; app.requestUpdate(); return; }
+    app.chatDraft = "";
+    app.messages = [...app.messages, { role: "user", content: `/install ${name}` }];
+    app.requestUpdate();
+    _handleSkillInstall(app, name.trim());
+    return;
+  }
+  if (cmd.template === "__SKILL_SEARCH__") {
+    app._slashOpen = false;
+    const q = prompt("搜索关键词:");
+    if (!q) { app.chatDraft = ""; app.requestUpdate(); return; }
+    app.chatDraft = "";
+    app.messages = [...app.messages, { role: "user", content: `/skills ${q}` }];
+    app.requestUpdate();
+    _handleSkillSearch(app, q.trim());
     return;
   }
   app._slashOpen = false;

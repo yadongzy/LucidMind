@@ -608,6 +608,8 @@ class TestPlaybookInjection(unittest.TestCase):
         ]
         mixin._last_injected_lesson_ids = []
         mixin.lessons_enabled = True
+        mixin._current_sid = "test_playbook"
+        mixin._lesson_cache = {}
         return mixin
 
     def test_playbook_filters_harmful(self):
