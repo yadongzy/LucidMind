@@ -356,6 +356,23 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, Brain
             except Exception as e:
                 logger.debug(f"[{session_id}] 真流式失败({e})，降级伪流式")
 
+        # 空回复自救：工具已执行但回复为空，追加强制总结提示再试一次
+        if not content and not _already_streamed:
+            has_tool_results = any(m.get("role") == "tool" for m in messages)
+            if has_tool_results:
+                logger.warning(f"[{session_id}] 工具已执行但回复为空，尝试强制总结")
+                rescue_messages = messages + [{"role": "user", "content":
+                    "[系统] 你已经成功执行了工具并获得了结果。请根据上面的工具返回内容，"
+                    "直接用自然语言回复用户的问题。不要再调用任何工具，直接给出回答。"}]
+                try:
+                    rescue_resp = await self._llm_call_with_retry(session_id, rescue_messages, tools=None, _s=_s)
+                    rescue_raw = rescue_resp.get("content", "")
+                    content = re.sub(r"<think>.*?</think>\s*", "", rescue_raw, flags=re.DOTALL).strip() if rescue_raw else ""
+                    if content:
+                        logger.info(f"[{session_id}] 空回复自救成功: {len(content)} 字符")
+                except Exception as e:
+                    logger.warning(f"[{session_id}] 空回复自救失败: {e}")
+
         content = content or EMPTY_REPLY_FALLBACK
         if not content.strip(): logger.warning(f"[{session_id}] LLM 返回空内容")
 

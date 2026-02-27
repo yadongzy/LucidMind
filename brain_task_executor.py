@@ -141,8 +141,11 @@ class TaskExecutorMixin:
                     if isinstance(result, dict):
                         tool_happened = result.get("tool_calls_happened", False)
                         empty_promise = result.get("empty_promise_detected", False)
-                        if empty_promise and not tool_happened:
-                            last_error = "空承诺:工具未执行"
+                        reply = result.get("reply", "")
+                        # 检测空回复 fallback（工具执行成功但 LLM 未生成有效回复）
+                        is_empty_fallback = reply and "没有生成有效的回复" in reply
+                        if (empty_promise and not tool_happened) or is_empty_fallback:
+                            last_error = "空承诺:工具未执行" if not is_empty_fallback else "空回复:LLM未总结工具结果"
                             if attempt <= MAX_INLINE_RETRIES:
                                 delay = INLINE_RETRY_DELAY_S * (2 ** (attempt - 1))
                                 logger.warning(
