@@ -1,0 +1,29 @@
+{
+  "greeting_patterns": [
+    "你好", "您好", "嗨", "hi", "hello", "hey", "嘿", "早", "晚安",
+    "早上好", "下午好", "晚上好", "good morning", "good afternoon",
+    "good evening", "good night", "在吗", "在不在"
+  ],
+  "trivial_patterns": [
+    "好", "好的", "嗯", "行", "可以", "谢谢", "感谢", "明白", "收到",
+    "ok", "okay", "yes", "no", "thanks", "got it", "sure", "继续",
+    "下一步", "对", "是的", "没错", "嗯嗯", "哦", "知道了",
+    "thank you", "thx", "拜拜", "再见", "bye", "see you"
+  ],
+  "tool_trigger_keywords": [
+    "搜索", "查找", "search", "文件", "读取", "写入", "运行", "执行",
+    "命令", "创建", "浏览", "打开网页", "截图", "下载", "删除",
+    "安装", "部署", "编译", "grep", "find", "curl", "wget",
+    "天气", "weather", "新闻", "news", "股票", "stock",
+    "发送", "邮件", "通知", "提醒", "定时", "监控"
+  ],
+  "correction_keywords": [
+    "不对", "错了", "应该是", "不是这样", "纠正", "修正",
+    "wrong", "incorrect", "actually", "有问题", "不准确",
+    "记住", "以后", "学会", "你应该", "下次", "别再", "不要再",
+    "remember", "from now on", "注意"
+  ],
+  "complex_keywords": [
+    "步骤", "首先", "然后", "接着", "并且", "同时"
+  ]
+}

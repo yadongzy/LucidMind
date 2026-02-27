@@ -1,0 +1,35 @@
+{
+  "promise_patterns": [
+    "正在尝试", "我来试试", "我去试", "让我试", "我试试",
+    "正在利用工具", "正在使用工具", "我来用工具", "让我用",
+    "正在执行", "正在处理", "马上", "立刻", "我来帮你",
+    "好的，让我", "好的，我来", "好的老大", "好的，老大",
+    "正在调用", "正在搜索", "正在查找", "正在查询",
+    "请稍等", "稍等", "正在努力", "我正在",
+    "I'll try", "Let me try", "I'm working on", "I'm searching"
+  ],
+  "inability_keywords": [
+    "不会", "无法", "不能", "做不到", "没有能力",
+    "cannot", "unable", "can't"
+  ],
+  "learning_trivial": [
+    "好", "好的", "嘶", "嗯", "行", "可以", "谢谢", "明白", "收到",
+    "ok", "yes", "no", "thanks", "got it", "sure", "继续", "下一步"
+  ],
+  "correction_fallback_keywords": [
+    "不对", "错了", "应该是", "不是这样", "纠正", "修正",
+    "wrong", "incorrect", "actually", "有问题", "不准确"
+  ],
+  "teaching_fallback_keywords": [
+    "记住", "以后", "学会", "你应该", "下次", "别再", "不要再",
+    "remember", "from now on", "注意"
+  ],
+  "complexity_search_keywords": [
+    "搜索", "查找", "研究", "分析", "对比", "总结", "深度",
+    "search", "research", "analyze", "compare", "investigate"
+  ],
+  "complexity_multi_step_keywords": [
+    "然后", "接着", "之后", "步骤", "第一", "第二",
+    "and then", "step", "first", "second"
+  ]
+}

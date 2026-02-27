@@ -1,0 +1,12 @@
+{
+  "context_windows": {
+    "deepseek": 64000,
+    "gpt-4o": 128000,
+    "gpt-4-turbo": 128000,
+    "gpt-4o-mini": 128000,
+    "qwen": 32000,
+    "llama": 8192,
+    "gemma": 8192
+  },
+  "strong_fc_models": ["deepseek", "gpt-4"]
+}

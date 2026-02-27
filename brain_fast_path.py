@@ -7,34 +7,13 @@
 """
 
 import re
-
-_GREETING_PATTERNS = {
-    "你好", "您好", "嗨", "hi", "hello", "hey", "嘿", "早", "晚安",
-    "早上好", "下午好", "晚上好", "good morning", "good afternoon",
-    "good evening", "good night", "在吗", "在不在",
-}
-
-_TRIVIAL_PATTERNS = {
-    "好", "好的", "嗯", "行", "可以", "谢谢", "感谢", "明白", "收到",
-    "ok", "okay", "yes", "no", "thanks", "got it", "sure", "继续",
-    "下一步", "对", "是的", "没错", "嗯嗯", "哦", "知道了",
-    "thank you", "thx", "拜拜", "再见", "bye", "see you",
-}
-
-_TOOL_TRIGGER_KEYWORDS = [
-    "搜索", "查找", "search", "文件", "读取", "写入", "运行", "执行",
-    "命令", "创建", "浏览", "打开网页", "截图", "下载", "删除",
-    "安装", "部署", "编译", "grep", "find", "curl", "wget",
-    "天气", "weather", "新闻", "news", "股票", "stock",
-    "发送", "邮件", "通知", "提醒", "定时", "监控",
-]
-
-_CORRECTION_KEYWORDS = [
-    "不对", "错了", "应该是", "不是这样", "纠正", "修正",
-    "wrong", "incorrect", "actually", "有问题", "不准确",
-    "记住", "以后", "学会", "你应该", "下次", "别再", "不要再",
-    "remember", "from now on", "注意",
-]
+from brain_config import (
+    GREETING_PATTERNS as _GREETING_PATTERNS,
+    TRIVIAL_PATTERNS as _TRIVIAL_PATTERNS,
+    TOOL_TRIGGER_KEYWORDS as _TOOL_TRIGGER_KEYWORDS,
+    CORRECTION_KEYWORDS as _CORRECTION_KEYWORDS,
+    COMPLEX_KEYWORDS,
+)
 
 
 class FastPathResult:
@@ -96,7 +75,7 @@ def classify(user_input: str, history_len: int = 0) -> FastPathResult:
         return FastPathResult("correction", skip_metacog=True, skip_lessons=True, skip_learn_detect=False)
 
     # 4. 复杂任务 — 完整链路
-    if len(stripped) > 200 or any(kw in lowered for kw in ["步骤", "首先", "然后", "接着", "并且", "同时"]):
+    if len(stripped) > 200 or any(kw in lowered for kw in COMPLEX_KEYWORDS):
         return FastPathResult("complex", skip_metacog=False, skip_lessons=False, skip_learn_detect=False)
 
     # 5. 中等长度无工具关键词 — 知识问答型，跳过元认知

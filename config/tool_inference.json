@@ -1,0 +1,11 @@
+[
+  {"pattern": "删除|移除|清除.*文件", "tool": "delete_file"},
+  {"pattern": "创建|新建|写入.*文件", "tool": "write_file"},
+  {"pattern": "读取|打开|查看.*文件", "tool": "read_file"},
+  {"pattern": "搜索|查询|查找|搜一下|帮我搜", "tool": "web_search"},
+  {"pattern": "运行|执行.*命令|脚本", "tool": "run_command"},
+  {"pattern": "发送.*邮件|发邮件", "tool": "send_email"},
+  {"pattern": "下载|拉取", "tool": "download_file"},
+  {"pattern": "截图|屏幕", "tool": "screenshot"},
+  {"pattern": "翻译", "tool": "translate"}
+]

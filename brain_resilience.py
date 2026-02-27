@@ -14,6 +14,16 @@ import time
 
 from logs import get_logger
 from diagnostics import record_event
+from brain_config import (
+    COMPACT_SKIP_TOKENS, COMPACT_SKIP_MSGS, COMPACT_PRUNE_TOKENS,
+    COMPACT_PRUNE_TOOL_CHARS, COMPACT_PRUNE_HEAD_CHARS, COMPACT_PRUNE_TAIL_CHARS,
+    COMPACT_FULL_TOKENS, COMPACT_FULL_MSGS, COMPACT_KEEP_RECENT,
+    COMPACT_INLINE_TOOL_CHARS, COMPACT_INLINE_HEAD_CHARS, COMPACT_INLINE_TAIL_CHARS,
+    COMPACT_SUMMARY_PROMPT, SUMMARY_TIMEOUT_SEC,
+    MEM_ALERT_PERCENT, DISK_ALERT_GB,
+    ERROR_RESPONSE_BAD_REQUEST, ERROR_RESPONSE_COOLDOWN,
+    ERROR_RESPONSE_TIMEOUT, ERROR_RESPONSE_GENERIC,
+)
 
 logger = get_logger("brain")
 
@@ -224,9 +234,9 @@ class BrainResilienceMixin:
             r["mem_percent"] = mem.percent
             r["disk_free_gb"] = round(disk.free / (1024**3), 1)
             alerts = []
-            if mem.percent > 90:
+            if mem.percent > MEM_ALERT_PERCENT:
                 alerts.append(f"内存使用 {mem.percent}% 超限")
-            if disk.free < 1024**3:
+            if disk.free < DISK_ALERT_GB * 1024**3:
                 alerts.append(f"磁盘剩余 {r['disk_free_gb']}GB 不足")
             r["resource_alerts"] = alerts
             if alerts:
@@ -267,31 +277,31 @@ class BrainResilienceMixin:
         """统一上下文窗口管理 — token-aware 压缩，保护 tool_calls/tool 配对。
 
         策略（基于 token 估算，已回退到 v1.7 验证阈值）：
-        - 阶段0: <4K tokens 且 <=15条 → 不处理
-        - 阶段1: 截断过长工具结果（>2000字符 → 保留首1000+尾500）
-        - 阶段2: >8K tokens 或 >30条 → LLM摘要压缩，保留最近8条
+        - 阶段0: <COMPACT_SKIP_TOKENS 且 <=COMPACT_SKIP_MSGS → 不处理
+        - 阶段1: 截断过长工具结果
+        - 阶段2: >COMPACT_FULL_TOKENS 或 >COMPACT_FULL_MSGS → LLM摘要压缩
         - 阶段3: 摘要失败 → 安全截断（保护 tool_calls/tool 配对）
         """
         hist_len = len(self._history)
         total_tokens = self._estimate_history_tokens()
 
-        if total_tokens < 4000 and hist_len <= 15:
+        if total_tokens < COMPACT_SKIP_TOKENS and hist_len <= COMPACT_SKIP_MSGS:
             return
 
         # 阶段1: 截断过长工具结果
-        if total_tokens > 6000:
+        if total_tokens > COMPACT_PRUNE_TOKENS:
             for m in self._history:
-                if m.get("role") == "tool" and len(m.get("content", "")) > 2000:
-                    m["content"] = (m["content"][:1000]
+                if m.get("role") == "tool" and len(m.get("content", "")) > COMPACT_PRUNE_TOOL_CHARS:
+                    m["content"] = (m["content"][:COMPACT_PRUNE_HEAD_CHARS]
                                     + "\n...(已压缩)...\n"
-                                    + m["content"][-500:])
+                                    + m["content"][-COMPACT_PRUNE_TAIL_CHARS:])
             total_tokens = self._estimate_history_tokens()
 
         # 阶段2: 需要摘要压缩
-        if total_tokens < 8000 and hist_len <= 30:
+        if total_tokens < COMPACT_FULL_TOKENS and hist_len <= COMPACT_FULL_MSGS:
             return
 
-        keep_recent = 8
+        keep_recent = COMPACT_KEEP_RECENT
         if hist_len <= keep_recent + 2:
             return
 
@@ -314,11 +324,11 @@ class BrainResilienceMixin:
             summary_text = "\n".join(summary_lines[-20:])
 
             if summary_text:
+                prompt_text = COMPACT_SUMMARY_PROMPT.replace("{summary_text}", summary_text)
                 resp = await asyncio.wait_for(
-                    self.llm.chat([{"role": "user", "content":
-                        f"请用3-5句话概括以下对话的要点（包括完成了什么、讨论了什么、关键结论）：\n\n{summary_text}"}],
+                    self.llm.chat([{"role": "user", "content": prompt_text}],
                         tools=None),
-                    timeout=10.0
+                    timeout=SUMMARY_TIMEOUT_SEC
                 )
                 summary_content = resp.get("content", "").strip()
                 summary_content = re.sub(r"<think>.*?</think>\s*", "", summary_content, flags=re.DOTALL).strip()
@@ -337,10 +347,10 @@ class BrainResilienceMixin:
     def _compact_history_if_needed(self) -> None:
         """轮间压缩 — 仅截断超长工具结果，不做消息级压缩（由 _smart_compact_history 统一处理）。"""
         for m in self._history:
-            if m.get("role") == "tool" and len(m.get("content", "")) > 3000:
-                m["content"] = (m["content"][:1200]
+            if m.get("role") == "tool" and len(m.get("content", "")) > COMPACT_INLINE_TOOL_CHARS:
+                m["content"] = (m["content"][:COMPACT_INLINE_HEAD_CHARS]
                                 + "\n...(已压缩)...\n"
-                                + m["content"][-600:])
+                                + m["content"][-COMPACT_INLINE_TAIL_CHARS:])
 
     def _sanitize_messages(self, messages: list[dict]) -> None:
         """清洗消息列表，修复 tool_calls/tool 配对问题，防止 LLM API 400。"""
@@ -385,10 +395,10 @@ class BrainResilienceMixin:
         if "400" in err or "Bad Request" in err:
             self._history.clear()
             logger.info("自愈: 清除脏历史数据")
-            return "抱歉，我遇到了一个技术问题，已自动修复。请再说一次你的问题？"
+            return ERROR_RESPONSE_BAD_REQUEST
         elif "冷却" in err or "均失败" in err:
-            return "抱歉，AI服务暂时不可用，正在自动恢复中。请稍后再试。"
+            return ERROR_RESPONSE_COOLDOWN
         elif "timeout" in err.lower() or "Timeout" in err:
-            return "抱歉，请求超时了。请稍后再试，或者换一种方式提问？"
+            return ERROR_RESPONSE_TIMEOUT
         else:
-            return f"抱歉，处理时遇到问题。我已记录这次失败，下次会避免。请再试一次？"
+            return ERROR_RESPONSE_GENERIC

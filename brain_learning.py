@@ -5,6 +5,12 @@
 """
 
 from logs import get_logger
+from brain_config import (
+    LESSON_CACHE_TTL_SEC, MIN_LEARNING_INPUT_LEN, CORRECTION_PROMOTE_MIN,
+    INABILITY_KEYWORDS, LEARNING_TRIVIAL,
+    CORRECTION_FALLBACK_KEYWORDS, TEACHING_FALLBACK_KEYWORDS,
+    LEARNING_DETECT_SYSTEM, LEARNING_DETECT_PROMPT,
+)
 
 logger = get_logger("brain")
 
@@ -31,7 +37,7 @@ class BrainLearningMixin:
 
     # P1: 经验检索缓存 — 同会话短时间内复用结果，避免重复 LLM 调用
     _lesson_cache: dict = {}  # session_id -> {"text": str, "ts": float, "ctx_hash": str}
-    _LESSON_CACHE_TTL = 60   # 缓存有效期（秒）
+    _LESSON_CACHE_TTL = LESSON_CACHE_TTL_SEC
 
     async def _get_relevant_lessons(self) -> str:
         """S8: 检索与当前对话相关的经验。追踪注入的经验ID用于有效性评估。
@@ -97,8 +103,7 @@ class BrainLearningMixin:
         """
         if not self.learning:
             return
-        inability = ["不会", "无法", "不能", "做不到", "没有能力", "cannot", "unable", "can't"]
-        if not any(w in reply for w in inability):
+        if not any(w in reply for w in INABILITY_KEYWORDS):
             return
 
         # 不再记录"回答了不会"的垃圾经验 — 只通知老师求助
@@ -167,26 +172,19 @@ class BrainLearningMixin:
         LLM 不可用时回退到关键词匹配。"""
         # 严格预筛：太短、纯肯定词、或明显无关的直接跳过（避免额外 LLM 调用）
         stripped = user_input.strip()
-        if len(stripped) < 6:
+        if len(stripped) < MIN_LEARNING_INPUT_LEN:
             return None
-        _TRIVIAL = {'好', '好的', '嘶', '嗯', '行', '可以', '谢谢', '明白', '收到',
-                     'ok', 'yes', 'no', 'thanks', 'got it', 'sure', '继续', '下一步'}
-        if stripped.lower() in _TRIVIAL:
+        if stripped.lower() in LEARNING_TRIVIAL:
             return None
         # 尝试 LLM 检测
         if self.llm:
             try:
-                prompt = (
-                    "判断用户这句话的意图（只回复一个词）:\n"
-                    "- correction: 用户在纠正AI之前的错误回答\n"
-                    "- teaching: 用户在教AI一个新规则或偏好\n"
-                    "- none: 普通对话，既不是纠正也不是教学\n\n"
-                )
+                prompt = LEARNING_DETECT_PROMPT + "\n\n"
                 if prev_reply:
                     prompt += f"AI上一条回复: {prev_reply[:100]}\n"
                 prompt += f"用户说: {user_input[:200]}\n\n意图:"
                 resp = await self.llm.chat([
-                    {"role": "system", "content": "你是一个意图分类器。只回复 correction、teaching 或 none 中的一个词。"},
+                    {"role": "system", "content": LEARNING_DETECT_SYSTEM},
                     {"role": "user", "content": prompt},
                 ])
                 result = resp.get("content", "").strip().lower()
@@ -199,13 +197,9 @@ class BrainLearningMixin:
                 pass
         # LLM 不可用时回退关键词匹配
         inp = user_input.lower()
-        correct_kw = ["不对", "错了", "应该是", "不是这样", "纠正", "修正",
-                       "wrong", "incorrect", "actually", "有问题", "不准确"]
-        teach_kw = ["记住", "以后", "学会", "你应该", "下次", "别再", "不要再",
-                     "remember", "from now on", "注意"]
-        if any(s in inp for s in correct_kw):
+        if any(s in inp for s in CORRECTION_FALLBACK_KEYWORDS):
             return "correction"
-        if any(s in inp for s in teach_kw):
+        if any(s in inp for s in TEACHING_FALLBACK_KEYWORDS):
             return "teaching"
         return None
 
@@ -216,7 +210,7 @@ class BrainLearningMixin:
         try:
             similar = await self.learning.get_lessons(lesson, limit=5)
             corrections = [l for l in similar if l.get("source") == "correction"]
-            if len(corrections) < 2:
+            if len(corrections) < CORRECTION_PROMOTE_MIN:
                 return
             import pathlib
             # 优先写入 identity/USER.md，兼容旧 user_profile.md

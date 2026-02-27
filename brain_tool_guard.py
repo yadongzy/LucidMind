@@ -13,6 +13,10 @@ import time
 
 from logs import get_logger
 from brain_perf import compress_tool_result
+from brain_config import (
+    PROMISE_PATTERNS, EMPTY_PROMISE_MAX_LEN, ANTI_FAKE_CORRECTION,
+    is_strong_fc_model,
+)
 
 logger = get_logger("brain")
 
@@ -21,20 +25,12 @@ class BrainToolGuardMixin:
     """空承诺检测与三层防护。混入 Brain 类。"""
 
     # === 空承诺检测 ===
-    _PROMISE_PATTERNS = [
-        "正在尝试", "我来试试", "我去试", "让我试", "我试试",
-        "正在利用工具", "正在使用工具", "我来用工具", "让我用",
-        "正在执行", "正在处理", "马上", "立刻", "我来帮你",
-        "好的，让我", "好的，我来", "好的老大", "好的，老大",
-        "正在调用", "正在搜索", "正在查找", "正在查询",
-        "请稍等", "稍等", "正在努力", "我正在",
-        "I'll try", "Let me try", "I'm working on", "I'm searching",
-    ]
+    _PROMISE_PATTERNS = PROMISE_PATTERNS
 
     def _detect_empty_promise(self, reply_text: str) -> bool:
         """检测 LLM 回复是否包含行动承诺但实际未调用任何工具。"""
         text = reply_text.strip()
-        if not text or len(text) > 500:
+        if not text or len(text) > EMPTY_PROMISE_MAX_LEN:
             return False
         return any(p in text for p in self._PROMISE_PATTERNS)
 
@@ -43,20 +39,20 @@ class BrainToolGuardMixin:
         """获取 function calling 能力更强的备用模型。
         当前模型如果已经是强FC模型则返回 None。"""
         current = getattr(self.llm, "model", "")
-        if any(s in current.lower() for s in ("deepseek", "gpt-4")):
+        if is_strong_fc_model(current):
             return None
         fallback_llm = self.llm
         if hasattr(fallback_llm, "_all"):
             for adapter in fallback_llm._all:
                 model_name = getattr(adapter, "model", "")
-                if any(s in model_name.lower() for s in ("deepseek", "gpt-4")):
+                if is_strong_fc_model(model_name):
                     h = fallback_llm._health.get(model_name, {})
                     if h.get("failures", 0) < 3:
                         return adapter
         elif hasattr(fallback_llm, "_primary"):
             primary = fallback_llm._primary
             model_name = getattr(primary, "model", "")
-            if any(s in model_name.lower() for s in ("deepseek", "gpt-4")):
+            if is_strong_fc_model(model_name):
                 return primary
         return None
 
@@ -243,11 +239,7 @@ class BrainToolGuardMixin:
             # 注入纠正提示，让 LLM 用真实工具重做
             self._history.append({
                 "role": "user",
-                "content": (
-                    "[系统] 你刚才声称已完成操作，但实际上没有调用任何工具。"
-                    "你必须使用真实的工具来执行操作，不能假装已完成。"
-                    "请使用可用的工具来执行用户的请求。如果没有合适的工具，请如实告知。"
-                ),
+                "content": ANTI_FAKE_CORRECTION,
             })
             return True  # 触发 caller 重新进入工具循环
 

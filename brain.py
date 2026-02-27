@@ -26,6 +26,14 @@ from brain_tool_guard import BrainToolGuardMixin
 from brain_intent import BrainIntentMixin
 from brain_perf import compress_tool_result, dynamic_max_tool_rounds
 from brain_fast_path import classify as _fast_classify
+from brain_config import (
+    TOOL_LOOP_TIMEOUT_SEC, MAX_SYSTEM_PROMPT_TOKENS,
+    MAX_HISTORY_HARD_LIMIT, LOCAL_MODEL_HISTORY_LIMIT, REMOTE_MODEL_HISTORY_LIMIT,
+    LOCAL_SOUL_MAX_LINES, LLM_MAX_RETRIES, LLM_BASE_DELAY_SEC,
+    PSEUDO_STREAM_CHUNK_SIZE, PSEUDO_STREAM_DELAY_SEC,
+    LOOP_HINT, FAIL_HINT, TOOL_USAGE_HINTS, EMPTY_REPLY_FALLBACK,
+    TOOL_INFERENCE_MAP,
+)
 from logs import get_logger
 
 logger = get_logger("brain")
@@ -36,25 +44,6 @@ _SOUL_PATH = _IDENTITY_DIR / "SOUL.md"
 _USER_PATH = _IDENTITY_DIR / "USER.md"
 _BOOTSTRAP_PATH = _IDENTITY_DIR / "BOOTSTRAP.md"
 
-_LOOP_HINT = ("你正在重复同样的失败操作。请停下来思考："
-    "1.分析失败原因 2.用web_search搜索解决方案 "
-    "3.换一种完全不同的策略 4.实在不行就诚实告诉用户并建议替代方案。不要再重复同样的命令。")
-_FAIL_HINT = "[提示] 操作失败。请分析错误原因，考虑：搜索解决方案(web_search)、换方法、或告知用户。"
-
-_TOOL_USAGE_HINTS = """
-工具使用原则:
-1. 需要事实/数据→先用工具获取，不要凭记忆回答
-2. 文件操作→用read_file/write_file，不要用run_command cat/echo
-3. 搜索信息→web_search；搜索本地文件→grep/find_files
-4. 需要执行代码→run_python(安全沙盒)；系统命令→run_command
-5. 复杂任务→先用decompose_task拆分，再逐步执行
-6. 不确定能否完成→先尝试，失败后换方法，不要直接说不会
-7. 多个工具可用时，选最直接的那个（如查天气用get_weather而非web_search）
-""".strip()
-
-
-_TOOL_LOOP_TIMEOUT = 60
-_COMPACTION_RESERVE_TOKENS = 2000
 
 
 class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, BrainIntentMixin):
@@ -77,8 +66,8 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, Brain
         self.reflection = reflection
         self._sessions: dict[str, list[dict]] = {}
         self._current_sid: str = "default"
-        self.ralph_max_retries = 3
-        self.ralph_base_delay = 2.0
+        self.ralph_max_retries = LLM_MAX_RETRIES
+        self.ralph_base_delay = LLM_BASE_DELAY_SEC
         self._soul_prompt = ""
         self._soul_mtime: float = 0.0
         self._reflection_text = ""
@@ -176,7 +165,7 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, Brain
                 await _s.emit("thinking", metacog)
 
             max_rounds = dynamic_max_tool_rounds(user_input, tools)
-            deadline = time.time() + _TOOL_LOOP_TIMEOUT
+            deadline = time.time() + TOOL_LOOP_TIMEOUT_SEC
             for round_i in range(max_rounds + 1):
                 self._compact_history_if_needed()
                 messages = await self._build_messages(skip_lessons=_fp.skip_lessons)
@@ -190,7 +179,7 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, Brain
                 if not tool_calls or not self.tools:
                     break
                 if time.time() > deadline:
-                    logger.warning(f"[{session_id}] 工具循环超时({_TOOL_LOOP_TIMEOUT}s)")
+                    logger.warning(f"[{session_id}] 工具循环超时({TOOL_LOOP_TIMEOUT_SEC}s)")
                     await _s.emit("info", "⏱️ 工具执行超时，正在总结已有结果...")
                     self._history.append({"role": "user", "content": "[系统] 工具执行超时，请根据已获取的信息直接用文字回复用户，不要再调用工具。"})
                     messages = await self._build_messages()
@@ -305,7 +294,7 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, Brain
                     warn = loop_check.get('warning', '工具循环检测')
                     await _s.emit("info", "🧠 暂停重试，冷静分析中...")
                     self._history.append({"role": "tool", "tool_call_id": tc.get("id", ""),
-                        "content": f"[学习提示] {warn}。\n{_LOOP_HINT}"})
+                        "content": f"[学习提示] {warn}。\n{LOOP_HINT}"})
                     await self._learn_from_tool_failure(session_id, tool_name, tool_params, warn)
                     continue
 
@@ -320,7 +309,7 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, Brain
             logger.info(f"[{session_id}] 工具结果: success={result.get('success')}, {result_text[:80]}")
 
             if not result.get("success") and result_text:
-                result_text += f"\n{_FAIL_HINT}"
+                result_text += f"\n{FAIL_HINT}"
                 await self._learn_from_tool_failure(session_id, tool_name, tool_params, result_text[:150])
             self._history.append({"role": "tool", "tool_call_id": tc.get("id", ""), "content": result_text})
 
@@ -360,16 +349,16 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, Brain
             except Exception as e:
                 logger.debug(f"[{session_id}] 真流式失败({e})，降级伪流式")
 
-        content = content or "抱歉，我没有生成有效的回复。"
+        content = content or EMPTY_REPLY_FALLBACK
         if not content.strip(): logger.warning(f"[{session_id}] LLM 返回空内容")
 
         if not _already_streamed:
-            chunk_size = 8
+            chunk_size = PSEUDO_STREAM_CHUNK_SIZE
             if len(content) > chunk_size * 2:
                 await _s.emit("response_start", None)
                 for i in range(0, len(content), chunk_size):
                     await _s.emit("response_delta", content[i:i+chunk_size])
-                    await asyncio.sleep(0.02)
+                    await asyncio.sleep(PSEUDO_STREAM_DELAY_SEC)
                 await _s.emit("response_end", None)
             else:
                 await _s.emit("response", content)
@@ -384,7 +373,7 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, Brain
         self._ab_stats[mode].append({"elapsed": round(elapsed, 2), "tokens": total_tokens, "response_len": len(content), "ts": time.time()})
         self._ab_stats[mode] = self._ab_stats[mode][-100:]; self._save_ab_stats()
         logger.info(f"[{session_id}] 回复完成(流式推送): {content[:80]}...")
-        if len(self._history) > 60:  # 安全截断：保护 tool_calls/tool 配对
+        if len(self._history) > MAX_HISTORY_HARD_LIMIT:  # 安全截断：保护 tool_calls/tool 配对
             self._history = self._history[self._find_safe_cut_point(len(self._history)-50, len(self._history)-40):]
         try:
             from memory_journal import save_conversation_summary
@@ -396,17 +385,7 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, Brain
 
     # ── 缺失工具自动补齐 ─────────────────────────────────────────
 
-    _TOOL_INFERENCE_MAP = [
-        (re.compile(r"删除|移除|清除.*文件", re.I), "delete_file"),
-        (re.compile(r"创建|新建|写入.*文件", re.I), "write_file"),
-        (re.compile(r"读取|打开|查看.*文件", re.I), "read_file"),
-        (re.compile(r"搜索|查询|查找|搜一下|帮我搜", re.I), "web_search"),
-        (re.compile(r"运行|执行.*命令|脚本", re.I), "run_command"),
-        (re.compile(r"发送.*邮件|发邮件", re.I), "send_email"),
-        (re.compile(r"下载|拉取", re.I), "download_file"),
-        (re.compile(r"截图|屏幕", re.I), "screenshot"),
-        (re.compile(r"翻译", re.I), "translate"),
-    ]
+    _TOOL_INFERENCE_MAP = TOOL_INFERENCE_MAP
 
     async def _try_auto_provision_tool(self, session_id: str, user_input: str, _s=None) -> bool:
         """当 LLM 承认缺少工具或拒绝伪造后，推断用户需要的工具并触发自动安装/创建。
@@ -517,7 +496,7 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, Brain
                 else:
                     s.append("可用工具:\n" + "\n".join(f"- {t['function']['name']}: {t['function'].get('description','')[:60]}" for t in tools_list))
                     # P1c: 工具使用强化 — few-shot 提示
-                    s.append(_TOOL_USAGE_HINTS)
+                    s.append(TOOL_USAGE_HINTS)
             except Exception:
                 s.append("可用工具: 获取失败")
         s.append(f"模型: {getattr(self.llm, 'model', '?')} | 时间: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -538,7 +517,7 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, Brain
             awareness = self._build_self_awareness()
             if local:
                 # 本地模型：只用 SOUL.md 前80行（核心身份），省 token 给回复
-                soul_lines = self._soul_prompt.splitlines()[:80]
+                soul_lines = self._soul_prompt.splitlines()[:LOCAL_SOUL_MAX_LINES]
                 system_content = "\n".join(soul_lines) + f"\n\n## 状态\n{awareness}"
             else:
                 system_content = self._soul_prompt + f"\n\n## 当前状态\n{awareness}"
@@ -568,12 +547,11 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, Brain
                     optional_sections.append(f"\n\n## 过往经验（参考）\n{lessons_text}")
             if not local and self._reflection_text:
                 optional_sections.append(f"\n\n## 自省\n{self._reflection_text}")
-            # Token 预算控制：system prompt 超过 4K tokens 时从末尾裁剪可选部分
-            _MAX_SYSTEM_TOKENS = 4000
+            # Token 预算控制：system prompt 超预算时从末尾裁剪可选部分
             base_tokens = self._estimate_tokens(system_content)
             for section in optional_sections:
                 section_tokens = self._estimate_tokens(section)
-                if base_tokens + section_tokens <= _MAX_SYSTEM_TOKENS:
+                if base_tokens + section_tokens <= MAX_SYSTEM_PROMPT_TOKENS:
                     system_content += section
                     base_tokens += section_tokens
                 else:
@@ -582,10 +560,10 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, Brain
 
         # 历史条数限制 — 本地模型6条，远程模型20条（防止 prompt 无限膨胀）
         hist = self._history
-        if local and len(hist) > 6:
-            hist = [m for m in hist if m.get("role") in ("user", "assistant") and "tool_calls" not in m][-6:]
-        elif not local and len(hist) > 20:
-            hist = hist[-20:]
+        if local and len(hist) > LOCAL_MODEL_HISTORY_LIMIT:
+            hist = [m for m in hist if m.get("role") in ("user", "assistant") and "tool_calls" not in m][-LOCAL_MODEL_HISTORY_LIMIT:]
+        elif not local and len(hist) > REMOTE_MODEL_HISTORY_LIMIT:
+            hist = hist[-REMOTE_MODEL_HISTORY_LIMIT:]
         messages.extend(hist)
         self._sanitize_messages(messages)
         return messages

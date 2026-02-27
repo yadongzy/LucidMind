@@ -4,30 +4,16 @@
 从 brain.py 中拆出以遵守规则03行数限制。
 """
 
-# ── 上下文窗口 ─────────────────────────────────────
+# ── 上下文窗口 ───────────────────────────────────────
 
-_MODEL_CONTEXT_WINDOWS = {
-    "deepseek": 64000,
-    "gpt-4o": 128000,
-    "gpt-4-turbo": 128000,
-    "gpt-4o-mini": 128000,
-    "qwen": 32000,
-    "llama": 8192,
-    "gemma": 8192,
-}
-_DEFAULT_CONTEXT_WINDOW = 16000
-
-_MIN_TOOL_ROUNDS = 2
-_DEFAULT_TOOL_ROUNDS = 4
-_MAX_TOOL_ROUNDS = 8
-
-
-def get_context_window(model_name: str) -> int:
-    """获取模型的上下文窗口大小（tokens）。"""
-    for key, val in _MODEL_CONTEXT_WINDOWS.items():
-        if key.lower() in model_name.lower():
-            return val
-    return _DEFAULT_CONTEXT_WINDOW
+from brain_config import (
+    MIN_TOOL_ROUNDS as _MIN_TOOL_ROUNDS,
+    DEFAULT_TOOL_ROUNDS as _DEFAULT_TOOL_ROUNDS,
+    MAX_TOOL_ROUNDS as _MAX_TOOL_ROUNDS,
+    TOOL_RESULT_MAX_CHARS,
+    COMPLEXITY_SEARCH_KEYWORDS, COMPLEXITY_MULTI_STEP_KEYWORDS,
+    get_context_window,
+)
 
 
 # ── 查询复杂度 ─────────────────────────────────────
@@ -35,14 +21,8 @@ def get_context_window(model_name: str) -> int:
 def estimate_query_complexity(user_input: str, tools: list | None) -> str:
     """估算查询复杂度：simple/medium/complex。"""
     length = len(user_input)
-    has_search_keywords = any(k in user_input for k in [
-        "搜索", "查找", "研究", "分析", "对比", "总结", "深度",
-        "search", "research", "analyze", "compare", "investigate",
-    ])
-    has_multi_step = any(k in user_input for k in [
-        "然后", "接着", "之后", "步骤", "第一", "第二",
-        "and then", "step", "first", "second",
-    ])
+    has_search_keywords = any(k in user_input for k in COMPLEXITY_SEARCH_KEYWORDS)
+    has_multi_step = any(k in user_input for k in COMPLEXITY_MULTI_STEP_KEYWORDS)
     if length > 200 or (has_search_keywords and has_multi_step):
         return "complex"
     if length > 50 or has_search_keywords or has_multi_step:
@@ -63,7 +43,7 @@ def dynamic_max_tool_rounds(user_input: str, tools: list | None) -> int:
 
 # ── 工具结果压缩 ───────────────────────────────────
 
-def compress_tool_result(result_text: str, max_chars: int = 3000) -> str:
+def compress_tool_result(result_text: str, max_chars: int = TOOL_RESULT_MAX_CHARS) -> str:
     """即时压缩单个工具结果，保留首尾关键信息。"""
     if len(result_text) <= max_chars:
         return result_text
