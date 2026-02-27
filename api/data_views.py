@@ -1,5 +1,5 @@
 """数据可视化 API — 记忆 + 经验 + A/B测试。"""
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 router = APIRouter(prefix="/api", tags=["data"])
 
@@ -107,7 +107,7 @@ async def get_identity_file(filename: str):
     from pathlib import Path
     allowed = {"CORE.md", "SOUL.md", "BOOTSTRAP.md"}
     if filename not in allowed:
-        return {"content": "", "exists": False, "error": f"不支持: {filename}"}
+        raise HTTPException(status_code=400, detail=f"不支持: {filename}")
     path = Path(__file__).parent.parent / "identity" / filename
     if not path.exists():
         return {"content": "", "exists": False}
@@ -121,12 +121,14 @@ async def create_dispatcher_task(body: dict):
         import task_dispatcher as td
         content = body.get("content", "").strip()
         if not content:
-            return {"error": "content is required"}
+            raise HTTPException(status_code=400, detail="content is required")
         priority = body.get("priority", "P2")
         task = td.enqueue(content, task_type="task", priority=priority, source="user")
         return {"status": "created", "task": task}
+    except HTTPException:
+        raise
     except Exception as e:
-        return {"error": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.delete("/lessons/{index}")
@@ -142,15 +144,17 @@ async def delete_lesson(index: int):
                 elif hasattr(_learning_adapter, 'save'):
                     _learning_adapter.save()
                 return {"status": "deleted", "index": index}
-            return {"error": f"Index {index} out of range (0-{len(lessons)-1})"}
+            raise HTTPException(status_code=404, detail=f"Index {index} out of range (0-{len(lessons)-1})")
         elif hasattr(_learning_adapter, 'store'):
             rows = _learning_adapter.store.get_all(limit=500)
             if 0 <= index < len(rows):
                 _learning_adapter.store.delete(rows[index].id)
                 return {"status": "deleted", "index": index}
-            return {"error": f"Index {index} out of range (0-{len(rows)-1})"}
+            raise HTTPException(status_code=404, detail=f"Index {index} out of range (0-{len(rows)-1})")
+    except HTTPException:
+        raise
     except Exception as e:
-        return {"error": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.delete("/memory/{session_id}/{index}")
@@ -165,9 +169,11 @@ async def delete_memory_item(session_id: str, index: int):
                 if hasattr(_memory_adapter, '_save'):
                     _memory_adapter._save()
             return {"status": "deleted", "index": index, "remaining": len(msgs)}
-        return {"error": f"Index {index} out of range"}
+        raise HTTPException(status_code=404, detail=f"Index {index} out of range")
+    except HTTPException:
+        raise
     except Exception as e:
-        return {"error": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.delete("/dispatcher/tasks/{task_id}")
@@ -180,18 +186,20 @@ async def delete_dispatcher_task(task_id: str):
         before = len(tasks)
         store["tasks"] = [t for t in tasks if t.get("id") != task_id]
         if len(store["tasks"]) == before:
-            return {"error": "Task not found"}
+            raise HTTPException(status_code=404, detail="Task not found")
         save_store(store)
         return {"status": "deleted", "id": task_id}
+    except HTTPException:
+        raise
     except Exception as e:
-        return {"error": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/ab-test")
 async def get_ab_test():
     """A/B测试统计 — 对比经验注入开/关的回答质量。"""
     if not _brain_ref:
-        return {"error": "Brain not initialized"}
+        raise HTTPException(status_code=503, detail="Brain not initialized")
     stats = _brain_ref._ab_stats
 
     def _summarize(records: list) -> dict:
@@ -217,7 +225,7 @@ async def get_ab_test():
 async def set_ab_test(body: dict):
     """A/B测试开关 — 切换经验注入。"""
     if not _brain_ref:
-        return {"error": "Brain not initialized"}
+        raise HTTPException(status_code=503, detail="Brain not initialized")
     enabled = body.get("lessons_enabled")
     if enabled is not None:
         _brain_ref.lessons_enabled = bool(enabled)
