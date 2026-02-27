@@ -104,7 +104,6 @@ class WebSocketChannelAdapter(ChannelPort):
                         await stream.emit("info", f"📨 排队中: 还有 {pending} 条消息待处理")
                     except Exception:
                         pass
-                brain.set_stream(stream)
                 current_task = asyncio.create_task(self._safe_process(
                     brain, stream, sid, user_input, self._on_message))
                 await current_task
@@ -173,14 +172,18 @@ class WebSocketChannelAdapter(ChannelPort):
         except Exception as e:
             logger.error(f"WebSocket 错误 (conn={conn_id}): {e}")
         finally:
-            # 停止消费者
+            # 停止消费者（毒丸让 consumer 退出循环，但不取消正在执行的 process 任务）
             await chat_queue.put(None)
-            if consumer_task:
-                consumer_task.cancel()
+            if consumer_task and not consumer_task.done():
+                # 等待当前 process 完成（最多 120s），ws_holder 会路由到新连接
                 try:
-                    await consumer_task
-                except (asyncio.CancelledError, Exception):
-                    pass
+                    await asyncio.wait_for(consumer_task, timeout=120)
+                except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+                    consumer_task.cancel()
+                    try:
+                        await consumer_task
+                    except (asyncio.CancelledError, Exception):
+                        pass
             self._connections.pop(conn_id, None)
             self._last_pong.pop(conn_id, None)
 
@@ -228,12 +231,20 @@ class WebSocketChannelAdapter(ChannelPort):
 
     @staticmethod
     async def _safe_process(brain, stream, sid, user_input, on_message):
-        """后台安全执行 brain.process，异常不会崩溃 WebSocket 连接。"""
+        """后台安全执行 brain.process，消费返回值检测软失败。"""
         try:
             if on_message:
                 await on_message(sid, user_input)
             else:
-                await brain.process(sid, user_input)
+                result = await brain.process(sid, user_input, stream=stream)
+                # 消费 process() 返回值：检测软失败
+                if isinstance(result, dict) and result.get("empty_promise_detected"):
+                    logger.warning(f"[{sid}] 软失败: 空承诺/伪造检测触发，入队重试")
+                    try:
+                        import task_dispatcher as td
+                        td.enqueue(user_input, priority="P1", source="user_chat_retry")
+                    except Exception:
+                        pass
         except asyncio.CancelledError:
             logger.info(f"Brain 处理已被用户中止 (sid={sid})")
         except Exception as e:

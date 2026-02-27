@@ -24,11 +24,17 @@ class WebSocketStreamAdapter(StreamPort):
         self._error_count = 0
 
     async def emit(self, event_type: str, data: Any) -> None:
-        """发送思维流事件到 WebSocket。连接关闭后静默跳过。"""
-        if self._closed:
-            return
+        """发送思维流事件到 WebSocket。通过 ws_holder 自动路由到最新连接。"""
         # S59: 优先使用 holder 中的最新连接
         ws = self._holder["ws"] if self._holder and self._holder.get("ws") else self.ws
+        # 连接已更新时重置错误状态（页面刷新后新连接可用）
+        if ws is not self.ws and self._closed:
+            self._closed = False
+            self._error_count = 0
+            logger.info(f"[STREAM] 连接已更新，重置错误状态 → ws={id(ws)}")
+        if self._closed:
+            return
+        ws_id = id(ws)
         try:
             message = json.dumps(
                 {"type": event_type, "data": data},
@@ -36,11 +42,13 @@ class WebSocketStreamAdapter(StreamPort):
             )
             await ws.send_text(message)
             self._error_count = 0
+            if event_type != "response_delta":
+                logger.info(f"[STREAM] ✅ type={event_type} → ws={ws_id} data={str(data)[:80]}")
         except Exception as e:
             self._error_count += 1
             if self._error_count <= 3:
-                logger.warning(f"WebSocket 发送失败: type={event_type}, 错误={e}")
+                logger.warning(f"WebSocket 发送失败: type={event_type}, ws={ws_id}, 错误={e}")
             if self._error_count == 3:
-                logger.warning("WebSocket 连接已关闭，后续 emit 将静默跳过")
+                logger.warning("WebSocket 连续3次发送失败，后续静默跳过")
             if "close" in str(e).lower() or "disconnect" in str(e).lower():
                 self._closed = True

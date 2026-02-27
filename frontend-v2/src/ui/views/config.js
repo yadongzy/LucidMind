@@ -67,10 +67,10 @@ export function renderConfig(app) {
         <select class="form-select" @change=${async (e) => {
           await api.setBrainInterval(parseInt(e.target.value));
         }}>
-          <option value="30">30秒 (快速)</option>
-          <option value="60" selected>60秒 (正常)</option>
-          <option value="120">120秒 (慢速)</option>
-          <option value="300">300秒 (极慢)</option>
+          <option value="30" ?selected=${app.brainStatus?.daemon?.interval === 30}>30秒 (快速)</option>
+          <option value="60" ?selected=${!app.brainStatus?.daemon?.interval || app.brainStatus?.daemon?.interval === 60}>60秒 (正常)</option>
+          <option value="120" ?selected=${app.brainStatus?.daemon?.interval === 120}>120秒 (慢速)</option>
+          <option value="300" ?selected=${app.brainStatus?.daemon?.interval === 300}>300秒 (极慢)</option>
         </select>
       </div>
       <div class="form-group">
@@ -78,8 +78,8 @@ export function renderConfig(app) {
         <select class="form-select" @change=${async (e) => {
           await api.setAutoAsk(e.target.value === "on");
         }}>
-          <option value="on">开启</option>
-          <option value="off">关闭</option>
+          <option value="on" ?selected=${app.brainStatus?.daemon?.auto_ask !== false}>开启</option>
+          <option value="off" ?selected=${app.brainStatus?.daemon?.auto_ask === false}>关闭</option>
         </select>
       </div>
     </div>

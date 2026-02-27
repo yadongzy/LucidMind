@@ -60,7 +60,7 @@ function _renderMarkdown(text) {
     if (line.startsWith("# ")) return html`<h2 style="margin:16px 0 8px;font-size:18px;color:var(--accent);">${line.slice(2)}</h2>`;
     if (line.startsWith("## ")) return html`<h3 style="margin:12px 0 6px;font-size:15px;color:var(--fg-2);">${line.slice(3)}</h3>`;
     if (line.startsWith("> ")) return html`<div style="padding:4px 12px;margin:4px 0;border-left:3px solid var(--accent);color:var(--fg-3);font-size:13px;font-style:italic;">${line.slice(2)}</div>`;
-    if (line.startsWith("- **")) return html`<div style="padding:4px 0 4px 16px;font-size:13px;">• <b>${line.slice(4).replace("**", "")}</b></div>`;
+    if (line.startsWith("- **")) return html`<div style="padding:4px 0 4px 16px;font-size:13px;">• <b>${line.slice(4).replaceAll("**", "")}</b></div>`;
     if (line.startsWith("- ")) return html`<div style="padding:4px 0 4px 16px;font-size:13px;">• ${line.slice(2)}</div>`;
     if (line.startsWith("_") && line.endsWith("_")) return html`<div style="padding:2px 0;font-size:12px;color:var(--fg-3);font-style:italic;">${line.slice(1, -1)}</div>`;
     if (line.trim() === "---") return html`<hr style="border:none;border-top:1px solid var(--border);margin:12px 0;">`;

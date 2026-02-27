@@ -36,7 +36,9 @@ function _getSlashMatches(text) {
 
 function _applySlashCmd(cmd, app) {
   if (cmd.template === "__CLEAR__") {
-    app.messages = []; app.chatDraft = ""; app._slashOpen = false; app.requestUpdate();
+    app.messages = []; app.chatDraft = ""; app._slashOpen = false;
+    fetch('/api/sessions/' + app.currentSession + '/history', { method: 'DELETE' }).catch(() => {});
+    app.requestUpdate();
     return;
   }
   app._slashOpen = false;

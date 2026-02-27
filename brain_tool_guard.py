@@ -88,7 +88,7 @@ class BrainToolGuardMixin:
     # === 三层防护主方法 ===
     async def _guard_empty_promise(
         self, session_id: str, user_input: str, response: dict,
-        messages: list, tools: list | None,
+        messages: list, tools: list | None, _s=None,
     ) -> tuple[dict, bool]:
         """空承诺三层防护。返回 (可能更新的response, tool_calls_happened)。
 
@@ -96,12 +96,13 @@ class BrainToolGuardMixin:
         Layer 2: tool_choice="required" 强制LLM产生工具调用
         Layer 3: 切换到更强FC模型重试（通过 llm_override）
         """
+        _s = _s or self.stream
         content_text = response.get("content", "") or ""
         if not self._detect_empty_promise(content_text):
             return response, False
 
         logger.warning(f"[{session_id}] 空承诺检测: '{content_text[:60]}...'")
-        await self.stream.emit("info", "🔄 检测到承诺未兑现，正在重试...")
+        await _s.emit("info", "🔄 检测到承诺未兑现，正在重试...")
 
         # Layer 1: 文本意图提取
         intent = self._extract_tool_intent_from_text(content_text)
@@ -110,7 +111,7 @@ class BrainToolGuardMixin:
             t_params = intent["arguments"]
             logger.info(f"[{session_id}] Layer1: 从文本提取 {t_name}({t_params})")
             try:
-                result = await self._tool_call_with_retry(session_id, t_name, t_params)
+                result = await self._tool_call_with_retry(session_id, t_name, t_params, _s=_s)
                 r_text = str(result.get("result") or result.get("error") or "")
                 if not r_text.strip():
                     r_text = "(Command executed with no output)"
@@ -120,11 +121,11 @@ class BrainToolGuardMixin:
                     "function": {"name": t_name, "arguments": json.dumps(t_params, ensure_ascii=False)}}
                 self._history.append({"role": "assistant", "content": None, "tool_calls": [formatted_tc]})
                 self._history.append({"role": "tool", "tool_call_id": tc_id, "content": r_text})
-                await self.stream.emit("tool_call", f"{t_name}({json.dumps(t_params, ensure_ascii=False)[:100]})")
-                await self.stream.emit("tool_result", r_text[:200])
+                await _s.emit("tool_call", f"{t_name}({json.dumps(t_params, ensure_ascii=False)[:100]})")
+                await _s.emit("tool_result", r_text[:200])
                 self._compact_history_if_needed()
                 messages = await self._build_messages()
-                response = await self._llm_call_with_retry(session_id, messages, tools=None)
+                response = await self._llm_call_with_retry(session_id, messages, tools=None, _s=_s)
                 return response, True
             except Exception:
                 pass
@@ -133,7 +134,7 @@ class BrainToolGuardMixin:
         logger.info(f"[{session_id}] Layer2: 使用 tool_choice=required 重试")
         try:
             response2 = await self._llm_call_with_retry(
-                session_id, messages, tools, tool_choice="required",
+                session_id, messages, tools, tool_choice="required", _s=_s,
             )
             if response2.get("tool_calls"):
                 return response2, False  # caller will handle tool_calls
@@ -147,7 +148,7 @@ class BrainToolGuardMixin:
             try:
                 response3 = await self._llm_call_with_retry(
                     session_id, messages, tools,
-                    tool_choice="required", llm_override=stronger,
+                    tool_choice="required", llm_override=stronger, _s=_s,
                 )
                 if response3.get("tool_calls"):
                     return response3, False
@@ -187,8 +188,9 @@ class BrainToolGuardMixin:
         },
     ]
 
-    async def _pre_execute_intent(self, session_id: str, user_input: str) -> bool:
+    async def _pre_execute_intent(self, session_id: str, user_input: str, _s=None) -> bool:
         """在 LLM 调用前检测明确意图并预执行工具。返回 True 表示已执行。"""
+        _s = _s or self.stream
         for pat in self._PRE_EXEC_PATTERNS:
             m = re.search(pat["re"], user_input)
             if not m:
@@ -203,8 +205,8 @@ class BrainToolGuardMixin:
             try:
                 result = await self.tools.execute(tool_name, params, session_id=session_id)
                 result_text = str(result.get("result") or result.get("error") or "")
-                await self.stream.emit("tool_call", f"{tool_name}({json.dumps(params, ensure_ascii=False)})")
-                await self.stream.emit("tool_result", result_text[:200])
+                await _s.emit("tool_call", f"{tool_name}({json.dumps(params, ensure_ascii=False)})")
+                await _s.emit("tool_result", result_text[:200])
                 logger.info(f"[{session_id}] 预执行: {tool_name} 成功: {result_text[:80]}")
                 self._history.append({"role": "assistant", "content": None, "tool_calls": [{
                     "id": f"pre_{tool_name}", "type": "function",
@@ -231,10 +233,37 @@ class BrainToolGuardMixin:
             "tool": "set_reminder",
             "extract": lambda m, _: {"message": "提醒", "minutes": int(m.group(1))},
         },
+        {
+            "user_re": r"删除(.+?)(?:文件|的文件)",
+            "reply_re": r"已删除|已确认.*删除|删除.*完成|文件.*已.*删除",
+            "tool": "delete_file",
+            "extract": lambda m, _: {"path": m.group(1).strip()},
+        },
+        {
+            "user_re": r"(?:删掉|移除|去掉)(.+?)(?:文件)?$",
+            "reply_re": r"已删除|已移除|已去掉|已清除|删除.*完成",
+            "tool": "delete_file",
+            "extract": lambda m, _: {"path": m.group(1).strip()},
+        },
     ]
 
-    async def _force_tool_if_faked(self, session_id: str, user_input: str, reply_text: str) -> bool:
+    # 通用伪造动作检测：用户要求执行操作 + LLM 声称完成但未调任何工具
+    _ACTION_CLAIM_PATTERNS = re.compile(
+        r"已(?:删除|移除|清除|完成|执行|创建|写入|保存|修改|更新|发送|设置|安装|卸载|停止|启动|重启)"
+        r"|(?:删除|移除|执行|创建|写入|发送|设置|安装).*(?:完成|成功)"
+        r"|(?:文件|目录|数据|配置|服务).*已.*(?:删除|创建|修改|更新)",
+        re.IGNORECASE,
+    )
+    _ACTION_REQUEST_PATTERNS = re.compile(
+        r"删除|移除|清除|创建|写入|修改|更新|发送|设置|安装|卸载|停止|启动|重启|运行|执行",
+        re.IGNORECASE,
+    )
+
+    async def _force_tool_if_faked(self, session_id: str, user_input: str, reply_text: str, _s=None) -> bool:
         """检测 LLM 伪造工具结果并强制执行真实工具调用。返回 True 表示已强制执行。"""
+        _s = _s or self.stream
+
+        # Phase 1: 精确模式匹配（已知的伪造模式）
         for pat in self._FAKE_PATTERNS:
             user_match = re.search(pat["user_re"], user_input)
             if not user_match:
@@ -250,12 +279,12 @@ class BrainToolGuardMixin:
                 if extracted:
                     params["message"] = extracted
             logger.warning(f"[{session_id}] 防伪造守卫: LLM 假装已调用 {tool_name}，强制执行")
-            await self.stream.emit("info", "🛡️ 检测到未执行的操作，正在补救...")
+            await _s.emit("info", "🛡️ 检测到未执行的操作，正在补救...")
             try:
-                result = await self.tools.execute(tool_name, params, session_id=session_id)
+                result = await self._tool_call_with_retry(session_id, tool_name, params, _s=_s)
                 result_text = str(result.get("result") or result.get("error") or "")
-                await self.stream.emit("tool_call", f"{tool_name}({json.dumps(params, ensure_ascii=False)})")
-                await self.stream.emit("tool_result", result_text[:200])
+                await _s.emit("tool_call", f"{tool_name}({json.dumps(params, ensure_ascii=False)})")
+                await _s.emit("tool_result", result_text[:200])
                 logger.info(f"[{session_id}] 防伪造守卫: {tool_name} 执行成功: {result_text[:80]}")
                 self._history.append({"role": "assistant", "content": None, "tool_calls": [{
                     "id": f"forced_{tool_name}", "type": "function",
@@ -266,4 +295,21 @@ class BrainToolGuardMixin:
             except Exception as e:
                 logger.error(f"[{session_id}] 防伪造守卫: {tool_name} 执行失败: {e}")
                 return False
+
+        # Phase 2: 通用伪造检测 — 用户要求操作 + LLM 声称完成但无工具调用
+        if (self._ACTION_REQUEST_PATTERNS.search(user_input)
+                and self._ACTION_CLAIM_PATTERNS.search(reply_text)):
+            logger.warning(f"[{session_id}] 通用防伪造: 用户要求操作且 LLM 声称完成但未调用工具")
+            await _s.emit("info", "🛡️ 检测到声称完成但未使用工具，正在强制重试...")
+            # 注入纠正提示，让 LLM 用真实工具重做
+            self._history.append({
+                "role": "user",
+                "content": (
+                    "[系统] 你刚才声称已完成操作，但实际上没有调用任何工具。"
+                    "你必须使用真实的工具来执行操作，不能假装已完成。"
+                    "请使用可用的工具来执行用户的请求。如果没有合适的工具，请如实告知。"
+                ),
+            })
+            return True  # 触发 caller 重新进入工具循环
+
         return False

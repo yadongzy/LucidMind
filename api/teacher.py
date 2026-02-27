@@ -77,13 +77,11 @@ async def teacher_direct(req: TeacherMessage):
     if not _brain_ref:
         return {"status": "error", "detail": "Brain 未初始化"}
     
-    old_stream = getattr(_brain_ref, 'stream', None)
     collector = _CollectorStream()
-    _brain_ref.set_stream(collector)
     
     sid = f"teach_{req.session_id}"
     try:
-        await _brain_ref.process(sid, req.message)
+        await _brain_ref.process(sid, req.message, stream=collector)
         # 提取最终回复
         response_parts = [e["data"] for e in collector.events if e["type"] in ("response", "response_delta")]
         response = "".join(response_parts)
@@ -100,10 +98,6 @@ async def teacher_direct(req: TeacherMessage):
     except Exception as e:
         response = f"执行失败: {e}"
         thinking = ""
-    finally:
-        # 保留session历史，让后续消息能检测到纠正（需要前一条助手回复做上下文）
-        if old_stream:
-            _brain_ref.set_stream(old_stream)
     
     return {
         "status": "ok",

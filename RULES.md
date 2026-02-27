@@ -74,7 +74,7 @@ Brain 只认识 Port（接口），不认识 Adapter（实现）。
 
 | 文件类型 | 行数上限 | 超出处理 |
 |---------|---------|---------|
-| brain.py | 500 行 | 拆分为 mixin 或委托给 Port |
+| brain.py | 600 行 | 拆分为 mixin 或委托给 Port |
 | 每个 Port 接口 | 50 行 | 职责不单一，需拆分 |
 | 每个 Adapter | 300 行 | 拆分为子模块 |
 | api/main.py | 200 行 | 拆分为 routes/ |

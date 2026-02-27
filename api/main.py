@@ -8,12 +8,8 @@ from fastapi import FastAPI, WebSocket
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-from api.startup import (
-    ROOT_DIR, frontend_dist_dir,
-    llm_adapter, tool_adapter, memory_adapter, learning_adapter, reflection_adapter,
-    mcp_client, ws_channel,
-    telegram_channel, feishu_channel, wecom_channel, wechat_channel,
-)
+import api.startup as startup
+from api.startup import ROOT_DIR, frontend_dist_dir
 from api.config import router as config_router
 from api.upload import router as upload_router
 from api.tasks import router as tasks_router
@@ -38,19 +34,14 @@ logger = get_logger("api")
 
 app = FastAPI(title="LucidMind", version="0.1.0")
 for _r in [config_router, upload_router, tasks_router, cron_router, sessions_router, auth_router,
+           memory_router,  # ISS-015: must be before data_views to avoid /api/memory/{session_id} shadowing
            data_views.router, brain_init.router, http_chat.router, teacher.router, cascade_inject.router,
            plugins_router, mcp_router, channels_router, security_router, personas_router,
-           diagnostics_router, memory_router]:
+           diagnostics_router]:
     app.include_router(_r)
 
 app.mount("/static/output", StaticFiles(directory=os.path.join(ROOT_DIR, "data", "output")), name="output")
 app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist_dir, "assets")), name="assets")
-
-brain_init.set_ws_channel(ws_channel)
-try:
-    from api.cron import set_ws_channel as _set_cron_ws
-    _set_cron_ws(ws_channel)
-except ImportError: pass
 
 # --- Brain 单例 ---
 _brain_singleton = None
@@ -58,8 +49,9 @@ _brain_singleton = None
 def _get_brain(stream=None):
     global _brain_singleton
     if _brain_singleton is None:
-        _brain_singleton = Brain(llm=llm_adapter, stream=stream, tools=tool_adapter,
-                                  memory=memory_adapter, learning=learning_adapter, reflection=reflection_adapter)
+        _brain_singleton = Brain(llm=startup.llm_adapter, stream=stream, tools=startup.tool_adapter,
+                                  memory=startup.memory_adapter, learning=startup.learning_adapter,
+                                  reflection=startup.reflection_adapter)
         from identity.personas import get_persona_manager
         _brain_singleton._persona_manager = get_persona_manager()
         brain_init.set_brain(_brain_singleton)
@@ -76,17 +68,21 @@ async def index():
 
 @app.get("/api/health")
 async def health():
-    available = await llm_adapter.is_available()
+    if not startup.llm_adapter:
+        return {"status": "ok", "version": "0.1.0", "llm_available": False, "initialized": False}
+    available = await startup.llm_adapter.is_available()
     return {"status": "ok", "version": "0.1.0", "llm_available": available}
 
 @app.get("/api/status")
 async def status():
-    llm_ok = await llm_adapter.is_available()
-    tools = tool_adapter.list_tools()
+    if not startup.llm_adapter:
+        return {"status": "initializing", "version": "0.1.0"}
+    llm_ok = await startup.llm_adapter.is_available()
+    tools = startup.tool_adapter.list_tools()
     return {
         "version": "0.1.0", "stage": "S10",
-        "llm": {"provider": getattr(llm_adapter, "provider_name", "Unknown"),
-                "model": llm_adapter.model, "available": llm_ok},
+        "llm": {"provider": getattr(startup.llm_adapter, "provider_name", "Unknown"),
+                "model": startup.llm_adapter.model, "available": llm_ok},
         "tools": [t["function"]["name"] for t in tools],
         "ports": {"llm": True, "stream": True, "tools": True, "memory": True, "learning": True, "channel": True},
     }
@@ -100,7 +96,7 @@ def _task_notify_hook(event: str, task: dict):
             "priority": task.get("priority"), "source": task.get("source")}})
         loop = asyncio.get_event_loop()
         if loop.is_running():
-            loop.create_task(ws_channel.broadcast(msg))
+            loop.create_task(startup.ws_channel.broadcast(msg))
     except Exception: pass
 
 import task_dispatcher as _td
@@ -109,9 +105,16 @@ _td.register_notify_hook(_task_notify_hook)
 # --- Lifecycle ---
 @app.on_event("startup")
 async def _startup():
-    mcp_count = await mcp_client.discover()
+    startup.init()  # D3: 显式初始化所有 Adapter
+    brain_init.set_ws_channel(startup.ws_channel)
+    try:
+        from api.cron import set_ws_channel as _set_cron_ws
+        _set_cron_ws(startup.ws_channel)
+    except ImportError: pass
+
+    mcp_count = await startup.mcp_client.discover()
     if mcp_count > 0:
-        tool_adapter._rebuild_map()
+        startup.tool_adapter._rebuild_map()
         logger.info(f"MCP: {mcp_count} 个外部工具已注入 Brain")
     b = _get_brain()
     from api.cron import set_cron_callback
@@ -121,45 +124,42 @@ async def _startup():
     async def _cron_execute(command: str, sid: str, job_id: str = ""):
         async with _cron_lock:
             logger.info(f"🔔 Cron 触发: sid={sid}, job={job_id}, cmd={command[:60]}")
-            prev_stream = b.stream
-            stream = BroadcastStreamAdapter(ws_channel, job_name=command[:30], job_id=job_id, telegram=telegram_channel)
-            b.set_stream(stream)
+            stream = BroadcastStreamAdapter(startup.ws_channel, job_name=command[:30], job_id=job_id, telegram=startup.telegram_channel)
             enhanced_cmd = (f"[定时任务自动执行] 用户要求: {command}\n"
                 f"重要：请务必使用 web_search 工具搜索最新实时信息。不要依赖训练数据。")
             try:
-                await b.process(sid, enhanced_cmd)
+                await b.process(sid, enhanced_cmd, stream=stream)
             except Exception as e:
                 logger.error(f"🔔 Cron 执行失败: {e}")
                 await stream.emit("error", str(e))
-            finally:
-                b.set_stream(prev_stream)
 
     set_cron_callback(_cron_execute)
-    for ch in [telegram_channel, feishu_channel, wecom_channel, wechat_channel]:
+    for ch in [startup.telegram_channel, startup.feishu_channel, startup.wecom_channel, startup.wechat_channel]:
         ch.set_brain(b)
         await ch.start(None)
+
+    # --- Module init (D3: 移入 startup 事件) ---
+    teacher.init(startup.ws_channel, brain_init.teacher)
+    mcp_api.init(startup.mcp_client, startup.tool_adapter)
+    channels_api.init(startup.telegram_channel, startup.feishu_channel, startup.wecom_channel, startup.wechat_channel)
+    from adapters.tools.tool_safety import get_safety_guard
+    _safety_guard = get_safety_guard()
+    _safety_guard.set_ws_channel(startup.ws_channel)
+    startup.tool_adapter.set_safety_guard(_safety_guard)
+    security_api.init(_safety_guard)
+    data_views.init(startup.memory_adapter, startup.learning_adapter, brain=None)
+    http_chat.init(lambda s: _get_brain(s))
+
     await brain_init.awaken(b)
 
 @app.on_event("shutdown")
 async def _shutdown():
-    await mcp_client.shutdown()
-    for ch in [telegram_channel, feishu_channel, wecom_channel, wechat_channel]:
+    await startup.mcp_client.shutdown()
+    for ch in [startup.telegram_channel, startup.feishu_channel, startup.wecom_channel, startup.wechat_channel]:
         await ch.stop()
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     token = websocket.query_params.get("token", "")
     brain = _get_brain()
-    await ws_channel.handle_connection(websocket, brain, token=token)
-
-# --- Module init ---
-teacher.init(ws_channel, brain_init.teacher)
-mcp_api.init(mcp_client, tool_adapter)
-channels_api.init(telegram_channel, feishu_channel, wecom_channel, wechat_channel)
-from adapters.tools.tool_safety import get_safety_guard
-_safety_guard = get_safety_guard()
-_safety_guard.set_ws_channel(ws_channel)
-tool_adapter.set_safety_guard(_safety_guard)
-security_api.init(_safety_guard)
-data_views.init(memory_adapter, learning_adapter, brain=None)
-http_chat.init(lambda s: _get_brain(s))
+    await startup.ws_channel.handle_connection(websocket, brain, token=token)

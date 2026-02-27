@@ -21,11 +21,13 @@ class BrainResilienceMixin:
 
     async def _llm_call_with_retry(self, session_id: str, messages: list, tools,
                                     tool_choice: str | None = None,
-                                    llm_override=None) -> dict:
+                                    llm_override=None, _s=None) -> dict:
         """S7 Ralph: LLM 调用失败时自动重试，每次重试透明告知用户。
         tool_choice: "auto"/"required"/None — 控制是否强制工具调用
         llm_override: 可选备用 LLM adapter（Layer 3 用，不修改 self.llm）
+        _s: 局部 stream 引用（D1 竞态修复）
         """
+        _s = _s or self.stream
         llm = llm_override or self.llm
         last_error = None
         for attempt in range(self.ralph_max_retries + 1):
@@ -38,7 +40,7 @@ class BrainResilienceMixin:
                     break
                 delay = self.ralph_base_delay * (2 ** attempt)
                 logger.warning(f"[{session_id}] Ralph: LLM失败 (attempt {attempt+1}): {e}")
-                await self.stream.emit("info",
+                await _s.emit("info",
                     f"⚡ Ralph: LLM调用失败，{delay:.0f}秒后重试 ({remaining}次剩余)...")
                 await asyncio.sleep(delay)
 
@@ -115,8 +117,9 @@ class BrainResilienceMixin:
             return False
 
     async def _tool_call_with_retry(self, session_id: str, tool_name: str,
-                                     params: dict, max_retries: int = 2) -> dict:
+                                     params: dict, max_retries: int = 1, _s=None) -> dict:
         """S11: 工具层 Ralph — 失败→分析错误→换方法→再试→学习。"""
+        _s = _s or self.stream
         last_error = None
         for attempt in range(max_retries + 1):
             try:
@@ -125,18 +128,16 @@ class BrainResilienceMixin:
                     return result
                 error_msg = result.get("error", "unknown error")
                 last_error = error_msg
-                # 工具未注册 → 尝试自动搜索安装
                 if "未知工具" in error_msg or "未注册" in error_msg:
                     installed = await self._on_tool_not_found(session_id, tool_name)
                     if installed:
-                        # 安装成功，立即重试（不计入重试次数）
                         result = await self.tools.execute(tool_name, params, session_id=session_id)
                         if result.get("success"):
                             return result
                         error_msg = result.get("error", "unknown error")
                         last_error = error_msg
                 if attempt < max_retries:
-                    await self.stream.emit("info",
+                    await _s.emit("info",
                         f"⚡ 工具 {tool_name} 失败({error_msg[:40]})，换方法重试...")
                     logger.warning(f"[{session_id}] 工具重试: {tool_name} attempt {attempt+1}: {error_msg[:80]}")
                     params = self._adapt_params(tool_name, params, error_msg)
@@ -151,7 +152,7 @@ class BrainResilienceMixin:
             except Exception as e:
                 last_error = str(e)
                 if attempt < max_retries:
-                    await self.stream.emit("info", f"⚡ 工具 {tool_name} 异常，换方法重试...")
+                    await _s.emit("info", f"⚡ 工具 {tool_name} 异常，换方法重试...")
                     logger.warning(f"[{session_id}] 工具异常: {tool_name}: {e}")
                     params = self._adapt_params(tool_name, params, str(e))
                     await asyncio.sleep(1)
@@ -245,32 +246,32 @@ class BrainResilienceMixin:
     async def _smart_compact_history(self, session_id: str) -> None:
         """统一上下文窗口管理 — token-aware 压缩，保护 tool_calls/tool 配对。
 
-        策略（基于 token 估算，P9 OpenClaw 对标收紧）：
-        - 阶段0: <2.5K tokens 且 <=10条 → 不处理
-        - 阶段1: 截断过长工具结果（>1500字符 → 保留首800+尾400）
-        - 阶段2: >4K tokens 或 >20条 → LLM摘要压缩，保留最近6条
+        策略（基于 token 估算，已回退到 v1.7 验证阈值）：
+        - 阶段0: <4K tokens 且 <=15条 → 不处理
+        - 阶段1: 截断过长工具结果（>2000字符 → 保留首1000+尾500）
+        - 阶段2: >8K tokens 或 >30条 → LLM摘要压缩，保留最近8条
         - 阶段3: 摘要失败 → 安全截断（保护 tool_calls/tool 配对）
         """
         hist_len = len(self._history)
         total_tokens = self._estimate_history_tokens()
 
-        if total_tokens < 2500 and hist_len <= 10:
+        if total_tokens < 4000 and hist_len <= 15:
             return
 
         # 阶段1: 截断过长工具结果
-        if total_tokens > 3500:
+        if total_tokens > 6000:
             for m in self._history:
-                if m.get("role") == "tool" and len(m.get("content", "")) > 1500:
-                    m["content"] = (m["content"][:800]
+                if m.get("role") == "tool" and len(m.get("content", "")) > 2000:
+                    m["content"] = (m["content"][:1000]
                                     + "\n...(已压缩)...\n"
-                                    + m["content"][-400:])
+                                    + m["content"][-500:])
             total_tokens = self._estimate_history_tokens()
 
         # 阶段2: 需要摘要压缩
-        if total_tokens < 4000 and hist_len <= 20:
+        if total_tokens < 8000 and hist_len <= 30:
             return
 
-        keep_recent = 6
+        keep_recent = 8
         if hist_len <= keep_recent + 2:
             return
 

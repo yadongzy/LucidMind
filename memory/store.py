@@ -250,44 +250,213 @@ class MemoryStore:
             logger.warning(f"向量搜索失败: {e}")
             return []
 
+    # ── Multi-Stage Retrieval Pipeline (对标 memory-lancedb-pro) ──
+
+    # 管线参数
+    _RECENCY_HALF_LIFE_DAYS = 14    # 新鲜度加成半衰期
+    _RECENCY_WEIGHT = 0.10          # 新鲜度加成权重上限
+    _TIME_DECAY_HALF_LIFE_DAYS = 60 # 时间衰减半衰期
+    _LENGTH_NORM_ANCHOR = 500       # 长度归一化锚点（字符数）
+    _HARD_MIN_SCORE = 0.20          # 最终硬过滤阈值
+    _MMR_SIMILARITY_THRESHOLD = 0.85 # MMR 去重相似度阈值
+
     def search_hybrid(self, query_text: str, query_embedding: list[float] | None = None,
                       collection: str | None = None,
                       vector_weight: float = 0.7, text_weight: float = 0.3,
                       limit: int = 6, min_score: float = 0.35) -> list[MemoryResult]:
-        """混合搜索: vector_weight * 向量分数 + text_weight * 文本分数。"""
-        # 文本搜索
-        text_results = self.search_text(query_text, collection, limit=limit * 4)
+        """Multi-Stage Hybrid Retrieval Pipeline.
 
-        # 向量搜索
+        管线阶段:
+        1. 并行检索: Vector Search + FTS5 BM25
+        2. RRF 融合: 向量分数为基底，FTS5 命中给 15% 加成
+        3. Recency Boost: 新记忆加分 (指数衰减 + 加性)
+        4. Importance Weight: 按 helpful/harmful 反馈调权
+        5. Length Normalization: 惩罚过长条目
+        6. Time Decay: 乘性惩罚旧条目
+        7. Hard Min Score: 最终过滤
+        8. MMR Diversity: 去重近似条目
+        """
+        candidate_pool = max(limit * 4, 20)
+
+        # Stage 1: 并行检索
+        text_results = self.search_text(query_text, collection, limit=candidate_pool)
         vec_results = []
         if query_embedding and self._vec_enabled:
-            vec_results = self.search_vector(query_embedding, collection, limit=limit * 4)
+            vec_results = self.search_vector(query_embedding, collection,
+                                             limit=candidate_pool, min_score=0.1)
 
-        if not vec_results:
-            # 无向量结果时，纯文本搜索
-            text_results.sort(key=lambda r: r.score, reverse=True)
-            return [r for r in text_results[:limit] if r.score >= min_score]
+        # Stage 2: RRF-style 融合
+        fused = self._fuse_results(text_results, vec_results, vector_weight, text_weight)
 
-        # 合并分数
-        merged: dict[str, MemoryResult] = {}
-        for r in text_results:
-            merged[r.id] = MemoryResult(
-                id=r.id, collection=r.collection, content=r.content,
-                score=r.score * text_weight,
-                metadata=r.metadata, created_at=r.created_at, updated_at=r.updated_at,
-            )
-        for r in vec_results:
-            if r.id in merged:
-                merged[r.id].score += r.score * vector_weight
+        # 软阈值初筛
+        fused = [r for r in fused if r.score >= min_score * 0.5]
+
+        # Stage 3: Recency Boost
+        fused = self._apply_recency_boost(fused)
+
+        # Stage 4: Importance Weight (ACE 反馈)
+        fused = self._apply_importance_weight(fused)
+
+        # Stage 5: Length Normalization
+        fused = self._apply_length_normalization(fused)
+
+        # Stage 6: Time Decay
+        fused = self._apply_time_decay(fused)
+
+        # Stage 7: Hard Min Score
+        fused = [r for r in fused if r.score >= max(min_score, self._HARD_MIN_SCORE)]
+
+        # Stage 8: MMR Diversity
+        fused = self._apply_mmr_diversity(fused)
+
+        return fused[:limit]
+
+    def _fuse_results(self, text_results: list[MemoryResult],
+                      vec_results: list[MemoryResult],
+                      vector_weight: float, text_weight: float) -> list[MemoryResult]:
+        """RRF-style 融合: 向量分数为基底，FTS5 命中给加成。"""
+        vec_map: dict[str, MemoryResult] = {r.id: r for r in vec_results}
+        text_map: dict[str, MemoryResult] = {r.id: r for r in text_results}
+        all_ids = set(vec_map.keys()) | set(text_map.keys())
+
+        fused: list[MemoryResult] = []
+        for mid in all_ids:
+            v = vec_map.get(mid)
+            t = text_map.get(mid)
+            base = v or t
+            assert base is not None
+
+            if v and t:
+                # 向量分数为基底，FTS5 命中给 15% 加成（对标 memory-lancedb-pro）
+                score = min(1.0, v.score + 0.15 * v.score)
+            elif v:
+                score = v.score
             else:
-                merged[r.id] = MemoryResult(
-                    id=r.id, collection=r.collection, content=r.content,
-                    score=r.score * vector_weight,
-                    metadata=r.metadata, created_at=r.created_at, updated_at=r.updated_at,
-                )
+                # 纯 FTS5 命中，给底分 0.5 保底（关键词精确匹配不应被埋没）
+                score = max(t.score, 0.5) if t else 0.3
 
-        results = sorted(merged.values(), key=lambda r: r.score, reverse=True)
-        return [r for r in results[:limit] if r.score >= min_score]
+            fused.append(MemoryResult(
+                id=base.id, collection=base.collection, content=base.content,
+                score=score, metadata=base.metadata,
+                created_at=base.created_at, updated_at=base.updated_at,
+            ))
+
+        fused.sort(key=lambda r: r.score, reverse=True)
+        return fused
+
+    def _apply_recency_boost(self, results: list[MemoryResult]) -> list[MemoryResult]:
+        """新鲜度加成: 新记忆获得小幅加分，确保纠正/更新自然排在旧条目前面。
+
+        Formula: boost = exp(-ageDays / halfLife) * weight
+        """
+        if not self._RECENCY_HALF_LIFE_DAYS or not self._RECENCY_WEIGHT:
+            return results
+
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+
+        for r in results:
+            age_days = self._calc_age_days(r, now)
+            boost = math.exp(-age_days / self._RECENCY_HALF_LIFE_DAYS) * self._RECENCY_WEIGHT
+            r.score = min(1.0, r.score + boost)
+
+        results.sort(key=lambda r: r.score, reverse=True)
+        return results
+
+    def _apply_importance_weight(self, results: list[MemoryResult]) -> list[MemoryResult]:
+        """按 ACE 反馈权重调整: helpful 多的记忆加权，harmful 多的降权。
+
+        Formula: score *= (0.7 + 0.3 * importance)
+        importance = clamp(0.5 + 0.1 * net_feedback, 0, 1)
+        """
+        for r in results:
+            helpful = r.metadata.get("helpful_count", 0)
+            harmful = r.metadata.get("harmful_count", 0)
+            net = helpful - harmful
+            importance = max(0.0, min(1.0, 0.5 + 0.1 * net))
+            factor = 0.7 + 0.3 * importance
+            r.score = min(1.0, r.score * factor)
+
+        results.sort(key=lambda r: r.score, reverse=True)
+        return results
+
+    def _apply_length_normalization(self, results: list[MemoryResult]) -> list[MemoryResult]:
+        """长度归一化: 防止长条目靠关键词密度霸占搜索结果。
+
+        Formula: score *= 1 / (1 + 0.5 * log2(max(charLen/anchor, 1)))
+        """
+        anchor = self._LENGTH_NORM_ANCHOR
+        if anchor <= 0:
+            return results
+
+        for r in results:
+            char_len = len(r.content)
+            ratio = char_len / anchor
+            log_ratio = math.log2(max(ratio, 1.0))
+            factor = 1.0 / (1.0 + 0.5 * log_ratio)
+            r.score = max(0.0, r.score * factor)
+
+        results.sort(key=lambda r: r.score, reverse=True)
+        return results
+
+    def _apply_time_decay(self, results: list[MemoryResult]) -> list[MemoryResult]:
+        """时间衰减: 乘性惩罚旧条目。不同于 recency_boost（加性奖励新条目）。
+
+        Formula: score *= 0.5 + 0.5 * exp(-ageDays / halfLife)
+        Floor at 0.5x (永远不会惩罚超过一半)
+        """
+        half_life = self._TIME_DECAY_HALF_LIFE_DAYS
+        if half_life <= 0:
+            return results
+
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+
+        for r in results:
+            age_days = self._calc_age_days(r, now)
+            factor = 0.5 + 0.5 * math.exp(-age_days / half_life)
+            r.score = max(0.0, r.score * factor)
+
+        results.sort(key=lambda r: r.score, reverse=True)
+        return results
+
+    def _apply_mmr_diversity(self, results: list[MemoryResult]) -> list[MemoryResult]:
+        """MMR 多样性去重: 相似度 > threshold 的条目被延后排列。
+
+        使用 bigram Jaccard 文本相似度（不需要向量）。
+        """
+        if len(results) <= 1:
+            return results
+
+        selected: list[MemoryResult] = []
+        deferred: list[MemoryResult] = []
+
+        for candidate in results:
+            too_similar = any(
+                self._text_similarity(candidate.content, s.content) > self._MMR_SIMILARITY_THRESHOLD
+                for s in selected
+            )
+            if too_similar:
+                deferred.append(candidate)
+            else:
+                selected.append(candidate)
+
+        return selected + deferred
+
+    def _calc_age_days(self, r: MemoryResult, now) -> float:
+        """计算记忆条目的年龄（天数）。"""
+        from datetime import datetime, timezone
+        ts_str = r.updated_at or r.created_at
+        if not ts_str:
+            return 30.0  # 默认 30 天
+        try:
+            ts = datetime.fromisoformat(ts_str)
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            delta = now - ts
+            return max(0.0, delta.total_seconds() / 86400.0)
+        except (ValueError, TypeError):
+            return 30.0
 
     def delete(self, memory_id: str) -> bool:
         """删除一条记忆。"""

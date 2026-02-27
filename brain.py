@@ -24,6 +24,7 @@ from brain_resilience import BrainResilienceMixin
 from brain_learning import BrainLearningMixin
 from brain_tool_guard import BrainToolGuardMixin
 from brain_perf import compress_tool_result, dynamic_max_tool_rounds
+from brain_fast_path import classify as _fast_classify
 from logs import get_logger
 
 logger = get_logger("brain")
@@ -51,7 +52,7 @@ _TOOL_USAGE_HINTS = """
 """.strip()
 
 
-_TOOL_LOOP_TIMEOUT = 90
+_TOOL_LOOP_TIMEOUT = 60
 _COMPACTION_RESERVE_TOKENS = 2000
 
 
@@ -131,13 +132,18 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin):
             logger.info(f"[{session_id}] 切换会话，加载 {len(stored) if stored else 0} 条历史")
         await self.stream.emit("info", f"📋 已切换到会话 {session_id}")
 
-    async def process(self, session_id: str, user_input: str) -> dict:
-        """处理用户输入 — Brain 的唯一主入口。返回 dict 含 tool_calls_happened, reply, empty_promise_detected。"""
+    async def process(self, session_id: str, user_input: str, stream: "StreamPort | None" = None) -> dict:
+        """处理用户输入 — Brain 唯一主入口。stream: 可选局部流引用（D1竞态修复）。"""
+        _s = stream or self.stream
         self._current_sid, t0 = session_id, time.time()
         _result = {"tool_calls_happened": False, "reply": "", "empty_promise_detected": False}
         logger.info(f"[{session_id}] 收到用户输入: {user_input[:100]}")
 
         try:
+            # P0: 快速路径分类 — 减少不必要的 LLM 调用
+            _fp = _fast_classify(user_input, len(self._history))
+            logger.info(f"[{session_id}] 快速路径: {_fp}")
+
             await self._smart_compact_history(session_id)
             if not self._history and self.memory:
                 stored = await self.memory.get_context(session_id)
@@ -148,7 +154,7 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin):
             if self.reflection:
                 ref = await self.reflection.on_user_message(session_id, user_input)
                 if ref.get("repeated"):
-                    await self.stream.emit("info", f"🔄 检测到重复提问 (第{ref['similar_count']+1}次) — 我会尝试给出更好的回答")
+                    await _s.emit("info", f"🔄 检测到重复提问 (第{ref['similar_count']+1}次) — 我会尝试给出更好的回答")
                 self._reflection_text = await self.reflection.get_reflection(session_id)
 
             self._history.append({"role": "user", "content": user_input})
@@ -158,65 +164,101 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin):
             tools = self.tools.list_tools() if self.tools else None
             _tool_calls_happened = False
             if self.tools:
-                if await self._pre_execute_intent(session_id, user_input):
+                if await self._pre_execute_intent(session_id, user_input, _s):
                     _tool_calls_happened = True
 
-            metacog = await self._metacognize(user_input, tools)
+            # P0: 简单对话跳过元认知（省 1 次 LLM 调用，~3-5s）
+            metacog = ""
+            if not _fp.skip_metacog:
+                metacog = await self._metacognize(user_input, tools)
             if metacog:
-                await self.stream.emit("thinking", metacog)
+                await _s.emit("thinking", metacog)
 
-            max_rounds = dynamic_max_tool_rounds(user_input, tools)  # 工具循环 — 带超时和动态轮次
+            max_rounds = dynamic_max_tool_rounds(user_input, tools)
             deadline = time.time() + _TOOL_LOOP_TIMEOUT
             for round_i in range(max_rounds + 1):
                 self._compact_history_if_needed()
-                messages = await self._build_messages()
-                response = await self._llm_call_with_retry(session_id, messages, tools)
+                messages = await self._build_messages(skip_lessons=_fp.skip_lessons)
+                response = await self._llm_call_with_retry(session_id, messages, tools, _s=_s)
 
                 thinking = self._extract_thinking(response)
                 if thinking:
-                    await self.stream.emit("thinking", thinking)
+                    await _s.emit("thinking", thinking)
 
                 tool_calls = response.get("tool_calls")
                 if not tool_calls or not self.tools:
                     break
                 if time.time() > deadline:
                     logger.warning(f"[{session_id}] 工具循环超时({_TOOL_LOOP_TIMEOUT}s)")
-                    await self.stream.emit("info", "⏱️ 工具执行超时，正在总结已有结果...")
+                    await _s.emit("info", "⏱️ 工具执行超时，正在总结已有结果...")
+                    self._history.append({"role": "user", "content": "[系统] 工具执行超时，请根据已获取的信息直接用文字回复用户，不要再调用工具。"})
+                    messages = await self._build_messages()
+                    response = await self._llm_call_with_retry(session_id, messages, tools=None, _s=_s)
                     break
 
                 _tool_calls_happened = True
-                await self._execute_tool_round(session_id, tool_calls, response)
-                logger.info(f"[{session_id}] 工具轮 {round_i + 1} 完成")
+                _round_t0 = time.time()
+                await self._execute_tool_round(session_id, tool_calls, response, _s)
+                _round_elapsed = time.time() - _round_t0
+                await _s.emit("info", f"⚡ 工具轮 {round_i + 1}/{max_rounds} 完成 ({_round_elapsed:.1f}s)")
+                logger.info(f"[{session_id}] 工具轮 {round_i + 1} 完成 ({_round_elapsed:.1f}s)")
 
             content_text = response.get("content", "") or ""
-            if not _tool_calls_happened and self.tools:  # 空承诺三层防护 + 防伪造守卫
+            if not _tool_calls_happened and self.tools:
                 response, guard_fixed = await self._guard_empty_promise(
-                    session_id, user_input, response, messages, tools)
+                    session_id, user_input, response, messages, tools, _s=_s)
                 if guard_fixed:
                     _tool_calls_happened = True
                     _result["empty_promise_detected"] = True
                 else:
-                    forced = await self._force_tool_if_faked(session_id, user_input, content_text)
+                    forced = await self._force_tool_if_faked(session_id, user_input, content_text, _s=_s)
                     if forced:
                         _tool_calls_happened = True
                         self._compact_history_if_needed()
                         messages = await self._build_messages()
-                        response = await self._llm_call_with_retry(session_id, messages, tools)
+                        response = await self._llm_call_with_retry(session_id, messages, tools, _s=_s)
+                        retry_tcs = response.get("tool_calls")
+                        if retry_tcs and self.tools:
+                            await self._execute_tool_round(session_id, retry_tcs, response, _s)
+                            self._compact_history_if_needed()
+                            messages = await self._build_messages()
+                            response = await self._llm_call_with_retry(session_id, messages, tools=None, _s=_s)
+                        elif not retry_tcs:
+                            await self._try_auto_provision_tool(session_id, user_input, _s=_s)
 
-            content = await self._stream_final_reply(session_id, messages, response, t0)
+            # Post-tool-call 伪造检测：工具被调用了，但 LLM 可能在文本中伪造了其他操作
+            # 例：调了 read_file 但声称"已删除文件"
+            elif _tool_calls_happened and self.tools:
+                content_text = response.get("content", "") or ""
+                forced = await self._force_tool_if_faked(session_id, user_input, content_text, _s=_s)
+                if forced:
+                    self._compact_history_if_needed()
+                    messages = await self._build_messages()
+                    response = await self._llm_call_with_retry(session_id, messages, tools, _s=_s)
+                    retry_tcs = response.get("tool_calls")
+                    if retry_tcs and self.tools:
+                        await self._execute_tool_round(session_id, retry_tcs, response, _s)
+                        self._compact_history_if_needed()
+                        messages = await self._build_messages()
+                        response = await self._llm_call_with_retry(session_id, messages, tools=None, _s=_s)
+                    _result["empty_promise_detected"] = True
+
+            content = await self._stream_final_reply(session_id, messages, response, t0, _s)
             _result["tool_calls_happened"] = _tool_calls_happened
             _result["reply"] = content
 
-            await self._detect_and_learn(session_id, user_input)
-            await self._learn_from_inability(session_id, user_input, content)
+            # P0: 简单对话跳过学习检测（省 1-2 次 LLM 调用，~3-6s）
+            if not _fp.skip_learn_detect:
+                await self._detect_and_learn(session_id, user_input)
+                await self._learn_from_inability(session_id, user_input, content)
             if _tool_calls_happened and hasattr(self, '_mark_lessons_effective'):
                 await self._mark_lessons_effective(True)
 
         except Exception as e:
             logger.error(f"[{session_id}] 处理失败: {e}", exc_info=True)
             friendly = self._graceful_error_response(str(e))
-            await self.stream.emit("error", f"Error: {e}")
-            await self.stream.emit("response", friendly)
+            await _s.emit("error", f"Error: {e}")
+            await _s.emit("response", friendly)
             _result["reply"] = friendly
             if hasattr(self, '_mark_lessons_effective'):
                 await self._mark_lessons_effective(False)
@@ -224,7 +266,7 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin):
                 await self._learn_pattern(session_id, f"处理失败: {user_input[:50]}", str(e)[:200], source="error")
 
         finally:
-            await self.stream.emit("complete", None)
+            await _s.emit("complete", None)
             if _tool_calls_happened:
                 asyncio.create_task(self._ace_reflect_and_merge(session_id))
             try:
@@ -237,8 +279,9 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin):
             logger.info(f"[{session_id}] 处理完成")
             return _result
 
-    async def _execute_tool_round(self, session_id: str, tool_calls: list, response: dict) -> None:
-        """执行一轮工具调用并将结果加入历史。从 process() 中拆出以保持简洁。"""
+    async def _execute_tool_round(self, session_id: str, tool_calls: list, response: dict, _s=None) -> None:
+        """执行一轮工具调用并将结果加入历史。"""
+        _s = _s or self.stream
         formatted_tcs = [{"id": tc.get("id", ""), "type": "function",
             "function": tc.get("function", {})} for tc in tool_calls]
         self._history.append({"role": "assistant", "content": response.get("content") or None,
@@ -252,27 +295,27 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin):
             except json.JSONDecodeError:
                 tool_params = {}
 
-            await self.stream.emit("tool_call", f"{tool_name}({json.dumps(tool_params, ensure_ascii=False)[:100]})")
+            await _s.emit("tool_call", f"🔧 {tool_name}({json.dumps(tool_params, ensure_ascii=False)[:100]})")
             logger.info(f"[{session_id}] 工具调用: {tool_name}({tool_params})")
 
             if self.reflection:
                 loop_check = await self.reflection.on_tool_call(session_id, tool_name, tool_params)
                 if loop_check.get("loop_detected"):
                     warn = loop_check.get('warning', '工具循环检测')
-                    await self.stream.emit("info", "🧠 暂停重试，冷静分析中...")
+                    await _s.emit("info", "🧠 暂停重试，冷静分析中...")
                     self._history.append({"role": "tool", "tool_call_id": tc.get("id", ""),
                         "content": f"[学习提示] {warn}。\n{_LOOP_HINT}"})
                     await self._learn_from_tool_failure(session_id, tool_name, tool_params, warn)
                     continue
 
-            result = await self._tool_call_with_retry(session_id, tool_name, tool_params)
+            result = await self._tool_call_with_retry(session_id, tool_name, tool_params, _s=_s)
             val = result.get("result") if result.get("result") is not None else result.get("error")
             result_text = str(val) if val is not None else ""
             if not result_text.strip():
                 result_text = "(Command executed with no output)"
             result_text = compress_tool_result(result_text)
 
-            await self.stream.emit("tool_result", result_text[:200])
+            await _s.emit("tool_result", result_text[:200])
             logger.info(f"[{session_id}] 工具结果: success={result.get('success')}, {result_text[:80]}")
 
             if not result.get("success") and result_text:
@@ -280,8 +323,9 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin):
                 await self._learn_from_tool_failure(session_id, tool_name, tool_params, result_text[:150])
             self._history.append({"role": "tool", "tool_call_id": tc.get("id", ""), "content": result_text})
 
-    async def _stream_final_reply(self, session_id: str, messages: list, response: dict, t0: float) -> str:
-        """最终回复：优先真流式（LLM stream=True），降级伪流式。"""
+    async def _stream_final_reply(self, session_id: str, messages: list, response: dict, t0: float, _s=None) -> str:
+        """最终回复：优先真流式，降级伪流式。"""
+        _s = _s or self.stream
         raw = response.get("content", "")
         content = re.sub(r"<think>.*?</think>\s*", "", raw, flags=re.DOTALL).strip() if raw else ""
         _already_streamed = False
@@ -291,7 +335,7 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin):
             try:
                 stream_iter = await self.llm.chat(messages, tools=None, stream=True)
                 if hasattr(stream_iter, '__aiter__'):
-                    await self.stream.emit("response_start", None)
+                    await _s.emit("response_start", None)
                     chunks = []
                     in_think = False
                     async for chunk in stream_iter:
@@ -306,8 +350,8 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin):
                             else:
                                 continue
                         chunks.append(chunk)
-                        await self.stream.emit("response_delta", chunk)
-                    await self.stream.emit("response_end", None)
+                        await _s.emit("response_delta", chunk)
+                    await _s.emit("response_end", None)
                     content = "".join(chunks).strip()
                     _already_streamed = True
                     if content:
@@ -321,39 +365,86 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin):
         if not _already_streamed:
             chunk_size = 8
             if len(content) > chunk_size * 2:
-                await self.stream.emit("response_start", None)
+                await _s.emit("response_start", None)
                 for i in range(0, len(content), chunk_size):
-                    await self.stream.emit("response_delta", content[i:i+chunk_size])
+                    await _s.emit("response_delta", content[i:i+chunk_size])
                     await asyncio.sleep(0.02)
-                await self.stream.emit("response_end", None)
+                await _s.emit("response_end", None)
             else:
-                await self.stream.emit("response", content)
+                await _s.emit("response", content)
         elapsed = time.time() - t0
-        usage = response.get("usage", {})
-        total_tokens = usage.get("total_tokens", 0)
+        usage = response.get("usage", {}); total_tokens = usage.get("total_tokens", 0)
         info_text = f"耗时 {elapsed:.1f}s" + (f" · {total_tokens} tokens" if usage else "")
-        await self.stream.emit("info", info_text)
+        await _s.emit("info", info_text)
         self._history.append({"role": "assistant", "content": content})
         if self.memory:
             await self.memory.save_message(session_id, {"role": "assistant", "content": content})
-        # A/B质量追踪（持久化，最多100条/组）
         mode = "with_lessons" if self.lessons_enabled else "without_lessons"
-        self._ab_stats[mode].append({"elapsed": round(elapsed, 2), "tokens": total_tokens,
-            "response_len": len(content), "ts": time.time()})
-        self._ab_stats[mode] = self._ab_stats[mode][-100:]
-        self._save_ab_stats()
+        self._ab_stats[mode].append({"elapsed": round(elapsed, 2), "tokens": total_tokens, "response_len": len(content), "ts": time.time()})
+        self._ab_stats[mode] = self._ab_stats[mode][-100:]; self._save_ab_stats()
         logger.info(f"[{session_id}] 回复完成(流式推送): {content[:80]}...")
-        # 安全截断：保护 tool_calls/tool 配对
-        if len(self._history) > 60:
-            cut = self._find_safe_cut_point(len(self._history) - 50, len(self._history) - 40)
-            self._history = self._history[cut:]
+        if len(self._history) > 60:  # 安全截断：保护 tool_calls/tool 配对
+            self._history = self._history[self._find_safe_cut_point(len(self._history)-50, len(self._history)-40):]
         try:
             from memory_journal import save_conversation_summary
             user_msg = next((m["content"] for m in reversed(messages) if m.get("role") == "user"), "")
-            tools_used = [tc["function"]["name"] for tc in response.get("tool_calls", [])] if response.get("tool_calls") else []
-            save_conversation_summary(session_id, user_msg, content, tools_used)
+            tl = [tc["function"]["name"] for tc in response.get("tool_calls", [])] if response.get("tool_calls") else []
+            save_conversation_summary(session_id, user_msg, content, tl)
         except Exception: pass
         return content
+
+    # ── 缺失工具自动补齐 ─────────────────────────────────────────
+
+    _TOOL_INFERENCE_MAP = [
+        (re.compile(r"删除|移除|清除.*文件", re.I), "delete_file"),
+        (re.compile(r"创建|新建|写入.*文件", re.I), "write_file"),
+        (re.compile(r"读取|打开|查看.*文件", re.I), "read_file"),
+        (re.compile(r"搜索|查询|查找|搜一下|帮我搜", re.I), "web_search"),
+        (re.compile(r"运行|执行.*命令|脚本", re.I), "run_command"),
+        (re.compile(r"发送.*邮件|发邮件", re.I), "send_email"),
+        (re.compile(r"下载|拉取", re.I), "download_file"),
+        (re.compile(r"截图|屏幕", re.I), "screenshot"),
+        (re.compile(r"翻译", re.I), "translate"),
+    ]
+
+    async def _try_auto_provision_tool(self, session_id: str, user_input: str, _s=None) -> bool:
+        """当 LLM 承认缺少工具或拒绝伪造后，推断用户需要的工具并触发自动安装/创建。
+
+        流程:
+        1. 从用户输入推断可能需要的工具名
+        2. 检查该工具是否已注册
+        3. 未注册 → 调用 _on_tool_not_found（搜索 Hub → 安装 → 自创 skill）
+        """
+        _s = _s or self.stream
+        if not hasattr(self, '_on_tool_not_found'):
+            return False
+
+        # 推断用户需要的工具
+        inferred_tool = None
+        for pattern, tool_name in self._TOOL_INFERENCE_MAP:
+            if pattern.search(user_input):
+                inferred_tool = tool_name
+                break
+
+        if not inferred_tool:
+            return False
+
+        # 检查该工具是否已注册
+        if self.tools:
+            existing_tools = {t["function"]["name"] for t in self.tools.list_tools()}
+            if inferred_tool in existing_tools:
+                return False  # 工具已存在，不需要补齐
+
+        logger.info(f"[{session_id}] 缺失工具补齐: 推断需要 {inferred_tool}，触发自动安装/创建")
+        await _s.emit("info", f"🔍 检测到缺少工具 {inferred_tool}，正在搜索并安装...")
+
+        installed = await self._on_tool_not_found(session_id, inferred_tool)
+        if installed:
+            logger.info(f"[{session_id}] 缺失工具补齐成功: {inferred_tool}")
+            return True
+        else:
+            logger.warning(f"[{session_id}] 缺失工具补齐失败: {inferred_tool}")
+            return False
 
     _identity_cache: dict = {}   # path_str -> {mtime, content}
 
@@ -436,7 +527,7 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin):
                 f"历史: {len(self._history)}条 | 安全: 禁止危险命令; 禁止访问 .env/.git"])
         return "\n".join(s)
 
-    async def _build_messages(self) -> list[dict]:
+    async def _build_messages(self, skip_lessons: bool = False) -> list[dict]:
         """构建发送给 LLM 的消息列表。本地模型时精简 prompt。"""
         self._reload_soul_if_changed()
         local = self._is_local_model()
@@ -469,8 +560,8 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin):
                     optional_sections.append(f"\n\n## 当前角色\n{persona_prompt}")
             if self._goal_context:
                 optional_sections.append(f"\n\n{self._goal_context}")
-            # 经验库注入（精炼后的高质量经验）— 受A/B开关控制
-            if self.lessons_enabled:
+            # 经验库注入（精炼后的高质量经验）— 受A/B开关控制 + P0快速路径控制
+            if self.lessons_enabled and not skip_lessons:
                 lessons_text = await self._get_relevant_lessons()
                 if lessons_text:
                     optional_sections.append(f"\n\n## 过往经验（参考）\n{lessons_text}")

@@ -29,8 +29,13 @@ class BrainLearningMixin:
         except Exception as e:
             logger.warning(f"[{sid}] 学习失败: {e}")
 
+    # P1: 经验检索缓存 — 同会话短时间内复用结果，避免重复 LLM 调用
+    _lesson_cache: dict = {}  # session_id -> {"text": str, "ts": float, "ctx_hash": str}
+    _LESSON_CACHE_TTL = 60   # 缓存有效期（秒）
+
     async def _get_relevant_lessons(self) -> str:
-        """S8: 检索与当前对话相关的经验。追踪注入的经验ID用于有效性评估。"""
+        """S8: 检索与当前对话相关的经验。追踪注入的经验ID用于有效性评估。
+        P1: 带缓存，同会话60s内上下文未变时复用。"""
         if not self.learning or not self._history:
             return ""
         # 从最近20条消息中提取用户消息 + assistant回复摘要，拓宽检索上下文
@@ -41,19 +46,34 @@ class BrainLearningMixin:
         recent = recent_user + recent_asst
         if not recent:
             return ""
+
+        # P1: 缓存检查 — 上下文指纹未变且未过期时直接返回
+        import time as _t
+        ctx_text = " ".join(recent)
+        ctx_hash = str(hash(ctx_text))
+        sid = self._current_sid
+        cached = self._lesson_cache.get(sid)
+        if cached and cached["ctx_hash"] == ctx_hash and (_t.time() - cached["ts"]) < self._LESSON_CACHE_TTL:
+            logger.debug(f"[{sid}] 经验检索命中缓存")
+            return cached["text"]
+
         try:
-            lessons = await self.learning.get_lessons(" ".join(recent), limit=3)
+            lessons = await self.learning.get_lessons(ctx_text, limit=3)
         except Exception as e:
             logger.warning(f"经验检索失败: {e}")
             return ""
         if not lessons:
+            self._lesson_cache[sid] = {"text": "", "ts": _t.time(), "ctx_hash": ctx_hash}
             return ""
         # P4: 追踪注入的经验ID，用于后续有效性更新
         self._last_injected_lesson_ids = [l.get("id") for l in lessons if l.get("id")]
-        return "\n".join(
+        text = "\n".join(
             f"- 触发: {l.get('trigger','')[:80]}\n  教训: {l.get('lesson','')[:120]}"
             for l in lessons
         )
+        # P1: 写入缓存
+        self._lesson_cache[sid] = {"text": text, "ts": _t.time(), "ctx_hash": ctx_hash}
+        return text
 
     async def _mark_lessons_effective(self, effective: bool) -> None:
         """P4: 标记最近注入的经验为有效/无效。由 process() 成功/失败后调用。"""

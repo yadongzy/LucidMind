@@ -6,6 +6,10 @@ const BASE = "";
 
 async function request(path, options = {}) {
   const res = await fetch(`${BASE}${path}`, options);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail || body.error || body.message || `HTTP ${res.status}`);
+  }
   return res.json();
 }
 
@@ -30,8 +34,8 @@ export async function deleteSession(sid) {
 }
 
 export async function renameSession(sid, title) {
-  return request(`/api/sessions/${sid}`, {
-    method: "PATCH",
+  return request(`/api/sessions/${sid}/title`, {
+    method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ title }),
   });
@@ -50,7 +54,7 @@ export async function fetchLessons() {
 }
 
 export async function fetchTasks() {
-  return request("/api/tasks");
+  return request("/api/dispatcher/tasks");
 }
 
 export async function fetchCron() {

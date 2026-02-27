@@ -63,13 +63,14 @@ class SoulEngine:
             logger.warning("SOUL.md 不存在，无法进化")
             return False
 
-        # 检查是否已有类似规则（防重复 — 按行完整匹配，忽略首尾空白和列表符号）
+        # 检查是否已有类似规则（防重复 — 子串包含匹配，取前60字符）
         normalized_new = new_rule.strip().lstrip("- ").strip()
-        for line in soul.splitlines():
-            normalized_existing = line.strip().lstrip("- ").strip()
-            if normalized_existing and normalized_new and normalized_existing == normalized_new:
-                logger.info(f"规则已存在，跳过: {new_rule[:50]}")
-                return False
+        if not normalized_new:
+            return False
+        check_key = normalized_new[:60]
+        if check_key in soul:
+            logger.info(f"规则已存在(子串匹配)，跳过: {new_rule[:50]}")
+            return False
 
         # 查找或创建 Learned Rules 段落
         section_header = f"## {category}"

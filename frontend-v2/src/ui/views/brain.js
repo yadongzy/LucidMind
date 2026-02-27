@@ -5,7 +5,7 @@ import { html, nothing } from "lit";
 import { icons } from "../icons.js";
 
 // === 大脑状态页 ===
-let _goals = null, _thoughts = null, _brainLoading = false;
+let _goals = null, _thoughts = null, _brainLoading = false, _brainDetailTs = 0;
 
 async function _fetchBrainDetails() {
   _brainLoading = true;
@@ -16,6 +16,7 @@ async function _fetchBrainDetails() {
     ]);
     _goals = g;
     _thoughts = t;
+    _brainDetailTs = Date.now();
   } catch (e) { /* ignore */ }
   _brainLoading = false;
 }
@@ -33,7 +34,7 @@ export function renderBrain(app) {
   const awake = app.brainStatus?.awake;
   const q = d.queue || {};
 
-  if (!_goals && !_brainLoading) {
+  if ((!_goals || Date.now() - _brainDetailTs > 15000) && !_brainLoading) {
     _fetchBrainDetails().then(() => app.requestUpdate());
   }
 
@@ -178,7 +179,7 @@ export function renderBrain(app) {
 }
 
 // === 记忆页面 ===
-let _memData = null, _memLoading = false, _memSid = null;
+let _memData = null, _memLoading = false, _memSid = null, _memTs = 0;
 async function _fetchMemory(sid) {
   _memLoading = true;
   _memSid = sid;
@@ -188,12 +189,13 @@ async function _fetchMemory(sid) {
       fetch('/api/lessons').then(r => r.json()),
     ]);
     _memData = { messages: memR.messages || [], lessons: lesR.lessons || [], count: lesR.count || 0, sid };
+    _memTs = Date.now();
   } catch(e) { _memData = { messages: [], lessons: [], count: 0, error: e.message, sid }; }
   _memLoading = false;
 }
 export function renderMemory(app) {
   const sid = app ? app.currentSession : 'default';
-  if (!_memData || _memSid !== sid) {
+  if (!_memData || _memSid !== sid || Date.now() - _memTs > 30000) {
     if (!_memLoading) _fetchMemory(sid).then(() => app && app.requestUpdate());
     return html`<div class="card"><p>加载中...</p></div>`;
   }
@@ -240,13 +242,14 @@ export function renderTasks() {
 }
 
 // === 学习页面 ===
-let _learnData = null, _learnLoading = false;
+let _learnData = null, _learnLoading = false, _learnTs = 0;
 let _learnFilter = "";
 async function _fetchLearning() {
   _learnLoading = true;
   try {
     const r = await fetch('/api/lessons').then(r => r.json());
     _learnData = r;
+    _learnTs = Date.now();
   } catch(e) { _learnData = { lessons: [], count: 0, error: e.message }; }
   _learnLoading = false;
 }
@@ -258,7 +261,7 @@ async function _deleteLesson(index, app) {
   } catch (e) { console.error("删除经验失败:", e); }
 }
 export function renderLearning(app) {
-  if (!_learnData && !_learnLoading) { _fetchLearning().then(() => app && app.requestUpdate()); }
+  if ((!_learnData || Date.now() - _learnTs > 30000) && !_learnLoading) { _fetchLearning().then(() => app && app.requestUpdate()); }
   if (!_learnData) return html`<div class="card"><p>加载中...</p></div>`;
   let lessons = _learnData.lessons || [];
   const tiers = {}, srcs = {};

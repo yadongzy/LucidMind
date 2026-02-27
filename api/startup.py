@@ -64,25 +64,20 @@ def auto_build_frontend():
     except Exception as e:
         logger.warning(f"前端自动构建跳过: {e}")
 
-auto_build_frontend()
-os.makedirs(os.path.join(frontend_dist_dir, "assets"), exist_ok=True)
-
-# --- LLM Adapters ---
-_deepseek = DeepSeekAdapter(api_key=os.getenv("DEEPSEEK_API_KEY", ""), base_url="https://api.deepseek.com/v1", model="deepseek-chat")
-_deepseek.provider_name = "deepseek"
-_minimax = DeepSeekAdapter(api_key=os.getenv("MINIMAX_API_KEY", ""), base_url="https://api.minimax.chat/v1", model="MiniMax-M1")
-_minimax.provider_name = "minimax"
-_optimal_local_model = get_optimal_model_name()
-logger.info(f"硬件扫描: 最优本地模型={_optimal_local_model}")
-_local = DeepSeekAdapter(api_key="ollama", base_url="http://localhost:11434/v1", model=_optimal_local_model)
-_local.provider_name = "local"
-_special_kb = SpecialKB()
-llm_adapter = FallbackLLMAdapter(primary=_deepseek, fallbacks=[_minimax, _local], special_kb=_special_kb)
-llm_adapter.provider_name = "deepseek+minimax+local"
-
-# --- Provider 持久化 ---
+# --- 延迟初始化容器（D3 修复：避免 import 时副作用） ---
+llm_adapter = None
+tool_adapter = None
+memory_adapter = None
+learning_adapter = None
+reflection_adapter = None
+mcp_client = None
+telegram_channel = None
+feishu_channel = None
+wecom_channel = None
+wechat_channel = None
+ws_channel = None
+provider_adapter_map = {}
 _ACTIVE_PROVIDER_PATH = os.path.join(ROOT_DIR, "data", "active_provider.json")
-provider_adapter_map = {"deepseek": _deepseek, "minimax": _minimax, "local": _local}
 
 def save_active_provider(provider: str):
     try:
@@ -91,7 +86,30 @@ def save_active_provider(provider: str):
             json.dump({"provider": provider}, f)
     except Exception: pass
 
-def _restore_active_provider():
+def init():
+    """D3 修复: 显式初始化所有 Adapter，由 main.py startup 事件调用，不在 import 时执行。"""
+    global llm_adapter, tool_adapter, memory_adapter, learning_adapter, reflection_adapter
+    global mcp_client, telegram_channel, feishu_channel, wecom_channel, wechat_channel, ws_channel
+    global provider_adapter_map
+
+    auto_build_frontend()
+    os.makedirs(os.path.join(frontend_dist_dir, "assets"), exist_ok=True)
+
+    # --- LLM Adapters ---
+    _deepseek = DeepSeekAdapter(api_key=os.getenv("DEEPSEEK_API_KEY", ""), base_url="https://api.deepseek.com/v1", model="deepseek-chat")
+    _deepseek.provider_name = "deepseek"
+    _minimax = DeepSeekAdapter(api_key=os.getenv("MINIMAX_API_KEY", ""), base_url="https://api.minimax.chat/v1", model="MiniMax-M1")
+    _minimax.provider_name = "minimax"
+    _optimal_local_model = get_optimal_model_name()
+    logger.info(f"硬件扫描: 最优本地模型={_optimal_local_model}")
+    _local = DeepSeekAdapter(api_key="ollama", base_url="http://localhost:11434/v1", model=_optimal_local_model)
+    _local.provider_name = "local"
+    _special_kb = SpecialKB()
+    llm_adapter = FallbackLLMAdapter(primary=_deepseek, fallbacks=[_minimax, _local], special_kb=_special_kb)
+    llm_adapter.provider_name = "deepseek+minimax+local"
+
+    # --- Provider 持久化 ---
+    provider_adapter_map.update({"deepseek": _deepseek, "minimax": _minimax, "local": _local})
     try:
         if os.path.exists(_ACTIVE_PROVIDER_PATH):
             with open(_ACTIVE_PROVIDER_PATH) as f:
@@ -104,31 +122,31 @@ def _restore_active_provider():
                 logger.info(f"恢复活跃 provider: {provider}")
     except Exception: pass
 
-_restore_active_provider()
+    # --- Tool Adapters ---
+    _sub_agent = SubAgentAdapter()
+    _builtin_tools = discover_tool_adapters()
+    _builtin_tools.append(_sub_agent)
+    mcp_client = MCPClientAdapter()
+    _builtin_tools.append(mcp_client)
+    tool_adapter = CompositeToolAdapter(_builtin_tools)
+    _skill_tools = discover_skills()
+    for _sa in _skill_tools:
+        tool_adapter._adapters.append(_sa)
+    tool_adapter._refresh()
+    set_tool_adapter_ref(tool_adapter)
+    _sub_agent.set_llm(llm_adapter)
 
-# --- Tool Adapters ---
-_sub_agent = SubAgentAdapter()
-_builtin_tools = discover_tool_adapters()
-_builtin_tools.append(_sub_agent)
-mcp_client = MCPClientAdapter()
-_builtin_tools.append(mcp_client)
-tool_adapter = CompositeToolAdapter(_builtin_tools)
-_skill_tools = discover_skills()
-for _sa in _skill_tools:
-    tool_adapter._adapters.append(_sa)
-tool_adapter._refresh()
-set_tool_adapter_ref(tool_adapter)
-_sub_agent.set_llm(llm_adapter)
+    # --- Memory / Learning / Reflection ---
+    memory_adapter = JSONMemoryAdapter()
+    learning_adapter = MemoryStoreLearningAdapter()
+    reflection_adapter = JSONReflectionAdapter()
+    IntrospectAdapter._learning_adapter = learning_adapter
 
-# --- Memory / Learning / Reflection ---
-memory_adapter = JSONMemoryAdapter()
-learning_adapter = MemoryStoreLearningAdapter()
-reflection_adapter = JSONReflectionAdapter()
-IntrospectAdapter._learning_adapter = learning_adapter
+    # --- Multi-channel ---
+    telegram_channel = TelegramChannelAdapter()
+    feishu_channel = FeishuChannelAdapter()
+    wecom_channel = WeComChannelAdapter()
+    wechat_channel = WeChatChannelAdapter()
+    ws_channel = WebSocketChannelAdapter()
 
-# --- Multi-channel ---
-telegram_channel = TelegramChannelAdapter()
-feishu_channel = FeishuChannelAdapter()
-wecom_channel = WeComChannelAdapter()
-wechat_channel = WeChatChannelAdapter()
-ws_channel = WebSocketChannelAdapter()
+    logger.info("✅ 所有 Adapter 初始化完成")

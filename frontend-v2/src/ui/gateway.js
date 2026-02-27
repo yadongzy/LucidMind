@@ -169,6 +169,9 @@ export class GatewayClient {
     const msg = this.messageQueue.shift();
     this.isProcessing = true;
     this.ws.send(JSON.stringify(msg));
+    if (msg.type === "chat" && msg.message) {
+      this._emit("queue_sent", { text: msg.message });
+    }
     this._emit("queue_changed");
   }
 }

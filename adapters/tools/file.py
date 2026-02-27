@@ -94,6 +94,23 @@ class FileAdapter(ToolPort):
                     },
                 },
             },
+            {
+                "type": "function",
+                "function": {
+                    "name": "delete_file",
+                    "description": "删除指定路径的文件。路径相对于工作区。不能删除目录。",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "path": {
+                                "type": "string",
+                                "description": "要删除的文件路径（相对于工作区）",
+                            },
+                        },
+                        "required": ["path"],
+                    },
+                },
+            },
         ]
 
     async def execute(self, tool_name: str, params: dict[str, Any]) -> dict[str, Any]:
@@ -102,6 +119,8 @@ class FileAdapter(ToolPort):
             return await self._read_file(params.get("path", ""))
         elif tool_name == "write_file":
             return await self._write_file(params.get("path", ""), params.get("content", ""))
+        elif tool_name == "delete_file":
+            return await self._delete_file(params.get("path", ""))
         elif tool_name == "list_directory":
             return await self._list_directory(params.get("path", "."))
         return {"success": False, "result": None, "error": f"未知工具: {tool_name}"}
@@ -220,6 +239,44 @@ class FileAdapter(ToolPort):
 
         except Exception as e:
             logger.error(f"写入失败: {type(e).__name__}: {e}")
+            return {"success": False, "result": None, "error": str(e)}
+
+    async def _delete_file(self, path: str) -> dict[str, Any]:
+        """删除文件。"""
+        if not path.strip():
+            return {"success": False, "result": None, "error": "路径为空"}
+
+        resolved = self._safe_resolve(path)
+        if not resolved:
+            return {"success": False, "result": None, "error": "路径不安全或被禁止"}
+
+        logger.info(f"删除文件: {resolved}")
+
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None, functools.partial(self._sync_delete, resolved)
+        )
+
+    def _sync_delete(self, resolved: Path) -> dict[str, Any]:
+        """同步删除文件（在线程池中调用）。"""
+        try:
+            if not resolved.exists():
+                return {"success": False, "result": None, "error": f"文件不存在: {resolved.name}"}
+            if not resolved.is_file():
+                return {"success": False, "result": None, "error": f"不是文件（不能删除目录）: {resolved.name}"}
+
+            resolved.unlink()
+            logger.info(f"删除完成: {resolved.name}")
+            return {
+                "success": True,
+                "result": f"文件已删除: {resolved.name}",
+                "error": None,
+            }
+
+        except PermissionError:
+            return {"success": False, "result": None, "error": f"没有权限删除: {resolved.name}"}
+        except Exception as e:
+            logger.error(f"删除失败: {type(e).__name__}: {e}")
             return {"success": False, "result": None, "error": str(e)}
 
     async def _list_directory(self, path: str) -> dict[str, Any]:

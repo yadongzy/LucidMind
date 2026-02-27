@@ -50,7 +50,14 @@ async def get_memory(session_id: str):
 @router.get("/lessons")
 async def get_lessons():
     """经验可视化 — 查看已学习的经验。"""
-    return {"lessons": _learning_adapter._lessons, "count": len(_learning_adapter._lessons)}
+    if hasattr(_learning_adapter, '_lessons'):
+        lessons = _learning_adapter._lessons
+    elif hasattr(_learning_adapter, 'store'):
+        rows = _learning_adapter.store.get_all(limit=200)
+        lessons = [_learning_adapter._to_lesson_dict(r) for r in rows]
+    else:
+        lessons = []
+    return {"lessons": lessons, "count": len(lessons)}
 
 
 @router.get("/dispatcher/tasks")
@@ -126,16 +133,22 @@ async def create_dispatcher_task(body: dict):
 async def delete_lesson(index: int):
     """删除单条经验。"""
     try:
-        lessons = _learning_adapter._lessons
-        if 0 <= index < len(lessons):
-            removed = lessons.pop(index)
-            # 持久化
-            if hasattr(_learning_adapter, '_save'):
-                _learning_adapter._save()
-            elif hasattr(_learning_adapter, 'save'):
-                _learning_adapter.save()
-            return {"status": "deleted", "index": index}
-        return {"error": f"Index {index} out of range (0-{len(lessons)-1})"}
+        if hasattr(_learning_adapter, '_lessons'):
+            lessons = _learning_adapter._lessons
+            if 0 <= index < len(lessons):
+                lessons.pop(index)
+                if hasattr(_learning_adapter, '_save'):
+                    _learning_adapter._save()
+                elif hasattr(_learning_adapter, 'save'):
+                    _learning_adapter.save()
+                return {"status": "deleted", "index": index}
+            return {"error": f"Index {index} out of range (0-{len(lessons)-1})"}
+        elif hasattr(_learning_adapter, 'store'):
+            rows = _learning_adapter.store.get_all(limit=500)
+            if 0 <= index < len(rows):
+                _learning_adapter.store.delete(rows[index].id)
+                return {"status": "deleted", "index": index}
+            return {"error": f"Index {index} out of range (0-{len(rows)-1})"}
     except Exception as e:
         return {"error": str(e)}
 

@@ -1,0 +1,50 @@
+[
+  {
+    "time": "2026-02-26 23:21:41",
+    "trigger": "[tool_usage] 10条同类经验，最佳: ",
+    "rule": "触发: **TTS 工具已经存在！** 让我测试一下：\n教训: 在 LucidMind 中集成思路 添加 TTS 工具 — 在 tools/ 目录新增 tts.py 语音播放 — 调用 subproc",
+    "category": "Learned Rules"
+  },
+  {
+    "time": "2026-02-27 00:07:47",
+    "trigger": "[tool_usage] 10条同类经验，最佳: ",
+    "rule": "触发: **TTS 工具已经存在！** 让我测试一下：\n教训: 在 LucidMind 中集成思路 添加 TTS 工具 — 在 tools/ 目录新增 tts.py 语音播放 — 调用 subproc",
+    "category": "Learned Rules"
+  },
+  {
+    "time": "2026-02-27 00:11:31",
+    "trigger": "[tool_usage] 10条同类经验，最佳: ",
+    "rule": "触发: **TTS 工具已经存在！** 让我测试一下：\n教训: 在 LucidMind 中集成思路 添加 TTS 工具 — 在 tools/ 目录新增 tts.py 语音播放 — 调用 subproc",
+    "category": "Learned Rules"
+  },
+  {
+    "time": "2026-02-27 00:17:54",
+    "trigger": "[tool_usage] 10条同类经验，最佳: ",
+    "rule": "触发: **TTS 工具已经存在！** 让我测试一下：\n教训: 在 LucidMind 中集成思路 添加 TTS 工具 — 在 tools/ 目录新增 tts.py 语音播放 — 调用 subproc",
+    "category": "Learned Rules"
+  },
+  {
+    "time": "2026-02-27 00:24:15",
+    "trigger": "[tool_usage] 10条同类经验，最佳: ",
+    "rule": "触发: **TTS 工具已经存在！** 让我测试一下：\n教训: 在 LucidMind 中集成思路 添加 TTS 工具 — 在 tools/ 目录新增 tts.py 语音播放 — 调用 subproc",
+    "category": "Learned Rules"
+  },
+  {
+    "time": "2026-02-27 00:32:31",
+    "trigger": "[tool_usage] 9条同类经验，最佳: ",
+    "rule": "触发: **TTS 工具已经存在！** 让我测试一下：\n教训: 在 LucidMind 中集成思路 添加 TTS 工具 — 在 tools/ 目录新增 tts.py 语音播放 — 调用 subproc",
+    "category": "Learned Rules"
+  },
+  {
+    "time": "2026-02-27 01:51:29",
+    "trigger": "[user_pref] 8条同类经验，最佳: ",
+    "rule": "触发: 用户偏好系统化学习\n教训: 建立用户偏好学习系统：\n1. 已识别偏好：中文为主、简洁直接、结构化输出、主动执行\n2. 每次交互前检查偏好并应用\n3. 记录用户反馈，持续优化偏好理解\n4. 创建",
+    "category": "Learned Rules"
+  },
+  {
+    "time": "2026-02-27 08:27:02",
+    "trigger": "[tool_usage] 8条同类经验，最佳: ",
+    "rule": "触发: **TTS 工具已经存在！** 让我测试一下：\n教训: 在 LucidMind 中集成思路 添加 TTS 工具 — 在 tools/ 目录新增 tts.py 语音播放 — 调用 subproc",
+    "category": "Learned Rules"
+  }
+]

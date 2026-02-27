@@ -381,12 +381,7 @@ class FeishuChannelAdapter(ChannelPort):
             if self._brain:
                 from adapters.stream.collector_stream import CollectorStreamAdapter
                 collector = CollectorStreamAdapter()
-                original_stream = self._brain.stream
-                self._brain.set_stream(collector)
-                try:
-                    await self._brain.process(session_id, text)
-                finally:
-                    self._brain.set_stream(original_stream)
+                await self._brain.process(session_id, text, stream=collector)
                 response = collector.get_text()
                 if response:
                     await self._reply_message(message_id, response)

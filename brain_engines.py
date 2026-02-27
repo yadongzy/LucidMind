@@ -93,6 +93,16 @@ class SelfCheckEngine:
         if verify_report:
             logger.info(f"🔍 验证检查: {'; '.join(verify_report[:3])}")
 
+        # 7. severe/fatal 问题入队任务调度器，触发自动修复
+        for issue in new_issues:
+            sev = issue.get("severity", "")
+            if sev in ("fatal", "severe"):
+                try:
+                    from task_dispatcher import enqueue_self_check_issue
+                    enqueue_self_check_issue(issue.get("description", "")[:200], sev)
+                except Exception:
+                    pass
+
         logger.info(f"📋 每日自检完成: 新问题{len(new_issues)}, 历史未解决{len(open_issues)}")
         return new_issues
 
