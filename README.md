@@ -42,19 +42,41 @@
 
 ## 快速开始
 
+### 一键安装+启动（推荐）
+
+**Linux / macOS:**
 ```bash
-# 1. 安装依赖
+chmod +x install.sh start.sh
+./install.sh          # 一键安装（创建虚拟环境+安装依赖+构建前端）
+# 编辑 .env 填入 API Key
+./start.sh            # 一键启动（自动打开浏览器）
+```
+
+**Windows:**
+```
+双击 install.bat      # 一键安装
+# 编辑 .env 填入 API Key
+双击 start.bat        # 一键启动（自动打开浏览器）
+```
+
+### 手动安装
+
+```bash
+# 1. 创建虚拟环境
+python3 -m venv venv && source venv/bin/activate  # Linux/macOS
+python -m venv venv && venv\Scripts\activate       # Windows
+
+# 2. 安装依赖
 pip install -r requirements.txt
 
-# 2. 配置环境变量
-cp .env.example .env
+# 3. 配置环境变量
+cp .env.example .env  # 或手动创建 .env
 # 编辑 .env 填入 DEEPSEEK_API_KEY
 
-# 3. 启动服务器
-python -m uvicorn api.main:app --host 127.0.0.1 --port 8765
+# 4. 启动服务器
+python -m uvicorn api.main:app --host 0.0.0.0 --port 8765
 
-# 4. 打开浏览器
-# http://127.0.0.1:8765
+# 5. 打开浏览器 http://localhost:8765
 ```
 
 ## 项目结构
