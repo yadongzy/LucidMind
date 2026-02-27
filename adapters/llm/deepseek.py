@@ -99,7 +99,13 @@ class DeepSeekAdapter(LLMPort):
         choice = data["choices"][0]
         message = choice["message"]
 
-        result: dict[str, Any] = {"content": message.get("content", "")}
+        # 记录 API 返回的真实模型名（可能与请求的 model 不同）
+        actual_model = data.get("model", self.model)
+        if actual_model != self.model:
+            logger.info(f"实际模型: 请求={self.model}, 返回={actual_model}")
+        self._actual_model = actual_model
+
+        result: dict[str, Any] = {"content": message.get("content", ""), "model": actual_model}
 
         # 捕获 LLM 原生推理内容（DeepSeek-R1 的 reasoning_content）
         # 这是模型真正的思考过程，不是我们编的

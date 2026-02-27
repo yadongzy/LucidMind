@@ -11,6 +11,7 @@ from typing import Callable, Awaitable, Any
 from fastapi import WebSocket, WebSocketDisconnect
 from ports.channel_port import ChannelPort
 from adapters.stream.websocket_stream import WebSocketStreamAdapter
+from command_queue import get_command_queue, CommandLane
 from logs import get_logger
 
 logger = get_logger("channel.ws")
@@ -231,20 +232,47 @@ class WebSocketChannelAdapter(ChannelPort):
 
     @staticmethod
     async def _safe_process(brain, stream, sid, user_input, on_message):
-        """后台安全执行 brain.process，消费返回值检测软失败。"""
-        try:
+        """后台安全执行 brain.process，通过 command_queue CHAT lane 统一入队。
+        工具调用/复杂操作自动入队 task_dispatcher，实现对话→任务看板联动。
+        对标 OpenClaw: 所有操作通过 enqueueCommandInLane 统一入队。
+        """
+        async def _do_process():
             if on_message:
                 await on_message(sid, user_input)
             else:
                 result = await brain.process(sid, user_input, stream=stream)
-                # 消费 process() 返回值：检测软失败
-                if isinstance(result, dict) and result.get("empty_promise_detected"):
-                    logger.warning(f"[{sid}] 软失败: 空承诺/伪造检测触发，入队重试")
+                if not isinstance(result, dict):
+                    return
+                # 对话→任务看板联动：工具调用/复杂操作自动入队追踪
+                import task_dispatcher as td
+                tool_happened = result.get("tool_calls_happened", False)
+                empty_promise = result.get("empty_promise_detected", False)
+                if tool_happened or empty_promise:
                     try:
-                        import task_dispatcher as td
-                        td.enqueue(user_input, priority="P1", source="user_chat_retry")
-                    except Exception:
-                        pass
+                        task = td.enqueue(
+                            user_input[:500],
+                            task_type="task",
+                            priority="P1" if (empty_promise and not tool_happened) else "P2",
+                            source="chat",
+                            timeout_s=300,
+                        )
+                        if tool_happened:
+                            td.complete_task(task["id"])
+                            logger.info(f"[{sid}] 对话任务已联动(完成): {task['id']}")
+                        else:
+                            # 空承诺且工具未执行 → 唤醒 Daemon 立即重试
+                            logger.warning(f"[{sid}] 对话任务已联动(待重试): {task['id']}")
+                            _wake_daemon()
+                    except Exception as e:
+                        logger.debug(f"对话任务联动失败: {e}")
+
+        try:
+            cq = get_command_queue()
+            await cq.enqueue(
+                lane=CommandLane.CHAT,
+                task=_do_process,
+                task_id=f"chat_{sid}",
+            )
         except asyncio.CancelledError:
             logger.info(f"Brain 处理已被用户中止 (sid={sid})")
         except Exception as e:
@@ -254,3 +282,13 @@ class WebSocketChannelAdapter(ChannelPort):
                 await stream.emit("complete", None)
             except Exception:
                 pass
+
+
+def _wake_daemon():
+    """尝试唤醒 Daemon（塥罗式，不依赖全局变量）。"""
+    try:
+        from api.brain_init import daemon
+        if daemon:
+            daemon.wake()
+    except Exception:
+        pass

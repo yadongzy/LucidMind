@@ -59,9 +59,29 @@ class BrainToolGuardMixin:
     # === 文本意图提取 ===
     def _extract_tool_intent_from_text(self, reply_text: str) -> dict | None:
         """从 LLM 文本回复中提取工具调用意图。
-        返回 {"name": str, "arguments": dict} 或 None。"""
+        返回 {"name": str, "arguments": dict} 或 None。
+        支持格式:
+        1. XML伪造: [tool_call] <invoke name="xxx"><parameter name="k">v</parameter>
+        2. 中文自然语言: "正在调用 web_search 搜索 'xxx'"
+        """
         text = reply_text.strip()
-        # 模式: "正在调用 web_search 搜索关于 'xxx' 的信息"
+
+        # 模式0: XML伪造工具调用 (MiniMax等模型常见)
+        # 格式: <invoke name="tool_name"><parameter name="key">value</parameter>...
+        m_xml = re.search(r'<invoke\s+name=["\'](\w+)["\']>', text)
+        if m_xml:
+            tool_name = m_xml.group(1)
+            params = {}
+            for pm in re.finditer(
+                r'<parameter\s+name=["\'](\w+)["\']>\s*(.*?)\s*</parameter>',
+                text, re.DOTALL,
+            ):
+                params[pm.group(1)] = pm.group(2).strip()
+            if tool_name and params:
+                logger.info(f"Layer1-XML: 提取到 {tool_name}({params})")
+                return {"name": tool_name, "arguments": params}
+
+        # 模式1: "正在调用 web_search 搜索关于 'xxx' 的信息"
         m = re.search(
             r'(?:正在调用|调用|使用)\s*(\w+)\s*(?:搜索|查询|查找|获取).*?[\'""「]([^\'""」]+)[\'""」]',
             text,
@@ -71,11 +91,11 @@ class BrainToolGuardMixin:
             query = m.group(2)
             if tool_name in ("web_search", "search"):
                 return {"name": "web_search", "arguments": {"query": query}}
-        # 模式: "搜索 'xxx'"
+        # 模式2: "搜索 'xxx'"
         m = re.search(r'(?:搜索|查询|查找)\s*[\'""「]([^\'""」]+)[\'""」]', text)
         if m and "web_search" in text:
             return {"name": "web_search", "arguments": {"query": m.group(1)}}
-        # 模式: "执行命令 'xxx'" 或 "运行 'xxx'"
+        # 模式3: "执行命令 'xxx'" 或 "运行 'xxx'"
         m = re.search(r'(?:执行命令|运行命令|执行|运行)\s*[\'""「`]([^\'""」`]+)[\'""」`]', text)
         if m:
             return {"name": "run_command", "arguments": {"command": m.group(1)}}

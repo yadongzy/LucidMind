@@ -82,13 +82,40 @@ def _resolve_user_profile_path():
     return user_path  # 默认写入新路径
 
 
+_USER_PROFILE_TEMPLATE = """# 用户画像
+
+> 大脑通过对话学习填充此文件，你也可以手动编辑。
+
+## 基本信息
+- **称呼**: （你希望大脑怎么称呼你）
+- **语言偏好**: 中文
+- **时区**: UTC+8
+
+## 工作与兴趣
+- （你的职业或领域）
+- （你的兴趣爱好）
+
+## 沟通偏好
+- （你喜欢简洁回复还是详细解释）
+- （其他沟通习惯）
+
+## 常用工具与习惯
+- （你常用的软件、编辑器等）
+
+---
+_大脑会在对话中自动学习你的偏好并更新此文件。你也可以随时手动编辑。_
+"""
+
 @router.get("/user-profile")
 async def get_user_profile():
     """读取用户画像文件。"""
     profile_path = _resolve_user_profile_path()
     if not profile_path.exists():
-        return {"content": "", "exists": False}
-    return {"content": profile_path.read_text(encoding="utf-8"), "exists": True}
+        return {"content": _USER_PROFILE_TEMPLATE, "exists": False, "is_template": True}
+    content = profile_path.read_text(encoding="utf-8")
+    if not content.strip():
+        return {"content": _USER_PROFILE_TEMPLATE, "exists": True, "is_template": True}
+    return {"content": content, "exists": True}
 
 
 @router.put("/user-profile")
@@ -170,6 +197,29 @@ async def delete_memory_item(session_id: str, index: int):
                     _memory_adapter._save()
             return {"status": "deleted", "index": index, "remaining": len(msgs)}
         raise HTTPException(status_code=404, detail=f"Index {index} out of range")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/dispatcher/tasks/{task_id}/retry")
+async def retry_dispatcher_task(task_id: str):
+    """重试单个任务（将状态重置为 ready）。"""
+    try:
+        from task_dispatcher_utils import load_store, save_store
+        store = load_store()
+        for t in store.get("tasks", []):
+            if t.get("id") == task_id:
+                if t["status"] in ("completed", "running"):
+                    raise HTTPException(status_code=400, detail=f"任务状态 {t['status']} 不可重试")
+                t["status"] = "ready"
+                t["running_at"] = None
+                t["last_error"] = None
+                t["retries"] = 0
+                save_store(store)
+                return {"status": "retried", "id": task_id}
+        raise HTTPException(status_code=404, detail="Task not found")
     except HTTPException:
         raise
     except Exception as e:

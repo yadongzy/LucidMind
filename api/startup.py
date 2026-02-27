@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(ROOT_DIR, ".env"))
 
 from adapters.llm.deepseek import DeepSeekAdapter
+from adapters.llm.anthropic_adapter import AnthropicAdapter
 from adapters.llm.fallback_llm import FallbackLLMAdapter
 from adapters.channel.websocket_channel import WebSocketChannelAdapter
 from adapters.tools.composite import CompositeToolAdapter
@@ -98,7 +99,7 @@ def init():
     # --- LLM Adapters ---
     _deepseek = DeepSeekAdapter(api_key=os.getenv("DEEPSEEK_API_KEY", ""), base_url="https://api.deepseek.com/v1", model="deepseek-chat")
     _deepseek.provider_name = "deepseek"
-    _minimax = DeepSeekAdapter(api_key=os.getenv("MINIMAX_API_KEY", ""), base_url="https://api.minimax.chat/v1", model="MiniMax-M1")
+    _minimax = AnthropicAdapter(api_key=os.getenv("MINIMAX_API_KEY", ""), base_url="https://api.minimax.io/anthropic", model="MiniMax-M2.5")
     _minimax.provider_name = "minimax"
     _optimal_local_model = get_optimal_model_name()
     logger.info(f"硬件扫描: 最优本地模型={_optimal_local_model}")

@@ -82,6 +82,8 @@ async def api_sleep():
     global daemon
     if daemon:
         await daemon.stop()
+    if _brain_ref:
+        _brain_ref._awake = False
     return {"status": "sleeping"}
 
 

@@ -180,6 +180,7 @@ def create_skill(
         manifest["name"] = name
         manifest["description"] = description
         manifest["tools"] = [t["name"] for t in tools]
+        manifest["trust_level"] = "sandboxed"
 
         # 2. 生成 main.py
         tool_defs_str = ",\n".join(_generate_tool_def(t) for t in tools)
@@ -213,13 +214,16 @@ def create_skill(
                 return {"success": False, "error": f"安全扫描未通过: {scan['summary']}", "scan": scan}
 
         # 5. 热加载
-        from skills import hot_reload
+        from skills import hot_reload, _mark_new_skill_sensitive, _auto_generate_mcp_server
+        _auto_generate_mcp_server(name)
         reload_result = hot_reload()
+        tool_names = [t["name"] for t in tools]
+        _mark_new_skill_sensitive(tool_names)
         logger.info(f"🛠️ Skill {name} 已创建并热加载: {reload_result}")
         return {
             "success": True,
             "path": str(skill_dir),
-            "tools": [t["name"] for t in tools],
+            "tools": tool_names,
             "scan": scan,
         }
 

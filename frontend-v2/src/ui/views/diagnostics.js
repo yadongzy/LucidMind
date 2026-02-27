@@ -10,6 +10,8 @@ let _timeline = null;
 let _loading = false;
 let _lastRefresh = 0;
 let _activeTab = "summary";
+let _diagRunning = false;
+let _diagResult = null;
 let _filterCategory = "";
 let _filterStatus = "";
 let _filterMinutes = 60;
@@ -270,6 +272,7 @@ export function renderDiagnostics(app) {
     { key: "summary", label: "摘要统计", icon: "📊" },
     { key: "timeline", label: "时间线", icon: "📈" },
     { key: "events", label: "事件列表", icon: "📋" },
+    { key: "realtime", label: "实时日志", icon: "📡" },
   ];
 
   return html`
@@ -277,6 +280,20 @@ export function renderDiagnostics(app) {
       <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
         <span>系统诊断</span>
         <div style="display:flex;gap:8px;align-items:center;">
+          <button class="btn btn--primary" style="font-size:12px;" ?disabled=${_diagRunning}
+            @click=${async () => {
+              _diagRunning = true; _diagResult = null; app.requestUpdate();
+              try {
+                const r = await fetch('/api/diagnostics/run', { method: 'POST' }).then(r => r.json());
+                _diagResult = r;
+              } catch (e) { _diagResult = { status: 'error', message: e.message }; }
+              _diagRunning = false;
+              _summary = null; _events = null; _timeline = null;
+              await _refresh();
+              app.requestUpdate();
+            }}>
+            ${_diagRunning ? '诊断中...' : '🩺 运行诊断'}
+          </button>
           <button class="btn" style="font-size:12px;" @click=${() => { _summary = null; _events = null; _timeline = null; _refresh().then(() => app.requestUpdate()); }}>
             ${icons.refresh} 刷新
           </button>
@@ -285,6 +302,21 @@ export function renderDiagnostics(app) {
           </span>
         </div>
       </div>
+
+      <!-- 诊断结果 -->
+      ${_diagResult ? html`
+        <div style="margin:12px 0;padding:10px 14px;border-radius:8px;font-size:13px;
+          background:${_diagResult.status === 'ok' && _diagResult.count === 0 ? 'var(--green,#22c55e)11' : _diagResult.status === 'ok' ? 'var(--warn,#f59e0b)11' : 'var(--danger,#ef4444)11'};
+          border:1px solid ${_diagResult.status === 'ok' && _diagResult.count === 0 ? 'var(--green,#22c55e)33' : _diagResult.status === 'ok' ? 'var(--warn,#f59e0b)33' : 'var(--danger,#ef4444)33'};">
+          ${_diagResult.status === 'ok'
+            ? (_diagResult.count === 0
+              ? html`<span style="color:var(--green,#22c55e);font-weight:600;">✅ 系统诊断通过，未发现问题</span>`
+              : html`<div><span style="color:var(--warn,#f59e0b);font-weight:600;">⚠️ 发现 ${_diagResult.count} 个问题：</span>
+                  ${(_diagResult.issues || []).map(iss => html`<div style="margin:4px 0 0 16px;font-size:12px;">• ${iss.description || JSON.stringify(iss)}</div>`)}</div>`)
+            : html`<span style="color:var(--danger,#ef4444);">❌ 诊断失败: ${_diagResult.message || '未知错误'}</span>`}
+          <button class="btn btn--sm" style="font-size:10px;margin-left:8px;float:right;" @click=${() => { _diagResult = null; app.requestUpdate(); }}>✕</button>
+        </div>
+      ` : nothing}
 
       <!-- Tab 切换 -->
       <div style="display:flex;gap:4px;margin:12px 0;border-bottom:1px solid var(--border);padding-bottom:8px;">
@@ -301,6 +333,34 @@ export function renderDiagnostics(app) {
       ${_activeTab === "summary" ? _renderSummaryTab() : nothing}
       ${_activeTab === "timeline" ? _renderTimelineTab() : nothing}
       ${_activeTab === "events" ? _renderEventsTab(app) : nothing}
+      ${_activeTab === "realtime" ? _renderRealtimeTab(app) : nothing}
+    </div>
+  `;
+}
+
+function _renderRealtimeTab(app) {
+  const logs = app.eventLog || [];
+  if (logs.length === 0) {
+    return html`<p class="text-muted" style="padding:24px;text-align:center;">暂无实时事件</p>`;
+  }
+  return html`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <span class="text-muted" style="font-size:11px;">${logs.length} 条实时事件（本次会话）</span>
+      <button class="btn btn--sm" style="font-size:11px;" @click=${() => { app.eventLog = []; app.requestUpdate(); }}>清空</button>
+    </div>
+    <div style="max-height:500px;overflow-y:auto;font-family:var(--mono);font-size:12px;">
+      <table class="data-table">
+        <thead><tr><th style="width:80px">时间</th><th style="width:70px">类型</th><th>内容</th></tr></thead>
+        <tbody>
+          ${logs.slice().reverse().map(e => html`
+            <tr>
+              <td style="color:var(--accent)">${e.time}</td>
+              <td style="color:var(--warn)">${e.type}</td>
+              <td>${e.msg}</td>
+            </tr>
+          `)}
+        </tbody>
+      </table>
     </div>
   `;
 }

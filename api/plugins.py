@@ -22,6 +22,7 @@ async def list_plugins():
             "platform": info.get("platform", []),
             "legacy": info.get("legacy", False),
             "builtin": is_builtin(info.get("name", name)),
+            "trust_level": info.get("trust_level", "audited"),
         })
     return {"plugins": plugins, "total": len(plugins)}
 
@@ -46,6 +47,7 @@ async def get_plugin(name: str):
         "dependencies": info.get("dependencies", []),
         "hooks": info.get("hooks", {}),
         "legacy": info.get("legacy", False),
+        "trust_level": info.get("trust_level", "audited"),
     }
 
 
@@ -94,6 +96,41 @@ async def search_hub(q: str = ""):
     else:
         results = _search(q)
     return {"results": results, "total": len(results)}
+
+
+@router.put("/{name}/trust")
+async def set_trust_level(name: str, body: dict):
+    """设置插件信任等级（sandboxed ↔ audited），立即生效。"""
+    import json
+    from pathlib import Path
+    from skills import get_registry, hot_reload
+    registry = get_registry()
+    if name not in registry:
+        raise HTTPException(status_code=404, detail=f"插件不存在: {name}")
+    level = body.get("trust_level", "")
+    if level not in ("sandboxed", "audited"):
+        raise HTTPException(status_code=400, detail=f"无效的信任等级: {level}（可选: sandboxed, audited）")
+    # 修改 manifest.json
+    skills_dir = Path(__file__).resolve().parent.parent / "skills" / name
+    manifest_path = skills_dir / "manifest.json"
+    if not manifest_path.exists():
+        raise HTTPException(status_code=404, detail=f"插件 manifest 不存在: {name}")
+    manifest = json.loads(manifest_path.read_text("utf-8"))
+    old_level = manifest.get("trust_level", "audited")
+    manifest["trust_level"] = level
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    hot_reload()
+    return {"status": "ok", "message": f"插件 {name} 信任等级: {old_level} → {level}（已生效）"}
+
+
+@router.post("/{name}/mcp-wrap")
+async def wrap_as_mcp(name: str):
+    """为指定插件生成 MCP Server wrapper 并注册。"""
+    from skills.mcp_wrapper import register_mcp_server
+    result = register_mcp_server(name)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error", "MCP 封装失败"))
+    return {"status": "ok", "config": result.get("config")}
 
 
 @router.post("/hub/install")

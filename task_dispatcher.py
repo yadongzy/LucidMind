@@ -169,6 +169,21 @@ def dequeue() -> Optional[dict]:
 # 状态流转
 # ═══════════════════════════════════════════════
 
+def update_task_progress(task_id: str, progress: str):
+    """推送任务执行中间状态（对标 OpenClaw onAgentEvent 实时推送）。"""
+    store = _load_store()
+    for t in store["tasks"]:
+        if t["id"] == task_id:
+            t["progress"] = progress[:200]
+            t["status"] = "running"
+            if not t.get("running_at"):
+                t["running_at"] = datetime.now().isoformat()
+            _save_store(store)
+            _notify("task_progress", t)
+            return
+    logger.debug(f"⚠️ 更新进度失败: 任务 {task_id} 不存在")
+
+
 def complete_task(task_id: str):
     """标记任务完成。"""
     store = _load_store()
@@ -199,6 +214,9 @@ def fail_task(task_id: str, error: str):
                 logger.warning(f"🆘 上报: {task_id} retries={t['retries']} error={error[:60]}")
                 _notify_escalation(t)
                 _notify("task_escalated", t)
+                # 子任务escalated后也需检查父任务是否可恢复
+                if t.get("parent_id"):
+                    _resume_parent(store, t["parent_id"])
             else:
                 t["status"] = "ready"
                 logger.info(f"🔄 重试: {task_id} retries={t['retries']} error={error[:60]}")
@@ -238,12 +256,47 @@ def block_task(task_id: str, reason: str):
 
 
 def _resume_parent(store: dict, parent_id: str):
-    """恢复被阻塞的父任务。"""
+    """检查所有子任务是否完成，全部完成后聚合结果并恢复父任务。"""
+    # 找到所有子任务
+    siblings = [t for t in store["tasks"] if t.get("parent_id") == parent_id]
+    if not siblings:
+        # 无子任务，直接恢复
+        for t in store["tasks"]:
+            if t["id"] == parent_id and t["status"] == "blocked":
+                t["status"] = "ready"
+                t["running_at"] = None
+                logger.info(f"♻️ 恢复父任务: {parent_id}")
+        return
+
+    # 检查是否所有子任务都已结束（completed/failed/escalated）
+    done_statuses = {"completed", "failed", "escalated"}
+    all_done = all(s["status"] in done_statuses for s in siblings)
+    if not all_done:
+        pending = [s for s in siblings if s["status"] not in done_statuses]
+        logger.debug(f"⏳ 父任务 {parent_id} 还有 {len(pending)} 个子任务未完成")
+        return
+
+    # 所有子任务已完成 — 聚合结果
+    completed = [s for s in siblings if s["status"] == "completed"]
+    failed = [s for s in siblings if s["status"] in ("failed", "escalated")]
+    summary = f"子任务完成: {len(completed)}/{len(siblings)}成功"
+    if failed:
+        fail_msgs = "; ".join(f"{s['content'][:30]}:{s.get('last_error','')[:30]}" for s in failed[:3])
+        summary += f", {len(failed)}失败[{fail_msgs}]"
+
     for t in store["tasks"]:
         if t["id"] == parent_id and t["status"] == "blocked":
-            t["status"] = "ready"
+            if failed:
+                # 有子任务失败 — 父任务标记失败
+                t["status"] = "failed" if len(failed) == len(siblings) else "ready"
+                t["last_error"] = summary[:200]
+            else:
+                # 全部成功 — 父任务标记完成
+                t["status"] = "completed"
+                t["completed_at"] = datetime.now().isoformat()
             t["running_at"] = None
-            logger.info(f"♻️ 恢复父任务: {parent_id}")
+            t["progress"] = summary[:200]
+            logger.info(f"🔀 父任务聚合: {parent_id} — {summary}")
 
 
 def _overflow_to_memo(store: dict):

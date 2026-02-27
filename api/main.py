@@ -85,7 +85,9 @@ async def status():
     return {
         "version": "0.1.0", "stage": "S10",
         "llm": {"provider": getattr(startup.llm_adapter, "provider_name", "Unknown"),
-                "model": startup.llm_adapter.model, "available": llm_ok,
+                "model": getattr(startup.llm_adapter._primary, "_actual_model", None) or startup.llm_adapter.model,
+                "configured_model": startup.llm_adapter.model,
+                "available": llm_ok,
                 **llm_health},
         "tools": [t["function"]["name"] for t in tools],
         "ports": {"llm": True, "stream": True, "tools": True, "memory": True, "learning": True, "channel": True},
@@ -97,7 +99,9 @@ def _task_notify_hook(event: str, task: dict):
         msg = json.dumps({"type": "task_updated", "event": event, "task": {
             "id": task.get("id"), "status": task.get("status"),
             "content": (task.get("content") or "")[:80],
-            "priority": task.get("priority"), "source": task.get("source")}})
+            "priority": task.get("priority"), "source": task.get("source"),
+            "progress": (task.get("progress") or "")[:60],
+            "parent_id": task.get("parent_id")}})
         loop = asyncio.get_event_loop()
         if loop.is_running():
             loop.create_task(startup.ws_channel.broadcast(msg))

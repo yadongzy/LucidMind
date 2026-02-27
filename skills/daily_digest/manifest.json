@@ -4,7 +4,9 @@
   "description": "每日摘要：汇总今日笔记、提醒、任务",
   "author": "LucidMind",
   "entry": "main.py",
-  "tools": ["generate_digest"],
+  "tools": [
+    "generate_digest"
+  ],
   "platform": [],
   "dependencies": [],
   "enabled": true

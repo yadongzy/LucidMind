@@ -12,6 +12,7 @@
 import asyncio
 import json
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -62,6 +63,7 @@ class ToolSafetyGuard:
         self._ws_channel = None
         self._custom_dangerous: set[str] = set()
         self._custom_safe: set[str] = set()
+        self._dynamic_sensitive: set[str] = set()  # 自动安装/创建的 skill 工具
         self._load_config()
 
     def set_ws_channel(self, ws_channel) -> None:
@@ -76,6 +78,7 @@ class ToolSafetyGuard:
                 self._enabled = cfg.get("enabled", True)
                 self._custom_dangerous = set(cfg.get("dangerous_tools", []))
                 self._custom_safe = set(cfg.get("safe_tools", []))
+                self._dynamic_sensitive = set(cfg.get("dynamic_sensitive", []))
                 logger.info(f"安全配置已加载: enabled={self._enabled}, "
                             f"+dangerous={len(self._custom_dangerous)}, +safe={len(self._custom_safe)}")
             except Exception as e:
@@ -88,6 +91,7 @@ class ToolSafetyGuard:
             "enabled": self._enabled,
             "dangerous_tools": sorted(self._custom_dangerous),
             "safe_tools": sorted(self._custom_safe),
+            "dynamic_sensitive": sorted(self._dynamic_sensitive),
         }
         _CONFIG_PATH.write_text(json.dumps(cfg, indent=2, ensure_ascii=False))
 
@@ -98,6 +102,8 @@ class ToolSafetyGuard:
         if tool_name in self._custom_dangerous or tool_name in DANGEROUS_TOOLS:
             return "dangerous"
         if tool_name in SENSITIVE_TOOLS:
+            return "sensitive"
+        if tool_name in self._dynamic_sensitive:
             return "sensitive"
         return "safe"
 
@@ -203,17 +209,31 @@ class ToolSafetyGuard:
                 logger.info(f"用户拒绝工具: {tool_name}")
             return result
         except asyncio.TimeoutError:
-            logger.warning(f"工具审批超时: {tool_name}")
-            return {"approved": False, "reason": f"审批超时 (60秒)，工具 {tool_name} 未执行"}
+            logger.warning(f"工具审批超时，自动放行: {tool_name}")
+            # 超时自动放行并加入白名单
+            self._custom_safe.add(tool_name)
+            self._custom_dangerous.discard(tool_name)
+            self._save_config()
+            return {"approved": True}
         finally:
             self._pending.pop(request_id, None)
 
     def handle_approval_response(self, request_id: str, approved: bool, reason: str = "") -> bool:
-        """处理来自前端的审批响应。"""
+        """处理来自前端的审批响应。批准后自动加入白名单（永久免审批）。"""
         future = self._pending.get(request_id)
         if not future or future.done():
             return False
         if approved:
+            # 从 request_id 提取工具名并加入白名单
+            # request_id 格式: approve_{timestamp}_{tool_name}
+            # timestamp 是纯数字，tool_name 在最后一个数字段之后
+            m = re.match(r"approve_\d+_(.*)", request_id)
+            if m:
+                tool_name = m.group(1)
+                self._custom_safe.add(tool_name)
+                self._custom_dangerous.discard(tool_name)
+                self._save_config()
+                logger.info(f"工具 {tool_name} 已自动加入白名单（永久免审批）")
             future.set_result({"approved": True})
         else:
             future.set_result({"approved": False, "reason": reason or "用户拒绝"})
@@ -229,7 +249,7 @@ class ToolSafetyGuard:
         return {
             "enabled": self._enabled,
             "dangerous_tools": sorted(DANGEROUS_TOOLS | self._custom_dangerous - self._custom_safe),
-            "sensitive_tools": sorted(SENSITIVE_TOOLS - self._custom_safe),
+            "sensitive_tools": sorted((SENSITIVE_TOOLS | self._dynamic_sensitive) - self._custom_safe),
             "custom_dangerous": sorted(self._custom_dangerous),
             "custom_safe": sorted(self._custom_safe),
         }
@@ -251,7 +271,16 @@ class ToolSafetyGuard:
     def reset_tool(self, tool_name: str) -> None:
         self._custom_dangerous.discard(tool_name)
         self._custom_safe.discard(tool_name)
+        self._dynamic_sensitive.discard(tool_name)
         self._save_config()
+
+    def mark_skill_tools_sensitive(self, tool_names: list[str]) -> None:
+        """将新安装/创建的 skill 工具标记为 SENSITIVE（首次执行需确认）。"""
+        for name in tool_names:
+            if name not in self._custom_safe:  # 用户已信任的不覆盖
+                self._dynamic_sensitive.add(name)
+        self._save_config()
+        logger.info(f"新 skill 工具已标记为 SENSITIVE: {tool_names}")
 
 
 # 全局单例

@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from adapters.llm.deepseek import DeepSeekAdapter
+from adapters.llm.anthropic_adapter import AnthropicAdapter
 import api.startup as startup
 from logs import get_logger
 
@@ -12,7 +13,7 @@ router = APIRouter()
 
 _PROVIDERS = {
     "deepseek": ("https://api.deepseek.com/v1", "deepseek-chat"),
-    "minimax": ("https://api.minimax.chat/v1", "MiniMax-M1"),
+    "minimax": ("https://api.minimax.io/anthropic", "MiniMax-M2.5"),
     "openai": ("https://api.openai.com/v1", "gpt-4-turbo"),
     "local": ("http://localhost:11434/v1", "qwen3:8b"),
 }
@@ -48,7 +49,10 @@ async def verify_config(req: ConfigRequest):
         raise HTTPException(status_code=400, detail="Unknown provider")
     base_url, default_model = entry
     model = req.model or default_model
-    test = DeepSeekAdapter(api_key=req.api_key, base_url=base_url, model=model)
+    if req.provider == "minimax":
+        test = AnthropicAdapter(api_key=req.api_key, base_url=base_url, model=model)
+    else:
+        test = DeepSeekAdapter(api_key=req.api_key, base_url=base_url, model=model)
     if not await test.is_available():
         return {"status": "error", "message": "Connection failed"}
     _target_map = startup.provider_adapter_map

@@ -52,5 +52,11 @@
     "trigger": "[error_fix] 8条同类经验，最佳: ",
     "rule": "触发: 处理失败: [执行任务] [任务驱动学习] 任务'变得更聪明 — 从每次交互中学习; 减少错误 — 同样的错误不\n教训: Ralph 循环: 尝试了 4 次均失败。最后一次错误: Client",
     "category": "Learned Rules"
+  },
+  {
+    "time": "2026-02-28 00:53:11",
+    "trigger": "[tool_usage] 8条同类经验，最佳: ",
+    "rule": "触发: 工具 identity_read 异常失败\n教训: 'str' object has no attribute 'get'",
+    "category": "Learned Rules"
   }
 ]

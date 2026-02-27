@@ -111,14 +111,26 @@ def discover_skills() -> list[Any]:
             if not entry_path.exists():
                 logger.warning(f"❌ 插件入口不存在: {name}/{entry}")
                 continue
-            module_name = f"skills.{sub_dir.name}.{entry_path.stem}"
-            adapters = _load_adapter_from_file(entry_path, module_name)
+            trust_level = manifest.get("trust_level", "audited")
+            if trust_level == "sandboxed":
+                # Level 2: 子进程隔离执行
+                from adapters.tools.subprocess_skill import SubprocessSkillAdapter
+                adapter = SubprocessSkillAdapter(sub_dir, manifest)
+                adapters = [adapter]
+                tools = manifest.get("tools", [])
+                mode = "🔒subprocess"
+            else:
+                # Level 0/1: 进程内执行
+                module_name = f"skills.{sub_dir.name}.{entry_path.stem}"
+                adapters = _load_adapter_from_file(entry_path, module_name)
+                tools = []
+                for a in adapters:
+                    tools.extend(t["function"]["name"] for t in a.list_tools())
+                mode = "⚡in-process"
             all_adapters.extend(adapters)
-            tools = []
-            for a in adapters:
-                tools.extend(t["function"]["name"] for t in a.list_tools())
-            _registry[name] = {**manifest, "status": "loaded", "tools_actual": tools, "adapters": adapters, "security": safety}
-            logger.info(f"✅ 加载插件: {name} v{manifest.get('version', '?')} → {', '.join(tools)}")
+            _registry[name] = {**manifest, "status": "loaded", "tools_actual": tools,
+                               "adapters": adapters, "security": safety, "trust_level": trust_level}
+            logger.info(f"✅ 加载插件: {name} v{manifest.get('version', '?')} [{mode}] → {', '.join(tools)}")
             try:
                 from diagnostics import record_event
                 record_event("plugin_load", "discover", "success", 0, input_summary=f"plugin={name}", output_summary=f"tools={','.join(tools)}")
@@ -256,6 +268,30 @@ def hot_reload() -> dict:
     return {"plugins": len(_registry), "tools": total_tools, "adapters": len(new_adapters)}
 
 
+def _auto_generate_mcp_server(skill_name: str) -> None:
+    """为新安装/创建的 skill 自动生成 MCP Server wrapper（Phase 3）。"""
+    try:
+        from skills.mcp_wrapper import generate_mcp_server
+        result = generate_mcp_server(skill_name)
+        if result.get("success"):
+            logger.info(f"🔌 MCP Server 已生成: {skill_name} → {result['path']}")
+        else:
+            logger.warning(f"MCP Server 生成失败 [{skill_name}]: {result.get('error')}")
+    except Exception as e:
+        logger.warning(f"MCP Server 生成异常 [{skill_name}]: {e}")
+
+
+def _mark_new_skill_sensitive(tool_names: list[str]) -> None:
+    """将新安装/创建的 skill 工具标记为 SENSITIVE（渐进信任 Phase 1）。"""
+    if not tool_names:
+        return
+    try:
+        from adapters.tools.tool_safety import get_safety_guard
+        get_safety_guard().mark_skill_tools_sensitive(tool_names)
+    except Exception as e:
+        logger.warning(f"标记新 skill 工具为 SENSITIVE 失败: {e}")
+
+
 # --- PluginHub 自动搜索安装 ---
 
 import urllib.request
@@ -340,6 +376,8 @@ def install_from_hub(name: str) -> dict:
         except Exception:
             pass
         reload_result = hot_reload()
+        _mark_new_skill_sensitive(manifest.get("tools", []))
+        _auto_generate_mcp_server(name)
         logger.info(f"📦 插件已启用(本地已有): {name} | {scan['summary']}")
         return {"success": True, "result": f"插件 {name} 已启用(本地已有)，热加载完成: {reload_result}", "scan": scan}
 
@@ -367,6 +405,16 @@ def install_from_hub(name: str) -> dict:
             logger.warning(f"🚫 插件 {name} 安全扫描未通过，已删除: {scan['summary']}")
             return {"success": False, "error": f"安全扫描未通过，已拒绝安装: {scan['summary']}", "scan": scan}
 
+        # 标记为 sandboxed（子进程隔离）+ SENSITIVE（首次确认）
+        try:
+            _m = json.loads((target_dir / "manifest.json").read_text("utf-8"))
+            _m["trust_level"] = "sandboxed"
+            (target_dir / "manifest.json").write_text(
+                json.dumps(_m, ensure_ascii=False, indent=2), encoding="utf-8")
+            _mark_new_skill_sensitive(_m.get("tools", []))
+        except Exception:
+            pass
+        _auto_generate_mcp_server(name)
         reload_result = hot_reload()
         logger.info(f"📦 插件已安装: {name} → {target_dir} | {scan['summary']}")
         return {"success": True, "result": f"插件 {name} 已安装到 {target_dir}，热加载完成: {reload_result}", "scan": scan}

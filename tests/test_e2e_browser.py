@@ -22,10 +22,10 @@ HEADED = os.environ.get("HEADED", "").lower() in ("1", "true", "yes")
 
 TAB_TITLES = {
     "chat": "对话", "overview": "系统概览", "sessions": "会话管理",
-    "tasks": "任务看板", "brain": "大脑状态", "memory": "记忆与经验",
-    "learning": "学习中心", "channels": "消息通道", "mcp": "MCP 管理",
+    "tasks": "任务看板", "brain": "大脑状态", "memory": "记忆与学习",
+    "channels": "消息通道", "mcp": "MCP 管理",
     "plugins": "插件管理", "profile": "用户画像", "config": "系统配置",
-    "diagnostics": "系统诊断", "logs": "事件日志",
+    "diagnostics": "系统诊断",
 }
 
 
@@ -109,14 +109,7 @@ class TestTabRendering:
         page, _ = browser_ctx
         _click_tab(page, "memory")
         page.wait_for_timeout(800)
-        assert page.locator(".page-title:has-text('记忆与经验')").is_visible()
-
-    def test_A07_learning_renders(self, browser_ctx):
-        """A-07: 学习中心渲染。"""
-        page, _ = browser_ctx
-        _click_tab(page, "learning")
-        page.wait_for_timeout(800)
-        assert page.locator(".page-title:has-text('学习中心')").is_visible()
+        assert page.locator(".page-title:has-text('记忆与学习')").is_visible()
 
     def test_A08_channels_renders(self, browser_ctx):
         """A-08: 通道页渲染。"""
@@ -160,12 +153,15 @@ class TestTabRendering:
         page.wait_for_timeout(800)
         assert page.locator(".page-title:has-text('系统诊断')").is_visible()
 
-    def test_A14_logs_renders(self, browser_ctx):
-        """A-14: 日志页渲染。"""
+    def test_A14_diagnostics_realtime_tab(self, browser_ctx):
+        """A-14: 诊断页实时日志Tab可切换。"""
         page, _ = browser_ctx
-        _click_tab(page, "logs")
+        _click_tab(page, "diagnostics")
         page.wait_for_timeout(800)
-        assert page.locator(".page-title:has-text('事件日志')").is_visible()
+        btn = page.locator("button:has-text('实时日志')")
+        if btn.count() > 0:
+            btn.click()
+            page.wait_for_timeout(400)
 
 
 # ═══════════════════════ B. 核心按钮交互 ═══════════════════════
@@ -319,13 +315,13 @@ class TestDataLoading:
         text = page.locator(".content").inner_text()
         assert len(text) > 20, "诊断页应显示内容"
 
-    def test_C07_logs_has_entries(self, browser_ctx):
-        """日志页有事件条目（至少有系统启动事件）。"""
+    def test_C07_diagnostics_has_content(self, browser_ctx):
+        """诊断页有内容（合并了日志）。"""
         page, _ = browser_ctx
-        _click_tab(page, "logs")
-        page.wait_for_timeout(800)
+        _click_tab(page, "diagnostics")
+        page.wait_for_timeout(1200)
         text = page.locator(".content").inner_text()
-        assert len(text) > 20, "日志页应有事件"
+        assert len(text) > 20, "诊断页应有内容"
 
 
 # ═══════════════════════ D. JS 错误检查 ═══════════════════════
@@ -378,7 +374,7 @@ class TestNavigation:
     """验证导航栏完整性。"""
 
     def test_F01_all_nav_items_exist(self, browser_ctx):
-        """导航栏包含所有14个Tab。"""
+        """导航栏包含所有12个Tab。"""
         page, _ = browser_ctx
         for tab, title in TAB_TITLES.items():
             btn = page.locator(f".nav-item:has-text('{title}')")

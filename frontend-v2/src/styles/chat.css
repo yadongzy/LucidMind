@@ -274,6 +274,31 @@
   margin: 0;
 }
 
+/* 文件路径链接 */
+.file-link {
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: none;
+  background: var(--bg-2);
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.9em;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.file-link:hover {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+}
+.file-link--copied {
+  background: #22c55e !important;
+  color: #fff !important;
+  border-color: #22c55e !important;
+}
+
 .chat-bubble p + p { margin-top: 8px; }
 .chat-bubble ul, .chat-bubble ol { padding-left: 20px; margin: 8px 0; }
 .chat-bubble h1, .chat-bubble h2, .chat-bubble h3 {
@@ -728,6 +753,7 @@
 .btn--danger:hover { background: rgba(239,68,68,0.1); }
 .sched-col--id { flex: 0.6; min-width: 50px; font-size: 12px; }
 .sched-col--pri { flex: 0.6; min-width: 50px; }
+.sched-col--progress { flex: 1.2; min-width: 80px; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sched-col--src { flex: 0.8; min-width: 50px; font-size: 12px; color: var(--muted); }
 .sched-col--act { flex: 0.4; min-width: 36px; text-align: center; }
 

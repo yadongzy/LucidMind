@@ -10,6 +10,8 @@ let _editing = false;
 let _saving = false;
 let _loaded = false;
 let _activeTab = "user"; // user | soul | core
+let _soulExpanded = false;
+let _coreExpanded = false;
 
 async function _loadAll() {
   try {
@@ -129,22 +131,42 @@ export function renderProfile(app) {
       </div>
     `;
   } else if (_activeTab === "soul") {
+    const soulLines = _soulContent.split('\n');
+    const soulPreview = soulLines.length > 15 && !_soulExpanded;
+    const soulText = soulPreview ? soulLines.slice(0, 15).join('\n') : _soulContent;
     content = html`
       <div class="card">
         <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
           <span>大脑个性 <span style="font-size:11px;color:var(--fg-3);font-weight:normal;">SOUL.md — 大脑可通过对话自己演化</span></span>
         </div>
-        <div style="padding:8px 0;">${_renderMarkdown(_soulContent)}</div>
+        <div style="padding:8px 0;${soulPreview ? 'max-height:300px;overflow:hidden;position:relative;' : ''}">
+          ${_renderMarkdown(soulText)}
+          ${soulPreview ? html`<div style="position:absolute;bottom:0;left:0;right:0;height:60px;background:linear-gradient(transparent,var(--bg));"></div>` : nothing}
+        </div>
+        ${soulLines.length > 15 ? html`
+          <button class="btn" style="font-size:12px;margin-top:4px;width:100%;" @click=${() => { _soulExpanded = !_soulExpanded; app.requestUpdate(); }}>
+            ${_soulExpanded ? '▲ 收起' : `▼ 展开全部 (${soulLines.length}行)`}
+          </button>` : nothing}
       </div>
     `;
   } else {
+    const coreLines = _coreContent.split('\n');
+    const corePreview = coreLines.length > 15 && !_coreExpanded;
+    const coreText = corePreview ? coreLines.slice(0, 15).join('\n') : _coreContent;
     content = html`
       <div class="card">
         <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
           <span>安全铁律 <span style="font-size:11px;color:var(--fg-3);font-weight:normal;">CORE.md — 不可修改</span></span>
           <span style="font-size:11px;padding:2px 8px;background:var(--danger);color:#fff;border-radius:4px;">🔒 只读</span>
         </div>
-        <div style="padding:8px 0;">${_renderMarkdown(_coreContent)}</div>
+        <div style="padding:8px 0;${corePreview ? 'max-height:300px;overflow:hidden;position:relative;' : ''}">
+          ${_renderMarkdown(coreText)}
+          ${corePreview ? html`<div style="position:absolute;bottom:0;left:0;right:0;height:60px;background:linear-gradient(transparent,var(--bg));"></div>` : nothing}
+        </div>
+        ${coreLines.length > 15 ? html`
+          <button class="btn" style="font-size:12px;margin-top:4px;width:100%;" @click=${() => { _coreExpanded = !_coreExpanded; app.requestUpdate(); }}>
+            ${_coreExpanded ? '▲ 收起' : `▼ 展开全部 (${coreLines.length}行)`}
+          </button>` : nothing}
       </div>
     `;
   }

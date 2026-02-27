@@ -1,4 +1,10 @@
-"""Brain Daemon — OODA闭环系统。任务队列驱动，动态间隔，防重入。"""
+"""Brain Daemon — OODA闭环系统。
+
+对标 OpenClaw 架构升级：
+- 集成 command_queue 多Lane并发（chat/daemon/cron 互不阻塞）
+- 优雅关闭（wait_for_idle + mark_gateway_draining）
+- 即时唤醒（任务入队后立即唤醒 Daemon）
+"""
 import asyncio
 import json
 import time
@@ -14,6 +20,7 @@ from brain_task_executor import TaskExecutorMixin
 from brain_daemon_observe import DaemonObserveMixin
 from issue_tracker import report_issue, get_open_issues
 import task_dispatcher as td
+from command_queue import get_command_queue, CommandLane
 
 logger = get_logger("daemon")
 
@@ -29,6 +36,7 @@ class BrainDaemon(DaemonObserveMixin, TaskExecutorMixin):
     def __init__(self, brain, interval: int = 60, soul_engine=None, goal_system=None,
                  teacher_channel=None, ws_channel=None):
         self._brain = brain
+        self._interval = interval
         self._running = False
         self._task: asyncio.Task | None = None
         self._thought_log: list[dict] = []
@@ -62,6 +70,12 @@ class BrainDaemon(DaemonObserveMixin, TaskExecutorMixin):
     async def stop(self):
         self._running = False
         self._brain._awake = False
+        # 对标 OpenClaw: 优雅关闭 — 等待所有车道空闲
+        cq = get_command_queue()
+        cq.mark_gateway_draining()
+        idle = await cq.wait_for_idle(timeout=30.0)
+        if not idle:
+            logger.warning("⚙️ 优雅关闭超时，强制停止")
         if self._task:
             self._task.cancel()
             try: await self._task
@@ -121,7 +135,20 @@ class BrainDaemon(DaemonObserveMixin, TaskExecutorMixin):
                 pass
 
     async def _run_engines(self):
-        """空闲时运行后台引擎：每日任务→自检→修复→学习。"""
+        """空闲时运行后台引擎：通过 CRON lane 隔离，不阻塞 DAEMON/CHAT。"""
+        cq = get_command_queue()
+        try:
+            await cq.enqueue(
+                lane=CommandLane.CRON,
+                task=self._run_engines_inner,
+                task_id="cron_engines",
+            )
+        except Exception as e:
+            logger.warning(f"CRON lane 入队失败，直接执行: {e}")
+            await self._run_engines_inner()
+
+    async def _run_engines_inner(self):
+        """后台引擎实际执行：每日任务→自检→修复→学习。"""
         # 1. 每日任务（持久化，重启不重复）
         if not td.is_daily_check_done():
             try:
@@ -160,9 +187,13 @@ class BrainDaemon(DaemonObserveMixin, TaskExecutorMixin):
         self._user_confirmed = True; logger.info(f"✅ 确认执行: {self._pending_plan}")
 
     def get_status(self) -> dict[str, Any]:
+        cq = get_command_queue()
         return {"running": self._running, "awake": self._brain._awake,
             "paused": self._paused, "pending_plan": self._pending_plan,
+            "interval": self._interval,
+            "auto_ask": getattr(self._teacher, '_auto_ask_enabled', True) if self._teacher else True,
             "last_think": self._last_think_time, "disconnected": self._was_disconnected,
-            "queue": td.get_queue_status(), "recent_thoughts": self._thought_log[-3:],
+            "queue": td.get_queue_status(), "command_queue": cq.get_all_status(),
+            "recent_thoughts": self._thought_log[-3:],
             "teaching": self._teacher.get_status() if self._teacher else {},
             "boot_diag": getattr(self, '_boot_diag', None)}

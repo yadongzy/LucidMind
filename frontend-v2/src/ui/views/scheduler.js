@@ -295,6 +295,7 @@ function _renderQueueTab(app) {
           <span class="sched-col sched-col--name">内容</span>
           <span class="sched-col sched-col--pri">优先级</span>
           <span class="sched-col sched-col--status">状态</span>
+          <span class="sched-col sched-col--progress">进度</span>
           <span class="sched-col sched-col--src">来源</span>
           <span class="sched-col sched-col--time">创建时间</span>
           <span class="sched-col sched-col--act">操作</span>
@@ -309,9 +310,20 @@ function _renderQueueTab(app) {
             <span class="sched-col sched-col--name" title="${t.content || ''}">${(t.content || "—").substring(0, 80)}</span>
             <span class="sched-col sched-col--pri">${_priorityBadge(t.priority)}</span>
             <span class="sched-col sched-col--status">${_statusBadge(t.status)}</span>
+            <span class="sched-col sched-col--progress" title="${t.progress || ''}">${t.parent_id ? html`<span style="font-size:10px;color:var(--accent);">↳子任务</span> ` : nothing}${t.progress ? html`<span style="font-size:11px;color:var(--fg-3);">${(t.progress || '').substring(0, 30)}</span>` : html`<span style="color:var(--fg-3);">—</span>`}</span>
             <span class="sched-col sched-col--src">${t.source || "—"}</span>
             <span class="sched-col sched-col--time">${_formatTime(t.created_at)}</span>
-            <span class="sched-col sched-col--act">
+            <span class="sched-col sched-col--act" style="display:flex;gap:2px;">
+              ${t.status === 'ready' || t.status === 'blocked' || t.status === 'failed' || t.status === 'escalated' ? html`
+                <button class="btn btn--sm btn--icon" title="重新执行" style="font-size:11px;"
+                  @click=${async (e) => {
+                    e.stopPropagation();
+                    try {
+                      await fetch('/api/dispatcher/tasks/' + t.id + '/retry', { method: 'POST' });
+                      await _refresh(); app.requestUpdate();
+                    } catch(err) { console.error('重试失败:', err); }
+                  }}>🔄</button>
+              ` : nothing}
               <button class="btn btn--sm btn--icon btn--danger" title="删除"
                 @click=${() => _deleteTask(t.id, app)}>${icons.trash}</button>
             </span>
@@ -426,12 +438,24 @@ function _renderCronTab(app) {
                 </div>
                 <div style="display:flex;align-items:center;gap:6px;">
                   <button class="sched-badge ${job.enabled !== false ? 'badge--ok' : 'badge--muted'}"
-                    style="font-size:10px;cursor:pointer;border:none;padding:2px 8px;border-radius:10px;"
-                    title="${job.enabled !== false ? '点击禁用' : '点击启用'}"
+                    style="font-size:10px;cursor:pointer;border:none;padding:2px 8px;border-radius:10px;min-width:48px;text-align:center;transition:all .2s;"
+                    title="${job.enabled !== false ? '点击暂停此任务' : '点击恢复此任务'}"
                     @click=${async () => {
                       await fetch('/api/cron/' + job.id, {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:!(job.enabled !== false)})});
                       await _refresh(); app.requestUpdate();
-                    }}>${job.enabled !== false ? '启用' : '禁用'}</button>
+                    }}>${job.enabled !== false ? '● 运行中' : '○ 已暂停'}</button>
+                  <button class="btn btn--sm btn--icon" title="立即执行一次" style="font-size:11px;"
+                    @click=${async () => {
+                      if (!confirm('立即执行此定时任务？')) return;
+                      try {
+                        await fetch('/api/dispatcher/tasks', {
+                          method:'POST', headers:{'Content-Type':'application/json'},
+                          body: JSON.stringify({content: '[手动触发] ' + (job.command || job.description), priority: 'P1'}),
+                        });
+                        _activeTab = 'queue';
+                        await _refresh(); app.requestUpdate();
+                      } catch(e) { console.error('手动触发失败:', e); }
+                    }}>▶</button>
                   <button class="btn btn--sm btn--icon btn--danger" title="删除"
                     @click=${() => _deleteCronJob(job.id, app)}>${icons.trash}</button>
                 </div>

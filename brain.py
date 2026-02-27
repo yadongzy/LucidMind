@@ -23,6 +23,7 @@ from ports.reflection_port import ReflectionPort
 from brain_resilience import BrainResilienceMixin
 from brain_learning import BrainLearningMixin
 from brain_tool_guard import BrainToolGuardMixin
+from tool_call_parser import parse_xml_tool_calls, strip_xml_tool_calls
 from brain_intent import BrainIntentMixin
 from brain_perf import compress_tool_result, dynamic_max_tool_rounds
 from brain_fast_path import classify as _fast_classify
@@ -176,6 +177,12 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, Brain
                     await _s.emit("thinking", thinking)
 
                 tool_calls = response.get("tool_calls")
+                if not tool_calls and self.tools:
+                    xml_tcs = parse_xml_tool_calls(response.get("content", "") or "")
+                    if xml_tcs:
+                        tool_calls = xml_tcs
+                        response["content"] = strip_xml_tool_calls(response.get("content", "") or "")
+                        response["tool_calls"] = xml_tcs
                 if not tool_calls or not self.tools:
                     break
                 if time.time() > deadline:

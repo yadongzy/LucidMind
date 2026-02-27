@@ -28,6 +28,19 @@ async def summary(hours: int = 24):
     return get_collector().summary(since=since)
 
 
+@router.post("/run")
+async def run_diagnostics():
+    """手动触发一次系统诊断（调用 SelfCheckEngine.daily_check）。"""
+    try:
+        from api.brain_init import daemon
+        if daemon and hasattr(daemon, '_check_engine'):
+            issues = await daemon._check_engine.daily_check()
+            return {"status": "ok", "issues": issues, "count": len(issues)}
+        return {"status": "error", "message": "大脑未启动或自检引擎不可用"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
 @router.get("/timeline")
 async def timeline(minutes: int = 60):
     """时间线视图数据（按分钟聚合）。"""

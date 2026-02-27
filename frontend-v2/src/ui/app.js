@@ -11,8 +11,7 @@ import { renderChat } from "./views/chat.js";
 import { renderOverview } from "./views/overview.js";
 import { renderSessions } from "./views/sessions.js";
 import { renderConfig } from "./views/config.js";
-import { renderLogs } from "./views/logs.js";
-import { renderBrain, renderMemory, renderTasks, renderLearning } from "./views/brain.js";
+import { renderBrain, renderMemory, renderTasks } from "./views/brain.js";
 import { renderTasksPage } from "./views/scheduler.js";
 import { renderProfile } from "./views/profile.js";
 import { renderPlugins } from "./views/plugins.js";
@@ -24,9 +23,9 @@ import { installTestProbe } from "./test-probe.js";
 const TAB_GROUPS = [
   { label: "对话", tabs: ["chat"] },
   { label: "控制台", tabs: ["overview", "sessions", "tasks"] },
-  { label: "大脑", tabs: ["brain", "memory", "learning"] },
+  { label: "大脑", tabs: ["brain", "memory"] },
   { label: "连接", tabs: ["channels", "mcp"] },
-  { label: "设置", tabs: ["plugins", "profile", "config", "diagnostics", "logs"] },
+  { label: "设置", tabs: ["plugins", "profile", "config", "diagnostics"] },
 ];
 
 const TAB_ICONS = {
@@ -36,14 +35,12 @@ const TAB_ICONS = {
   tasks: "tasks",
   brain: "brain",
   memory: "memory",
-  learning: "learning",
   channels: "chat",
   mcp: "debug",
   plugins: "zap",
   profile: "user",
   config: "settings",
   diagnostics: "debug",
-  logs: "logs",
 };
 
 const TAB_TITLES = {
@@ -52,15 +49,13 @@ const TAB_TITLES = {
   sessions: "会话管理",
   tasks: "任务看板",
   brain: "大脑状态",
-  memory: "记忆与经验",
-  learning: "学习中心",
+  memory: "记忆与学习",
   channels: "消息通道",
   mcp: "MCP 管理",
   plugins: "插件管理",
   profile: "用户画像",
   config: "系统配置",
   diagnostics: "系统诊断",
-  logs: "事件日志",
 };
 
 const TAB_SUBS = {
@@ -69,15 +64,13 @@ const TAB_SUBS = {
   sessions: "管理对话会话",
   tasks: "异步任务与定时任务",
   brain: "目标、思考、行动",
-  memory: "会话记忆与经验库",
-  learning: "学习进度",
+  memory: "对话记忆、经验库、学习进度",
   channels: "Telegram / 飞书 / 企微 / 微信",
   mcp: "连接外部 MCP Server 获取工具",
   plugins: "安装、启用、管理扩展插件",
   profile: "偏好、规则、个性化配置",
   config: "模型、API密钥、大脑设置",
-  diagnostics: "工具调用、MCP请求、性能分析",
-  logs: "实时事件日志",
+  diagnostics: "工具调用、MCP请求、性能分析、实时日志",
 };
 
 class LucidMindApp extends LitElement {
@@ -155,6 +148,24 @@ class LucidMindApp extends LitElement {
     if ("Notification" in window && Notification.permission === "default") {
       Notification.requestPermission();
     }
+    // 文件路径链接点击 → 复制到剪贴板
+    this.addEventListener("click", (e) => {
+      const link = e.target.closest(".file-link");
+      if (link) {
+        e.preventDefault();
+        const path = link.dataset.path;
+        if (path) {
+          navigator.clipboard.writeText(path).then(() => {
+            const orig = link.textContent;
+            link.textContent = "✅ 已复制!";
+            link.classList.add("file-link--copied");
+            setTimeout(() => { link.textContent = orig; link.classList.remove("file-link--copied"); }, 1500);
+          }).catch(() => {
+            prompt("复制路径:", path);
+          });
+        }
+      }
+    });
   }
 
   disconnectedCallback() {
@@ -274,6 +285,50 @@ class LucidMindApp extends LitElement {
           const cronJob = data.job || {};
           this._log("info", `⏰ 定时任务${cronEvt === 'created' ? '已创建' : cronEvt === 'fired' ? '已触发' : cronEvt}: ${cronJob.description || cronJob.command || ""}`);
           window.dispatchEvent(new CustomEvent("lucid-task-updated", { detail: data }));
+          break;
+        }
+
+        case "task_result": {
+          const tr = data.data || {};
+          const taskName = tr.job_name || "任务";
+          const taskContent = tr.content || "";
+          const taskId = tr.task_id || "";
+          if (taskContent) {
+            this.messages = [...this.messages, {
+              role: "assistant",
+              content: `📋 **[任务完成]** ${taskName.substring(0, 40)}\n\n${taskContent}`,
+              timestamp: Date.now(),
+              isTask: true,
+              taskId,
+            }];
+            this._log("task", `任务结果: ${taskName.substring(0, 30)}`);
+          }
+          window.dispatchEvent(new CustomEvent("lucid-task-updated", { detail: data }));
+          break;
+        }
+
+        case "task_live": {
+          const liveEvt = data.event || "";
+          const liveData = data.data || "";
+          const liveTaskName = data.task_name || "";
+          if (liveEvt === "tool_call" && liveData) {
+            this.messages = [...this.messages, {
+              role: "tool_call",
+              content: liveData,
+              timestamp: Date.now(),
+              isTask: true,
+              taskId: data.task_id,
+            }];
+          } else if (liveEvt === "tool_result" && liveData) {
+            this.messages = [...this.messages, {
+              role: "tool_result",
+              content: liveData,
+              timestamp: Date.now(),
+              isTask: true,
+              taskId: data.task_id,
+            }];
+          }
+          this._log("task", `${liveEvt}: ${liveTaskName.substring(0, 30)}`);
           break;
         }
 
@@ -533,11 +588,9 @@ class LucidMindApp extends LitElement {
           ${this.tab === "overview" ? renderOverview(this) : nothing}
           ${this.tab === "sessions" ? renderSessions(this) : nothing}
           ${this.tab === "config" ? renderConfig(this) : nothing}
-          ${this.tab === "logs" ? renderLogs(this) : nothing}
           ${this.tab === "brain" ? renderBrain(this) : nothing}
           ${this.tab === "memory" ? renderMemory(this) : nothing}
           ${this.tab === "tasks" ? renderTasksPage(this) : nothing}
-          ${this.tab === "learning" ? renderLearning(this) : nothing}
           ${this.tab === "profile" ? renderProfile(this) : nothing}
           ${this.tab === "channels" ? renderChannels(this) : nothing}
           ${this.tab === "mcp" ? renderMcp(this) : nothing}
@@ -564,8 +617,8 @@ class LucidMindApp extends LitElement {
                 ${Object.entries(this.pendingApproval.params || {}).map(([k,v]) => html`<div><strong>${k}:</strong> ${v}</div>`)}
               </div>
             </div>
-            <div style="display:flex;gap:10px;justify-content:flex-end;">
-              <button class="btn" style="color:var(--danger,#ef4444);" @click=${() => this._approvalRespond(false)}>拒绝</button>
+            <div style="display:flex;gap:10px;justify-content:flex-end;align-items:center;">
+              <span style="font-size:11px;color:var(--fg-3);">允许后自动加入白名单，不再弹窗</span>
               <button class="btn btn--primary" @click=${() => this._approvalRespond(true)}>允许执行</button>
             </div>
           </div>

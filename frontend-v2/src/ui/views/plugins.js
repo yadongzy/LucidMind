@@ -12,6 +12,8 @@ let _hubResults = null;
 let _hubSearching = false;
 let _hubInstalling = null;
 let _hubMsg = "";
+let _trustChanging = null;
+let _mcpWrapping = null;
 
 async function _searchHub(app) {
   const input = document.getElementById("hub-search-input");
@@ -102,6 +104,52 @@ async function _hotReload(app) {
   setTimeout(() => { _reloadMsg = ""; app.requestUpdate(); }, 4000);
 }
 
+async function _changeTrust(app, name, level) {
+  _trustChanging = name;
+  app.requestUpdate();
+  try {
+    const res = await fetch(`/api/plugins/${name}/trust`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ trust_level: level }),
+    });
+    const data = await res.json();
+    if (data.status === "ok") {
+      _loaded = false;
+    }
+  } catch (e) {
+    console.error("信任等级变更失败:", e);
+  }
+  _trustChanging = null;
+  app.requestUpdate();
+}
+
+async function _wrapMcp(app, name) {
+  _mcpWrapping = name;
+  app.requestUpdate();
+  try {
+    const res = await fetch(`/api/plugins/${name}/mcp-wrap`, { method: "POST" });
+    const data = await res.json();
+    if (data.status === "ok") {
+      _reloadMsg = `\u2705 ${name} \u5df2\u5c01\u88c5\u4e3a MCP Server`;
+    } else {
+      _reloadMsg = `\u274c MCP \u5c01\u88c5\u5931\u8d25: ${data.detail || ""}`;
+    }
+  } catch (e) {
+    _reloadMsg = `\u274c MCP \u5c01\u88c5\u5f02\u5e38: ${e.message}`;
+  }
+  _mcpWrapping = null;
+  app.requestUpdate();
+  setTimeout(() => { _reloadMsg = ""; app.requestUpdate(); }, 4000);
+}
+
+function _trustBadge(trustLevel) {
+  if (trustLevel === "sandboxed") {
+    return html`<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;background:#f59e0b22;color:#f59e0b;font-weight:600;" title="\u5b50\u8fdb\u7a0b\u9694\u79bb\u6267\u884c\uff0c\u9996\u6b21\u4f7f\u7528\u9700\u786e\u8ba4">\ud83d\udd12 \u6c99\u7bb1</span>`;
+  }
+  return html`<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;background:#22c55e22;color:#22c55e;font-weight:600;" title="\u8fdb\u7a0b\u5185\u6267\u884c\uff0c\u5df2\u5ba1\u6838">\u26a1 \u5df2\u4fe1\u4efb</span>`;
+}
+
 function _statusBadge(status) {
   const colors = {
     loaded: "var(--green, #22c55e)",
@@ -127,6 +175,7 @@ function _renderPluginCard(app, plugin) {
           <span style="font-size:15px;font-weight:600;color:var(--fg);">${plugin.name}</span>
           <span style="font-size:11px;color:var(--fg-3);">v${plugin.version}</span>
           ${_statusBadge(plugin.status)}
+          ${plugin.trust_level ? _trustBadge(plugin.trust_level) : nothing}
           ${plugin.legacy ? html`<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:var(--fg-3)22;color:var(--fg-3);">旧格式</span>` : nothing}
         </div>
         <div style="font-size:13px;color:var(--fg-2);margin-top:4px;">${plugin.description}</div>
@@ -135,13 +184,29 @@ function _renderPluginCard(app, plugin) {
           ${plugin.platform.length > 0 ? html` · 平台: ${plugin.platform.join(", ")}` : nothing}
         </div>
       </div>
-      <div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        ${plugin.trust_level === "sandboxed" && !plugin.legacy ? html`
+          <button class="btn" style="font-size:11px;min-width:70px;"
+            ?disabled=${_trustChanging === plugin.name}
+            @click=${() => _changeTrust(app, plugin.name, "audited")}
+            title="\u5347\u7ea7\u4e3a\u8fdb\u7a0b\u5185\u6267\u884c\uff08\u5df2\u5ba1\u6838\uff09">
+            ${_trustChanging === plugin.name ? "..." : "\u2b06 \u4fe1\u4efb"}
+          </button>
+        ` : nothing}
+        ${!plugin.legacy && plugin.status === "loaded" ? html`
+          <button class="btn" style="font-size:11px;min-width:50px;"
+            ?disabled=${_mcpWrapping === plugin.name}
+            @click=${() => _wrapMcp(app, plugin.name)}
+            title="\u5c01\u88c5\u4e3a MCP Server">
+            ${_mcpWrapping === plugin.name ? "..." : "MCP"}
+          </button>
+        ` : nothing}
         ${plugin.legacy ? nothing : html`
           <button class="btn ${plugin.enabled ? '' : 'btn--primary'}" 
             ?disabled=${isToggling}
             @click=${() => _togglePlugin(app, plugin.name, !plugin.enabled)}
             style="min-width:64px;">
-            ${isToggling ? "..." : (plugin.enabled ? "禁用" : "启用")}
+            ${isToggling ? "..." : (plugin.enabled ? "\u7981\u7528" : "\u542f\u7528")}
           </button>
         `}
       </div>
@@ -190,6 +255,10 @@ export function renderPlugins(app) {
         <div style="text-align:center;padding:12px 20px;background:var(--bg-2);border-radius:8px;min-width:80px;">
           <div style="font-size:24px;font-weight:700;color:var(--fg-3);">${_plugins.length}</div>
           <div style="font-size:12px;color:var(--fg-3);">总计</div>
+        </div>
+        <div style="text-align:center;padding:12px 20px;background:var(--bg-2);border-radius:8px;min-width:80px;">
+          <div style="font-size:24px;font-weight:700;color:#f59e0b;">${_plugins.filter(p => p.trust_level === 'sandboxed').length}</div>
+          <div style="font-size:12px;color:var(--fg-3);">沙箱隔离</div>
         </div>
       </div>
       ${_plugins.map(p => _renderPluginCard(app, p))}

@@ -2,13 +2,24 @@
 
 从 brain_daemon.py 拆分，保持 Daemon 核心精简（规则03: ≤300行）。
 包含: 任务执行、模型分流、工具分组、失败处理。
+
+对标 OpenClaw run.ts:
+- while-true 内联重试循环（单任务内多次尝试直到成功）
+- 软失败检测（empty_promise 且工具未执行 → 重试而非完成）
+- 通过 command_queue 统一入队执行
 """
 import asyncio
 
 from logs import get_logger
 import task_dispatcher as td
+from command_queue import get_command_queue, CommandLane
+from task_decomposer import should_decompose, decompose_task
 
 logger = get_logger("daemon")
+
+# 对标 OpenClaw BASE_RUN_RETRY_ITERATIONS / MAX_RUN_RETRY_ITERATIONS
+MAX_INLINE_RETRIES = 3          # 单任务内最大内联重试次数
+INLINE_RETRY_DELAY_S = 2.0      # 内联重试间隔（指数退避基数）
 
 
 class TaskExecutorMixin:
@@ -43,10 +54,60 @@ class TaskExecutorMixin:
         return False
 
     async def _execute_task(self, task: dict):
-        """Act阶段：执行一个任务。智能分流到本地/外部模型。"""
+        """Act阶段：通过 command_queue 统一入队执行任务。
+
+        混合模式 Scheduler: 复杂任务先尝试分解为子任务。
+        """
+        cq = get_command_queue()
+        # 子任务走 SUBAGENT lane，与父任务物理隔离
+        lane = CommandLane.SUBAGENT if task.get("parent_id") else CommandLane.DAEMON
+        tid = task["id"]
+        # === Scheduler: 复杂任务分解 ===
+        if should_decompose(task):
+            try:
+                subtasks = await decompose_task(self._brain, task)
+                if subtasks:
+                    logger.info(f"🔀 任务已分解: {tid} → {len(subtasks)}个子任务")
+                    return  # 子任务已入队，父任务已阻塞，等子任务完成后自动恢复
+            except Exception as e:
+                logger.warning(f"任务分解失败，直接执行: {tid} {e}")
+        try:
+            await cq.enqueue(
+                lane=lane,
+                task=lambda t=task: self._execute_task_inner(t),
+                task_id=f"task_{tid}",
+            )
+        except Exception as e:
+            logger.error(f"命令队列入队失败: {tid} {e}")
+            self._handle_task_failure(task, f"入队失败: {str(e)[:100]}")
+
+    async def _execute_task_inner(self, task: dict):
+        """内部执行逻辑：while-true 内联重试循环。
+
+        对标 OpenClaw run.ts while(true) 循环：
+        - 每次调用 brain.process() 执行一轮
+        - 软失败（空承诺且工具未执行）→ 内联重试
+        - 硬失败（异常/超时）→ 外部 fail_task 重试
+        - 上限保护：MAX_INLINE_RETRIES 次后放弃
+        """
         tid = task["id"]
         content = task["content"]
         task_type = task.get("type", "task")
+        # 创建广播 stream，让任务执行结果推送到前端对话页面
+        task_stream = None
+        try:
+            from adapters.stream.broadcast_stream import BroadcastStreamAdapter
+            ws_ch = getattr(self._brain, '_stream', None)
+            # 获取 ws_channel：从 brain daemon 的 _ws_channel 属性
+            ws_channel = getattr(self, '_ws_channel', None)
+            if ws_channel:
+                task_stream = BroadcastStreamAdapter(
+                    ws_channel,
+                    job_name=content[:60],
+                    task_id=tid,
+                )
+        except Exception:
+            pass
         # 智能分流：低复杂度任务用本地模型
         use_local = self._should_use_local(task)
         original_llm = self._brain.llm
@@ -63,18 +124,51 @@ class TaskExecutorMixin:
             logger.info(f"🔧 工具分组[{scope}]: {tid}")
         try:
             sid = f"task_{tid}"
-            await asyncio.wait_for(
-                self._brain.process(sid, f"[执行任务] {content}"),
-                timeout=task.get("timeout_s", 120)
-            )
+            attempt = 0
+            last_error = ""
+            # === OpenClaw 风格 while-true 内联重试 ===
+            while attempt <= MAX_INLINE_RETRIES:
+                attempt += 1
+                try:
+                    # 推送中间状态
+                    td.update_task_progress(tid, f"执行中(第{attempt}次尝试)")
+                    result = await asyncio.wait_for(
+                        self._brain.process(sid, f"[执行任务] {content}",
+                                            stream=task_stream),
+                        timeout=task.get("timeout_s", 120)
+                    )
+                    # === 软失败检测（对标 OpenClaw attempt 结果检查）===
+                    if isinstance(result, dict):
+                        tool_happened = result.get("tool_calls_happened", False)
+                        empty_promise = result.get("empty_promise_detected", False)
+                        if empty_promise and not tool_happened:
+                            last_error = "空承诺:工具未执行"
+                            if attempt <= MAX_INLINE_RETRIES:
+                                delay = INLINE_RETRY_DELAY_S * (2 ** (attempt - 1))
+                                logger.warning(
+                                    f"🔄 内联重试 {tid}: attempt={attempt} "
+                                    f"reason={last_error} delay={delay:.1f}s"
+                                )
+                                await asyncio.sleep(delay)
+                                continue
+                    # 成功完成
+                    self._brain._sessions.pop(sid, None)
+                    td.complete_task(tid)
+                    logger.info(f"✅ 任务完成: {tid} (attempt={attempt})")
+                    return
+                except asyncio.TimeoutError:
+                    last_error = f"执行超时(attempt={attempt})"
+                    if attempt <= MAX_INLINE_RETRIES:
+                        logger.warning(f"🔄 内联重试(超时) {tid}: attempt={attempt}")
+                        await asyncio.sleep(INLINE_RETRY_DELAY_S)
+                        continue
+                    break
+                except Exception as e:
+                    last_error = str(e)[:200]
+                    break  # 硬异常不内联重试，交给外部 fail_task
+            # 所有内联重试耗尽
             self._brain._sessions.pop(sid, None)
-            td.complete_task(tid)
-            # 不再自动记录task_success经验（产生低质量垃圾）
-            # 只有用户纠正和工具失败才值得记录
-        except asyncio.TimeoutError:
-            self._handle_task_failure(task, "执行超时")
-        except Exception as e:
-            self._handle_task_failure(task, str(e)[:200])
+            self._handle_task_failure(task, last_error)
         finally:
             # 恢复原始工具集（工具分组清理）
             if original_tools and self._brain.tools is not original_tools:

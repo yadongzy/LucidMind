@@ -160,7 +160,7 @@ export function renderOverview(app) {
         <button class="btn" style="font-size:12px;" @click=${() => { _pluginData = null; app.requestUpdate(); }}>刷新</button>
       </div>
       <div class="card-sub">已注册的工具适配器</div>
-      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:12px;">
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:12px;max-height:200px;overflow-y:auto;">
         ${tools.map(t => html`<span class="pill">${t}</span>`)}
       </div>
     </div>

@@ -188,7 +188,7 @@ export function renderMcp(app) {
     ${(_mcpTools || []).length > 0 ? html`
     <div class="card" style="margin-top:16px;">
       <div class="card-title">MCP 工具 (${_mcpTools.length})</div>
-      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:12px;">
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:12px;max-height:200px;overflow-y:auto;">
         ${_mcpTools.map(t => html`
           <span class="pill" title="${t.description}">${t.name}</span>
         `)}
