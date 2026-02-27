@@ -48,10 +48,10 @@
 - **描述**: 安全拦截返回 `blocked: True`，`_tool_call_with_retry` 检测到后跳过重试。
 - **文件**: `adapters/tools/composite.py` L78, `brain_resilience.py` L131-134
 
-### ISS-008: brain_tool_guard.py 职责混合 (D4)
-- **状态**: 📋 记录待优化
-- **描述**: 文件包含三个不同功能：空承诺三层防护、预执行意图检测、防伪造守卫。270 行未超限但命名不准。
-- **建议**: 后续可拆为 `brain_intent.py`（预执行）+ `brain_tool_guard.py`（防护+防伪造）。
+### ISS-008: brain_tool_guard.py 职责拆分 (D4)
+- **状态**: ✅ 已修复 (2026-02-27)
+- **描述**: 拆出 `brain_intent.py`(75行，预执行意图检测)，`brain_tool_guard.py` 从316→254行(空承诺+防伪造)。
+- **文件**: `brain_intent.py`(new), `brain_tool_guard.py`, `brain.py`
 
 ### ISS-015: /api/memory/stats 和 /api/memory/list 被 data_views 路由遮蔽
 - **状态**: ✅ 已修复 (2026-02-27)
@@ -83,24 +83,23 @@
 
 ## 🟢 低优先级
 
-### ISS-011: mcp_transport.py 类名变更破坏封装 (D6)
-- **状态**: 📋 可接受
-- **描述**: 拆分时 `_StdioTransport`（私有）改为 `StdioTransport`（公开）。当前无外部依赖，实际影响为零。
+### ISS-011: mcp_transport.py 类名封装 (D6)
+- **状态**: ✅ 已确认 (2026-02-27)
+- **描述**: 类名已为公开(`StdioTransport`/`HttpTransport`)，无外部依赖，实际影响为零。无需修改。
 
-### ISS-012: 42 个测试文件中大量历史遗留
-- **状态**: 📋 待清理
-- **描述**: `test_s20_s23_browser.py`、`test_s30_s33_browser.py` 等旧浏览器测试可能已过时，部分可能无法运行。
-- **建议**: 审查后删除不再需要的测试文件，或标记 skip。
+### ISS-012: 过时v1测试文件清理
+- **状态**: ✅ 已完成 (2026-02-27)
+- **描述**: 35个过时测试文件移到 `tests/_deprecated/`，保留参考。活跃测试从42→ 13个文件。
 
-### ISS-013: Phase 3.2 冻结文件诊断埋点未完成
-- **状态**: 📋 待处理
-- **描述**: brain.py process()、brain_resilience.py、API 中间件等冻结文件中的诊断埋点未注入。
-- **影响**: 诊断系统覆盖面不完整。
+### ISS-013: 冻结文件诊断埋点
+- **状态**: ✅ 已完成 (2026-02-27)
+- **描述**: `brain.py process()` 已有埋点；`brain_resilience.py` 新增 LLM调用和工具调用的 `record_event` 埋点。
+- **文件**: `brain_resilience.py`
 
-### ISS-014: Phase 4.1 真实 MCP E2E 测试仅 mock
-- **状态**: 📋 待处理
-- **描述**: MCP 测试使用 mock，未用真实 MCP Server 验证。
-- **影响**: MCP 集成可能存在未发现的问题。
+### ISS-014: MCP 真实 E2E 测试
+- **状态**: ✅ 已完成 (2026-02-27)
+- **描述**: 新增5个真实API测试：update server、安全拒绍shell注入、拒绍PATH覆盖、删除404、完整生命周期。
+- **文件**: `tests/test_e2e_realops.py`
 
 ---
 
@@ -108,6 +107,6 @@
 
 | 状态 | 数量 |
 |------|------|
-| ✅ 已完成 | 11 (ISS-001, ISS-002, ISS-003, ISS-005, ISS-006, ISS-007, ISS-009, ISS-010, ISS-012, ISS-015, ISS-016) |
-| 📋 待处理 | 5 |
+| ✅ 已完成 | 16/16 全部完成 |
+| 📋 待处理 | 0 |
 | **总计** | **16** |

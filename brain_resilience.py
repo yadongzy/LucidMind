@@ -10,8 +10,10 @@ import asyncio
 import os
 import platform
 import re
+import time
 
 from logs import get_logger
+from diagnostics import record_event
 
 logger = get_logger("brain")
 
@@ -30,9 +32,15 @@ class BrainResilienceMixin:
         _s = _s or self.stream
         llm = llm_override or self.llm
         last_error = None
+        _t0 = time.time()
         for attempt in range(self.ralph_max_retries + 1):
             try:
-                return await llm.chat(messages, tools=tools, tool_choice=tool_choice)
+                result = await llm.chat(messages, tools=tools, tool_choice=tool_choice)
+                record_event("llm_call", "chat", "success",
+                             (time.time() - _t0) * 1000,
+                             input_summary=f"session={session_id} attempt={attempt+1}",
+                             metadata={"model": getattr(llm, 'model', '?')})
+                return result
             except Exception as e:
                 last_error = e
                 remaining = self.ralph_max_retries - attempt
@@ -44,6 +52,10 @@ class BrainResilienceMixin:
                     f"⚡ Ralph: LLM调用失败，{delay:.0f}秒后重试 ({remaining}次剩余)...")
                 await asyncio.sleep(delay)
 
+        record_event("llm_call", "chat", "failure",
+                     (time.time() - _t0) * 1000,
+                     input_summary=f"session={session_id}",
+                     error=str(last_error)[:200], level="error")
         logger.error(f"[{session_id}] Ralph: {self.ralph_max_retries+1}次尝试均失败: {last_error}")
         await self._escalate_to_teacher(
             f"LLM调用重试{self.ralph_max_retries+1}次全部失败",
@@ -121,10 +133,14 @@ class BrainResilienceMixin:
         """S11: 工具层 Ralph — 失败→分析错误→换方法→再试→学习。"""
         _s = _s or self.stream
         last_error = None
+        _t0 = time.time()
         for attempt in range(max_retries + 1):
             try:
                 result = await self.tools.execute(tool_name, params, session_id=session_id)
                 if result.get("success"):
+                    record_event("tool_call", tool_name, "success",
+                                 (time.time() - _t0) * 1000,
+                                 input_summary=str(params)[:200])
                     return result
                 error_msg = result.get("error", "unknown error")
                 last_error = error_msg

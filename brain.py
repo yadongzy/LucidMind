@@ -23,6 +23,7 @@ from ports.reflection_port import ReflectionPort
 from brain_resilience import BrainResilienceMixin
 from brain_learning import BrainLearningMixin
 from brain_tool_guard import BrainToolGuardMixin
+from brain_intent import BrainIntentMixin
 from brain_perf import compress_tool_result, dynamic_max_tool_rounds
 from brain_fast_path import classify as _fast_classify
 from logs import get_logger
@@ -56,7 +57,7 @@ _TOOL_LOOP_TIMEOUT = 60
 _COMPACTION_RESERVE_TOKENS = 2000
 
 
-class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin):
+class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, BrainIntentMixin):
     """LucidMind 的核心大脑。"""
 
     def __init__(

@@ -341,6 +341,49 @@ class TestMCPServerCRUD:
         r = _get("/api/mcp/health")
         assert r.status_code == 200
 
+    def test_mcp_update_server(self):
+        """添加 → 更新 env/enabled → 验证 → 删除。"""
+        name = f"e2e_mcp_upd_{int(time.time())}"
+        # 添加
+        r1 = _post("/api/mcp/servers", json={
+            "name": name, "transport": "http",
+            "url": "http://localhost:29999", "enabled": False,
+        })
+        assert r1.status_code == 200
+        # 更新
+        r2 = _put(f"/api/mcp/servers/{name}", json={
+            "env": {"MY_KEY": "test123"}, "enabled": True,
+        })
+        assert r2.status_code == 200
+        srv = r2.json().get("server", {})
+        assert srv.get("enabled") is True
+        assert srv.get("env", {}).get("MY_KEY") == "test123"
+        # 清理
+        _delete(f"/api/mcp/servers/{name}")
+
+    def test_mcp_add_reject_unsafe_command(self):
+        """安全验证：拒绝 shell 注入的 stdio 命令。"""
+        r = _post("/api/mcp/servers", json={
+            "name": "evil_test", "transport": "stdio",
+            "command": "npx", "args": ["-y", "pkg; rm -rf /"],
+        })
+        assert r.status_code == 400
+        assert "shell" in r.json().get("detail", "").lower()
+
+    def test_mcp_add_reject_protected_env(self):
+        """安全验证：拒绝覆盖 PATH 等受保护变量。"""
+        r = _post("/api/mcp/servers", json={
+            "name": "env_test", "transport": "stdio",
+            "command": "npx", "args": [], "env": {"PATH": "/evil"},
+        })
+        assert r.status_code == 400
+        assert "PATH" in r.json().get("detail", "")
+
+    def test_mcp_delete_nonexistent(self):
+        """删除不存在的 MCP Server 返回 404。"""
+        r = _delete("/api/mcp/servers/nonexistent_server_xyz")
+        assert r.status_code == 404
+
 
 # ═══════════════════════ 7. 会话完整 CRUD ═══════════════════════
 
