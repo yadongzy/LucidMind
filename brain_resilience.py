@@ -128,6 +128,10 @@ class BrainResilienceMixin:
                     return result
                 error_msg = result.get("error", "unknown error")
                 last_error = error_msg
+                # ISS-007: 安全拦截不重试，直接返回
+                if result.get("blocked"):
+                    logger.info(f"[{session_id}] 工具 {tool_name} 被安全拦截，跳过重试")
+                    return result
                 if "未知工具" in error_msg or "未注册" in error_msg:
                     installed = await self._on_tool_not_found(session_id, tool_name)
                     if installed:

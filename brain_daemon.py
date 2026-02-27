@@ -89,6 +89,7 @@ class BrainDaemon(DaemonObserveMixin, TaskExecutorMixin):
                     if not task:
                         break
                     self._idle_rounds = 0
+                    self._learn_engine.reset_idle()
                     await self._execute_task(task)
                     tasks_done += 1
                 if tasks_done == 0:

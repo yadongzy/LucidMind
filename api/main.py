@@ -79,10 +79,14 @@ async def status():
         return {"status": "initializing", "version": "0.1.0"}
     llm_ok = await startup.llm_adapter.is_available()
     tools = startup.tool_adapter.list_tools()
+    llm_health = {}
+    if hasattr(startup.llm_adapter, "get_health"):
+        llm_health = startup.llm_adapter.get_health()
     return {
         "version": "0.1.0", "stage": "S10",
         "llm": {"provider": getattr(startup.llm_adapter, "provider_name", "Unknown"),
-                "model": startup.llm_adapter.model, "available": llm_ok},
+                "model": startup.llm_adapter.model, "available": llm_ok,
+                **llm_health},
         "tools": [t["function"]["name"] for t in tools],
         "ports": {"llm": True, "stream": True, "tools": True, "memory": True, "learning": True, "channel": True},
     }

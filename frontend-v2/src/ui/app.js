@@ -468,6 +468,12 @@ class LucidMindApp extends LitElement {
               <span class="mono">${this.connected ? "正常" : "离线"}</span>
               ${this.connected ? html`<span class="heartbeat-pulse ${this.heartbeat.alive ? 'alive' : ''}">♥</span>` : nothing}
             </div>
+            ${this.status?.llm?.local_only ? html`
+              <div class="pill pill--warn" title="外部模型冷却中，当前使用本地备用模型，响应可能较慢">
+                <span class="statusDot warn"></span>
+                <span>备用模型</span>
+              </div>
+            ` : nothing}
             <div class="pill pill--model" title="当前模型 (点击切换)">
               <span class="statusDot ${this.status?.llm?.available ? 'ok' : ''}"></span>
               <select class="model-select"

@@ -75,7 +75,7 @@ class CompositeToolAdapter(ToolPort):
                     reason = check.get("reason", "用户拒绝或审批超时")
                     logger.warning(f"工具被安全审批拦截: {tool_name} — {reason}")
                     self._record_diagnostic(tool_name, "blocked", (_time.time() - _t0) * 1000, reason, session_id=session_id)
-                    return {"success": False, "result": None, "error": f"安全审批未通过: {reason}"}
+                    return {"success": False, "result": None, "error": f"安全审批未通过: {reason}", "blocked": True}
             except Exception as e:
                 logger.error(f"安全审批异常(放行): {tool_name} — {e}")
         result = await adapter.execute(tool_name, params)

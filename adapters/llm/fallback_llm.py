@@ -194,6 +194,23 @@ class FallbackLLMAdapter(LLMPort):
                 v["description"] = v["description"][:30]
         return t
 
+    def get_health(self) -> dict:
+        """返回所有模型的健康状态，供 API 暴露。"""
+        models = []
+        for adapter in self._all:
+            name = getattr(adapter, "model", "?")
+            is_local = getattr(adapter, "_is_local", False)
+            h = self._health.get(name, {"failures": 0, "last_fail": 0})
+            cooling = h["failures"] >= 3 and (time.time() - h.get("last_fail", 0)) < 60
+            models.append({
+                "model": name, "local": is_local,
+                "failures": h["failures"], "cooling": cooling,
+            })
+        return {
+            "local_only": self.is_local_only(),
+            "models": models,
+        }
+
     def is_local_only(self) -> bool:
         """检测是否只有本地模型可用（外部API全部冷却或失败）。"""
         for adapter in self._all:

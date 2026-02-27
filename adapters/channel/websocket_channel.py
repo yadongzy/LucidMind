@@ -15,8 +15,8 @@ from logs import get_logger
 
 logger = get_logger("channel.ws")
 
-_SERVER_PING_INTERVAL = 45  # 服务端主动 ping 间隔（秒）
-_SERVER_PONG_TIMEOUT = 90   # 服务端无 pong 判死时间（秒）
+_SERVER_PING_INTERVAL = 30  # 服务端主动 ping 间隔（秒）
+_SERVER_PONG_TIMEOUT = 180  # 服务端无 pong 判死时间（秒）— 需要足够长以覆盖 fallback 模型处理
 
 
 class WebSocketChannelAdapter(ChannelPort):

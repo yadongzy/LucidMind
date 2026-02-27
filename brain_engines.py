@@ -236,6 +236,7 @@ class LearningEngine:
         self._teacher = teacher
         self._soul_engine = soul_engine
         self._learning_done_today: str = ""
+        self._idle_ticks: int = 0
 
     def is_learning_time(self) -> bool:
         """判断是否在学习时段。"""
@@ -243,10 +244,13 @@ class LearningEngine:
         return 3 <= hour < 6
 
     def is_idle(self) -> bool:
-        """判断大脑是否空闲。"""
-        sessions = len(self._brain._sessions)
-        msgs = sum(len(h) for h in self._brain._sessions.values())
-        return sessions <= 1 and msgs < 5
+        """判断大脑是否空闲（无活跃会话或连续空闲5轮）。"""
+        self._idle_ticks += 1
+        return self._idle_ticks >= 5
+
+    def reset_idle(self):
+        """有新消息时重置空闲计数。"""
+        self._idle_ticks = 0
 
     async def maybe_learn(self) -> list[str]:
         """如果满足条件，执行深度学习。"""

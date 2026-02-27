@@ -82,6 +82,7 @@ def test_composite_safety_guard_blocks_dangerous(composite_blocking_guard):
         adapter.execute("run_shell", {"command": "ls"}, session_id="test"))
     assert result["success"] is False
     assert "安全审批未通过" in result["error"]
+    assert result.get("blocked") is True, "ISS-007: 安全拦截应返回 blocked=True"
     assert guard.check_called is True
 
 

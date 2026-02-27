@@ -33,6 +33,23 @@
   box-shadow: 0 0 6px var(--ok);
 }
 
+.statusDot.warn {
+  background: var(--warn);
+  box-shadow: 0 0 6px var(--warn);
+  animation: pulse-warn 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-warn {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.pill--warn {
+  border-color: var(--warn);
+  color: var(--warn);
+  font-weight: 600;
+}
+
 /* Heartbeat Pulse */
 .heartbeat-pulse {
   font-size: 11px;

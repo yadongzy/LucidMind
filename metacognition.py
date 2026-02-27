@@ -50,9 +50,13 @@ def quick_analyze(user_input: str, history: list[dict], tools: list | None) -> d
             result["intents"].append({"id": intent_id, "label": rule["label"]})
 
     # 复杂度判断
-    if len(user_input) > 200:
+    if len(user_input) > 100:
         result["complexity"] = "complex"
-    elif any(w in inp for w in ["并且", "然后", "同时", "步骤", "首先", "接着"]):
+    elif any(w in inp for w in ["并且", "然后", "同时", "步骤", "首先", "接着",
+                                 "之后", "最后", "另外", "还要", "以及",
+                                 "and then", "step", "first", "finally"]):
+        result["complexity"] = "multi_step"
+    elif len(result["intents"]) >= 2:
         result["complexity"] = "multi_step"
 
     # 上下文感知
@@ -64,9 +68,13 @@ def quick_analyze(user_input: str, history: list[dict], tools: list | None) -> d
     # 工具提示
     if tools:
         tool_names = [t.get("function", {}).get("name", "") for t in tools]
-        tool_map = {"搜索": "web_search", "文件": "read_file", "运行": "run_command",
+        tool_map = {"搜索": "web_search", "查": "web_search", "文件": "read_file",
+                    "运行": "run_command", "执行": "run_command",
                     "excel": "create_excel", "ppt": "create_pptx", "浏览": "browse_url",
-                    "图片": "analyze_image", "语音": "text_to_speech"}
+                    "图片": "analyze_image", "语音": "text_to_speech",
+                    "天气": "get_weather", "weather": "get_weather",
+                    "计算": "calc", "笔记": "create_note", "提醒": "set_reminder",
+                    "邮件": "send_email", "git": "git_status", "监控": "monitor_check"}
         for kw, tn in tool_map.items():
             if kw in inp and tn in tool_names:
                 result["tools_hint"].append(tn)
