@@ -158,9 +158,15 @@ def discover_skills() -> list[Any]:
             except Exception:
                 pass
 
-    # 2. 扫描单文件（旧格式兼容）
+    # 2. 扫描单文件（旧格式兼容）— 跳过框架模块
+    _FRAMEWORK_FILES = frozenset({
+        "registry", "discovery", "reload", "hub", "token_budget",
+        "loader", "skill_scanner", "skill_creator", "mcp_wrapper", "discovery_safety",
+    })
     for py_file in sorted(_SKILLS_DIR.glob("*.py")):
         if py_file.name.startswith("_"):
+            continue
+        if py_file.stem in _FRAMEWORK_FILES:
             continue
         name = py_file.stem
         if name in _registry:
