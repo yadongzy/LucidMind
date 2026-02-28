@@ -166,6 +166,19 @@ function _statusBadge(status) {
   return html`<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;background:${color}22;color:${color};font-weight:600;">${label}</span>`;
 }
 
+function _kindBadge(kind) {
+  if (!kind || kind === "code") {
+    return html`<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;background:#3b82f622;color:#3b82f6;font-weight:600;" title="代码执行型技能">⚡ 代码</span>`;
+  }
+  if (kind === "prompt") {
+    return html`<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;background:#8b5cf622;color:#8b5cf6;font-weight:600;" title="知识文档型技能（SKILL.md）">📄 知识</span>`;
+  }
+  if (kind === "hybrid") {
+    return html`<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;background:#06b6d422;color:#06b6d4;font-weight:600;" title="代码+知识混合型技能">🔀 混合</span>`;
+  }
+  return nothing;
+}
+
 function _renderPluginCard(app, plugin) {
   const isToggling = _toggling === plugin.name;
   return html`
@@ -175,13 +188,14 @@ function _renderPluginCard(app, plugin) {
           <span style="font-size:15px;font-weight:600;color:var(--fg);">${plugin.name}</span>
           <span style="font-size:11px;color:var(--fg-3);">v${plugin.version}</span>
           ${_statusBadge(plugin.status)}
+          ${_kindBadge(plugin.kind)}
           ${plugin.trust_level ? _trustBadge(plugin.trust_level) : nothing}
           ${plugin.legacy ? html`<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:var(--fg-3)22;color:var(--fg-3);">旧格式</span>` : nothing}
         </div>
         <div style="font-size:13px;color:var(--fg-2);margin-top:4px;">${plugin.description}</div>
         <div style="font-size:12px;color:var(--fg-3);margin-top:4px;">
-          工具: ${plugin.tools.length > 0 ? plugin.tools.join(", ") : "无"}
-          ${plugin.platform.length > 0 ? html` · 平台: ${plugin.platform.join(", ")}` : nothing}
+          ${plugin.kind === 'prompt' ? html`知识: ${plugin.prompt_tokens || 0} 字符` : html`工具: ${plugin.tools && plugin.tools.length > 0 ? plugin.tools.join(", ") : "无"}`}
+          ${plugin.platform && plugin.platform.length > 0 ? html` · 平台: ${plugin.platform.join(", ")}` : nothing}
         </div>
       </div>
       <div style="display:flex;gap:6px;align-items:center;">
@@ -223,6 +237,8 @@ export function renderPlugins(app) {
   const loaded = _plugins.filter(p => p.status === "loaded");
   const disabled = _plugins.filter(p => p.status === "disabled");
   const totalTools = _plugins.reduce((s, p) => s + (p.tools ? p.tools.length : 0), 0);
+  const promptSkills = _plugins.filter(p => p.kind === "prompt" && p.status === "loaded");
+  const hybridSkills = _plugins.filter(p => p.kind === "hybrid" && p.status === "loaded");
 
   return html`
     <div class="card">
@@ -255,6 +271,10 @@ export function renderPlugins(app) {
         <div style="text-align:center;padding:12px 20px;background:var(--bg-2);border-radius:8px;min-width:80px;">
           <div style="font-size:24px;font-weight:700;color:var(--fg-3);">${_plugins.length}</div>
           <div style="font-size:12px;color:var(--fg-3);">总计</div>
+        </div>
+        <div style="text-align:center;padding:12px 20px;background:var(--bg-2);border-radius:8px;min-width:80px;">
+          <div style="font-size:24px;font-weight:700;color:#8b5cf6;">${promptSkills.length + hybridSkills.length}</div>
+          <div style="font-size:12px;color:var(--fg-3);">知识技能</div>
         </div>
         <div style="text-align:center;padding:12px 20px;background:var(--bg-2);border-radius:8px;min-width:80px;">
           <div style="font-size:24px;font-weight:700;color:#f59e0b;">${_plugins.filter(p => p.trust_level === 'sandboxed').length}</div>
@@ -300,10 +320,21 @@ export function renderPlugins(app) {
     <div class="card" style="margin-top:16px;">
       <div class="card-title">开发插件</div>
       <div style="font-size:13px;color:var(--fg-3);line-height:1.8;">
-        <p>在 <code>skills/</code> 目录下创建子目录，包含 <code>manifest.json</code> 和 <code>main.py</code>：</p>
-        <pre style="background:var(--bg-2);padding:12px;border-radius:6px;overflow-x:auto;font-size:12px;margin:8px 0;">skills/my_plugin/
+        <p>在 <code>skills/</code> 目录下创建子目录，支持三种技能形态：</p>
+        <pre style="background:var(--bg-2);padding:12px;border-radius:6px;overflow-x:auto;font-size:12px;margin:8px 0;">⚡ 代码技能 (kind: "code", 默认)
+skills/my_tool/
   manifest.json   # 名称、版本、工具声明
-  main.py         # 导出 XxxAdapter 类</pre>
+  main.py         # 导出 XxxAdapter 类
+
+📄 知识技能 (kind: "prompt")
+skills/my_guide/
+  manifest.json   # kind: "prompt"
+  SKILL.md        # 知识文档，注入 LLM 上下文
+
+🔀 混合技能 (kind: "hybrid")
+skills/my_hybrid/
+  manifest.json   # kind: "hybrid"
+  main.py + SKILL.md</pre>
         <p>添加新插件后点击「热加载」按钮即可立即使用，无需重启服务器。</p>
       </div>
     </div>

@@ -116,6 +116,10 @@ async def _startup():
     startup.init()  # D3: 显式初始化所有 Adapter
     brain_init.set_ws_channel(startup.ws_channel)
     try:
+        import goal_tracker
+        goal_tracker.set_ws_channel(startup.ws_channel)
+    except Exception: pass
+    try:
         from api.cron import set_ws_channel as _set_cron_ws
         _set_cron_ws(startup.ws_channel)
     except ImportError: pass

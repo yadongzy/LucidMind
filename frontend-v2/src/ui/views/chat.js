@@ -256,34 +256,74 @@ function renderBubble(msg) {
       </div>
     `;
   }
-  if (msg.role === "tool_call") {
-    const toolName = (msg.content || "").split("(")[0] || "tool";
-    return html`
-      <details class="chat-tool-card chat-tool-card--collapsed">
-        <summary class="chat-tool-card__header">
-          <span class="chat-tool-card__icon">⚙️</span>
-          <span style="font-size:12px;color:var(--fg-3);">调用 <b style="color:var(--fg);">${toolName}</b></span>
-        </summary>
-        <div class="chat-tool-card__body" style="font-size:11px;word-break:break-all;">${msg.content}</div>
-      </details>
-    `;
-  }
-  if (msg.role === "tool_result") {
-    const preview = (msg.content || "").substring(0, 80);
-    return html`
-      <details class="chat-tool-card chat-tool-card--result chat-tool-card--collapsed">
-        <summary class="chat-tool-card__header">
-          <span class="chat-tool-card__icon">✅</span>
-          <span style="font-size:12px;color:var(--fg-3);">结果: ${preview}${(msg.content || "").length > 80 ? '...' : ''}</span>
-        </summary>
-        <div class="chat-tool-card__body" style="font-size:11px;">${msg.content}</div>
-      </details>
-    `;
+  if (msg.role === "tool_call" || msg.role === "tool_result") {
+    return nothing;
   }
   if (msg.role === "error") {
     return html`<div class="chat-bubble chat-bubble--error fade-in">错误: ${msg.content}</div>`;
   }
   return nothing;
+}
+
+function renderToolSummary(toolMessages) {
+  const pairs = [];
+  for (let i = 0; i < toolMessages.length; i++) {
+    const msg = toolMessages[i];
+    if (msg.role === 'tool_call') {
+      const toolName = (msg.content || '').split('(')[0].trim() || 'tool';
+      const next = toolMessages[i + 1];
+      const resultText = (next && next.role === 'tool_result') ? (next.content || '') : '';
+      pairs.push({ name: toolName, call: msg.content || '', result: resultText });
+      if (next && next.role === 'tool_result') i++;
+    }
+  }
+  const seen = new Set();
+  const unique = [];
+  for (const p of pairs) {
+    if (!seen.has(p.name)) {
+      seen.add(p.name);
+      unique.push(p);
+    }
+  }
+  if (unique.length === 0) return nothing;
+  return html`
+    <div class="chat-tool-summary">
+      ${unique.map(t => {
+        const preview = (t.result || '').substring(0, 80).replace(/\n/g, ' ');
+        return html`
+          <details class="chat-tool-summary__item">
+            <summary class="chat-tool-summary__line">
+              <span class="chat-tool-summary__check">✅</span>
+              <span class="chat-tool-summary__label">调用 <b>${t.name}</b></span>
+              ${preview ? html`<span class="chat-tool-summary__preview">${preview}${t.result.length > 80 ? '...' : ''}</span>` : nothing}
+            </summary>
+            <div class="chat-tool-summary__detail">${t.result || '(无结果)'}</div>
+          </details>
+        `;
+      })}
+    </div>
+  `;
+}
+
+function renderGroupContent(messages) {
+  const result = [];
+  let toolBatch = [];
+  function flush() {
+    if (toolBatch.length > 0) {
+      result.push(renderToolSummary(toolBatch));
+      toolBatch = [];
+    }
+  }
+  for (const msg of messages) {
+    if (msg.role === 'tool_call' || msg.role === 'tool_result') {
+      toolBatch.push(msg);
+    } else {
+      flush();
+      result.push(renderBubble(msg));
+    }
+  }
+  flush();
+  return result;
 }
 
 function scrollToBottom() {
@@ -393,7 +433,7 @@ export function renderChat(app) {
           <div class="chat-group ${group.role}">
             ${renderAvatar(group.role)}
             <div class="chat-group-messages">
-              ${group.messages.map(msg => renderBubble(msg))}
+              ${renderGroupContent(group.messages)}
               <div class="chat-group-footer">
                 <span class="chat-sender-name">${group.role === "user" ? "你" : "LucidMind"}</span>
                 ${group.timestamp ? html`<span class="chat-group-timestamp">${new Date(group.timestamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>` : nothing}

@@ -58,5 +58,11 @@
     "trigger": "[tool_usage] 8条同类经验，最佳: ",
     "rule": "触发: 工具 identity_read 异常失败\n教训: 'str' object has no attribute 'get'",
     "category": "Learned Rules"
+  },
+  {
+    "time": "2026-02-28 20:56:08",
+    "trigger": "[user_pref] 8条同类经验，最佳: ",
+    "rule": "触发: 用户偏好识别\n教训: 用户Yadong的偏好：1) 语言：中文为主 2) 回答风格：简洁直接 3) 输出格式：喜欢表格、列表、结构化输出 4) 行动风格：主动执行，不要反复确认 5) 项目上下",
+    "category": "Learned Rules"
   }
 ]

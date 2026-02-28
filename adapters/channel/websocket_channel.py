@@ -239,8 +239,7 @@ class WebSocketChannelAdapter(ChannelPort):
         "I'll", "Let me", "I'm going to", "I will now",
     ]
 
-    # 追踪每个会话的活跃任务（一个目标一个任务，跨消息追踪）
-    _session_tasks: dict[str, str] = {}   # session_id → task_id
+    # 方案D: 会话目标追踪由 goal_tracker 模块管理，不再使用 task_dispatcher
 
     @staticmethod
     def _detect_reply_question(reply: str) -> bool:
@@ -263,67 +262,39 @@ class WebSocketChannelAdapter(ChannelPort):
     @staticmethod
     async def _safe_process(brain, stream, sid, user_input, on_message):
         """后台安全执行 brain.process，通过 command_queue CHAT lane 统一入队。
-        工具调用/复杂操作自动入队 task_dispatcher，实现对话→任务看板联动。
 
-        设计: 一个对话目标 = 一个任务。同一会话内多条消息复用同一任务，
-        以总目标为完成标准，而非每条消息独立判断。
+        方案D: Chat路径直连 brain.process()，用 Goal Tracker 记录状态。
+        不经 task_dispatcher，无 Chat/Daemon 并发竞争。
+        软失败时入队 task_dispatcher 作为安全网让 Daemon 重试。
         """
         async def _do_process():
             if on_message:
                 await on_message(sid, user_input)
             else:
-                import task_dispatcher as td
+                import goal_tracker as gt
 
-                # === 任务查找/创建: 复用同会话的活跃任务 ===
-                task_id = WebSocketChannelAdapter._session_tasks.get(sid)
-                is_new_task = False
+                # === 目标查找/创建: 复用同会话的活跃目标 ===
+                goal_id = gt.get_session_goal(sid)
 
-                # 验证已有任务是否仍然活跃
-                if task_id:
-                    store = td.load_store()
-                    task_alive = any(
-                        t["id"] == task_id and t["status"] in ("ready", "running")
-                        for t in store.get("tasks", [])
-                    )
-                    if not task_alive:
-                        task_id = None
-                        WebSocketChannelAdapter._session_tasks.pop(sid, None)
-
-                if task_id:
-                    # 复用现有任务，更新进度
-                    td.update_task_progress(task_id, f"步骤: {user_input[:60]}")
-                    logger.info(f"[{sid}] 复用会话任务: {task_id}, 步骤: {user_input[:40]}")
+                if goal_id:
+                    gt.add_step(goal_id, "user_input", user_input[:60])
+                    logger.info(f"[{sid}] 复用会话目标: {goal_id}")
                 else:
-                    # 首条消息 → 创建新任务（总目标）
-                    is_new_task = True
-                    try:
-                        task = td.enqueue(
-                            user_input[:500],
-                            task_type="task",
-                            priority="P2",
-                            source="chat",
-                            timeout_s=300,
-                        )
-                        task_id = task["id"]
-                        WebSocketChannelAdapter._session_tasks[sid] = task_id
-                        td.update_task_progress(task_id, "执行中")
-                        logger.info(f"[{sid}] 新建会话任务: {task_id}")
-                    except Exception as e:
-                        logger.debug(f"对话任务创建失败: {e}")
+                    goal_id = gt.create_goal(sid, user_input)
+                    logger.info(f"[{sid}] 新建目标: {goal_id}")
 
                 result = await brain.process(sid, user_input, stream=stream)
 
-                # === 结果质量检查 + 目标完成判断 ===
-                if task_id and isinstance(result, dict):
+                # === 结果分析 + 目标状态判断 ===
+                if goal_id and isinstance(result, dict):
                     tool_happened = result.get("tool_calls_happened", False)
                     empty_promise = result.get("empty_promise_detected", False)
                     tool_steps = result.get("tool_steps", [])
                     reply = result.get("reply", "")
 
-                    # 更新结构化步骤进度
-                    if tool_steps:
-                        steps_summary = " → ".join(tool_steps[-5:])
-                        td.update_task_progress(task_id, f"工具: {steps_summary}")
+                    # 记录工具步骤到 Goal Tracker
+                    for step in tool_steps:
+                        gt.add_step(goal_id, step)
 
                     clean_reply = WebSocketChannelAdapter._clean_reply_for_check(reply)
                     tail = clean_reply[-200:] if len(clean_reply) > 200 else clean_reply
@@ -334,45 +305,40 @@ class WebSocketChannelAdapter(ChannelPort):
                     ) if tail else False
                     is_question = WebSocketChannelAdapter._detect_reply_question(clean_reply)
 
-                    if is_empty_fallback or is_promise_ending or (empty_promise and not tool_happened):
-                        # 软失败: 承诺未兑现 / 空回复 → fail + 唤醒Daemon
-                        error_reason = (
-                            "空回复" if is_empty_fallback
-                            else "承诺未兑现" if is_promise_ending
-                            else "空承诺:工具未执行"
-                        )
-                        td.fail_task(task_id, error_reason)
-                        WebSocketChannelAdapter._session_tasks.pop(sid, None)
-                        logger.warning(f"[{sid}] 对话任务失败({error_reason}): {task_id}")
-                        _wake_daemon()
-                    elif is_question and tool_happened:
-                        # 工具已执行但回复以提问结尾 → 步骤完成，等待用户
-                        td.update_task_progress(task_id, f"步骤完成,等待响应")
-                        logger.info(f"[{sid}] 任务步骤完成,等待用户响应: {task_id}")
+                    if is_empty_fallback or (empty_promise and not tool_happened):
+                        # 软失败 → 标记目标失败 + 入队 task_dispatcher 让 Daemon 重试
+                        reason = "空回复" if is_empty_fallback else "空承诺:工具未执行"
+                        gt.fail_goal(goal_id, reason)
+                        logger.warning(f"[{sid}] 目标失败({reason}): {goal_id}")
+                        try:
+                            import task_dispatcher as td
+                            td.enqueue(user_input[:500], task_type="task",
+                                       priority="P2", source="chat_retry", timeout_s=300)
+                            _wake_daemon()
+                        except Exception:
+                            pass
                     elif is_question and not tool_happened:
-                        # 未执行工具就问用户选择 → Brain未自主决策 → fail
-                        td.fail_task(task_id, "未自主执行:向用户询问选择")
-                        WebSocketChannelAdapter._session_tasks.pop(sid, None)
-                        logger.warning(f"[{sid}] Brain未自主决策,向用户询问: {task_id}")
-                        _wake_daemon()
-                    elif tool_happened and not is_new_task:
-                        # 多步任务中工具已执行 → 步骤完成，任务继续
-                        steps_str = " → ".join(tool_steps[-3:]) if tool_steps else user_input[:40]
-                        td.update_task_progress(task_id, f"步骤完成: {steps_str}")
-                        logger.info(f"[{sid}] 任务步骤完成(继续): {task_id}")
-                    elif tool_happened and is_new_task:
-                        # 新任务+工具已执行+无提问+无承诺 → 目标完成
-                        td.complete_task(task_id)
-                        WebSocketChannelAdapter._session_tasks.pop(sid, None)
-                        logger.info(f"[{sid}] 对话任务目标完成: {task_id}")
+                        # 未执行工具就问用户选择 → 失败
+                        gt.fail_goal(goal_id, "未自主执行:向用户询问选择")
+                        logger.warning(f"[{sid}] Brain未自主决策: {goal_id}")
+                    elif is_promise_ending:
+                        # 承诺结尾 → 目标仍在进行中
+                        gt.add_step(goal_id, "awaiting", "承诺执行中")
+                        logger.info(f"[{sid}] 目标进行中(承诺): {goal_id}")
+                    elif is_question and tool_happened:
+                        # 工具已执行但有提问 → 等待用户响应
+                        gt.add_step(goal_id, "waiting_user", "等待用户响应")
+                        logger.info(f"[{sid}] 目标等待用户响应: {goal_id}")
+                    elif tool_happened:
+                        # 工具已执行 + 无提问 + 无承诺 → 完成
+                        gt.complete_goal(goal_id)
+                        logger.info(f"[{sid}] 目标完成(工具执行): {goal_id}")
                     else:
-                        # 纯文本回复（无工具调用） → 完成
-                        td.complete_task(task_id)
-                        WebSocketChannelAdapter._session_tasks.pop(sid, None)
-                        logger.info(f"[{sid}] 对话任务完成(纯文本): {task_id}")
-                elif task_id:
-                    td.complete_task(task_id)
-                    WebSocketChannelAdapter._session_tasks.pop(sid, None)
+                        # 纯文本回复 → 完成
+                        gt.complete_goal(goal_id)
+                        logger.info(f"[{sid}] 目标完成(纯文本): {goal_id}")
+                elif goal_id:
+                    gt.complete_goal(goal_id)
 
         try:
             cq = get_command_queue()

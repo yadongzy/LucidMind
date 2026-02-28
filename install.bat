@@ -15,14 +15,15 @@ cd /d "%~dp0"
 
 :: ── 1. 检查 Python ──
 set "PYTHON="
+set "PYVER="
 where python >nul 2>&1
-if %errorlevel%==0 (
+if !errorlevel!==0 (
     for /f "tokens=2 delims= " %%v in ('python --version 2^>^&1') do set "PYVER=%%v"
     set "PYTHON=python"
 )
 if not defined PYTHON (
     where python3 >nul 2>&1
-    if %errorlevel%==0 (
+    if !errorlevel!==0 (
         for /f "tokens=2 delims= " %%v in ('python3 --version 2^>^&1') do set "PYVER=%%v"
         set "PYTHON=python3"
     )
@@ -35,13 +36,18 @@ if not defined PYTHON (
     pause
     exit /b 1
 )
-echo   ✅ Python: %PYVER%
+echo   ✅ Python: !PYVER!
 
 :: ── 2. 创建虚拟环境 ──
 if not exist "venv" (
     if not exist ".venv" (
         echo   📦 创建虚拟环境...
-        %PYTHON% -m venv venv
+        !PYTHON! -m venv venv
+        if !errorlevel! neq 0 (
+            echo   ❌ 虚拟环境创建失败
+            pause
+            exit /b 1
+        )
         echo   ✅ 虚拟环境已创建
     )
 )
@@ -55,8 +61,12 @@ if exist "venv\Scripts\activate.bat" (
 :: ── 3. 安装 Python 依赖 ──
 echo   📦 安装 Python 依赖...
 pip install --upgrade pip -q 2>nul
-pip install -r requirements.txt -q 2>nul
-echo   ✅ Python 依赖已安装
+pip install -r requirements.txt -q
+if !errorlevel! neq 0 (
+    echo   ⚠️  部分依赖安装可能失败，请检查上方输出
+) else (
+    echo   ✅ Python 依赖已安装
+)
 
 :: ── 4. 创建数据目录 ──
 if not exist "data" mkdir data
@@ -89,7 +99,7 @@ if not exist ".env" (
 :: ── 6. 构建前端 ──
 if exist "frontend-v2" (
     where npm >nul 2>&1
-    if %errorlevel%==0 (
+    if !errorlevel!==0 (
         if not exist "frontend\dist\index.html" (
             echo   🎨 构建前端...
             cd frontend-v2

@@ -153,6 +153,13 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, Brain
                 await self.memory.save_message(session_id, {"role": "user", "content": user_input})
 
             tools = self.tools.list_tools() if self.tools else None
+            # Token 预算：工具定义过多时裁剪（技能架构改进3）
+            if tools:
+                try:
+                    from skills.token_budget import filter_tools_by_budget
+                    tools = filter_tools_by_budget(tools)
+                except Exception:
+                    pass
             _tool_calls_happened = False
             _tool_steps: list[str] = []  # 追踪每个工具步骤用于任务进度更新
             if self.tools:
@@ -165,6 +172,17 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, Brain
                 metacog = await self._metacognize(user_input, tools)
             if metacog:
                 await _s.emit("thinking", metacog)
+            else:
+                # 快速路径分析摘要 — 确保思考按钮开启时总有内容显示
+                _thinking_map = {
+                    "tool_use": "识别到工具意图，准备调用工具执行",
+                    "greeting": "简单问候，直接回复",
+                    "trivial": "简单对话",
+                    "correction": "检测到纠正/教学意图",
+                    "complex": "复杂任务，深度分析中",
+                    "knowledge": "知识问答，检索相关经验后回答",
+                }
+                await _s.emit("thinking", f"分析: {_thinking_map.get(_fp.category, _fp.category)}")
 
             max_rounds = dynamic_max_tool_rounds(user_input, tools)
             deadline = time.time() + TOOL_LOOP_TIMEOUT_SEC
@@ -204,11 +222,12 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, Brain
 
                 _tool_calls_happened = True
                 _round_t0 = time.time()
-                # 记录本轮工具名称用于步骤追踪
+                # 记录本轮工具名称用于步骤追踪 + 实时推送 tool_step 事件
                 for _tc in tool_calls:
                     _fn = _tc.get("function", {}).get("name", "")
                     if _fn:
                         _tool_steps.append(_fn)
+                        await _s.emit("tool_step", _fn)
                 await self._execute_tool_round(session_id, tool_calls, response, _s)
                 _round_elapsed = time.time() - _round_t0
                 await _s.emit("info", f"⚡ 工具轮 {round_i + 1}/{max_rounds} 完成 ({_round_elapsed:.1f}s)")
@@ -586,6 +605,14 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, Brain
                     optional_sections.append(f"\n\n## 过往经验（参考）\n{lessons_text}")
             if not local and self._reflection_text:
                 optional_sections.append(f"\n\n## 自省\n{self._reflection_text}")
+            # 知识型技能注入（kind:"prompt" 技能的 SKILL.md 内容）
+            try:
+                from skills.token_budget import get_prompt_skills_content
+                _prompt_skills = get_prompt_skills_content()
+                if _prompt_skills:
+                    optional_sections.append(f"\n\n## 知识技能\n{_prompt_skills}")
+            except Exception:
+                pass
             # Token 预算控制：system prompt 超预算时从末尾裁剪可选部分
             base_tokens = self._estimate_tokens(system_content)
             for section in optional_sections:
