@@ -207,11 +207,22 @@ class AnthropicAdapter(LLMPort):
 
         usage = data.get("usage", {})
         if usage:
-            result["usage"] = {
+            u = {
                 "prompt_tokens": usage.get("input_tokens", 0),
                 "completion_tokens": usage.get("output_tokens", 0),
                 "total_tokens": usage.get("input_tokens", 0) + usage.get("output_tokens", 0),
             }
+            result["usage"] = u
+            try:
+                from token_tracker import get_tracker
+                get_tracker().record(
+                    model=self.model, provider=getattr(self, "provider_name", "minimax"),
+                    prompt_tokens=u["prompt_tokens"],
+                    completion_tokens=u["completion_tokens"],
+                    total_tokens=u["total_tokens"],
+                )
+            except Exception:
+                pass
 
         return result
 

@@ -84,8 +84,11 @@ async def list_models():
             "models": pinfo.get("models", []),
         })
 
-    # 自定义 providers
+    # 自定义 providers（跳过已在 catalog 中的）
+    catalog_ids = set(catalog.get("cloud_providers", {}).keys())
     for pid, pinfo in custom.items():
+        if pid in catalog_ids:
+            continue
         has_key = _check_api_key(pinfo.get("env_key", "")) if pinfo.get("env_key") else bool(pinfo.get("api_key"))
         cloud.append({
             "id": pid,

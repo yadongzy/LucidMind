@@ -161,6 +161,22 @@ export async function installLocalModel(model) {
   });
 }
 
+export async function getTokenStats() {
+  return request("/api/tokens");
+}
+
+export async function updateTokenConfig(config) {
+  return request("/api/tokens/config", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config),
+  });
+}
+
+export async function resetTokenStats() {
+  return request("/api/tokens/reset", { method: "POST" });
+}
+
 export async function uploadFile(file) {
   const form = new FormData();
   form.append("file", file);

@@ -137,6 +137,17 @@ class DeepSeekAdapter(LLMPort):
                 f"total={usage.get('total_tokens',0)}), "
                 f"回复摘要={result['content'][:80]}"
             )
+            # Token 追踪
+            try:
+                from token_tracker import get_tracker
+                get_tracker().record(
+                    model=actual_model, provider=getattr(self, "provider_name", "unknown"),
+                    prompt_tokens=usage.get("prompt_tokens", 0),
+                    completion_tokens=usage.get("completion_tokens", 0),
+                    total_tokens=usage.get("total_tokens", 0),
+                )
+            except Exception:
+                pass
         else:
             logger.info(f"调用完成: 耗时={elapsed:.1f}s, 回复摘要={result['content'][:80]}")
 

@@ -159,4 +159,23 @@ def init():
     wechat_channel = WeChatChannelAdapter()
     ws_channel = WebSocketChannelAdapter()
 
+    # --- Token Tracker 阈值回调 ---
+    try:
+        from token_tracker import get_tracker
+        def _on_token_threshold(event, pct, used, budget):
+            if event == "auto_switch":
+                cfg = get_tracker()._config
+                target = cfg.auto_switch_target or "local"
+                if cfg.pause_at_limit:
+                    logger.warning(f"🛑 Token 预算耗尽({pct:.1f}%)，暂停 LLM 调用")
+                else:
+                    t = provider_adapter_map.get(target)
+                    if t:
+                        llm_adapter.set_primary(t)
+                        llm_adapter.provider_name = target
+                        logger.warning(f"🔄 Token 预算超限({pct:.1f}%)，自动切换到 {target}")
+        get_tracker().on_threshold(_on_token_threshold)
+    except Exception as e:
+        logger.warning(f"Token tracker 初始化失败: {e}")
+
     logger.info("✅ 所有 Adapter 初始化完成")

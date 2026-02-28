@@ -18,6 +18,7 @@ import { renderPlugins } from "./views/plugins.js";
 import { renderMcp } from "./views/mcp.js";
 import { renderChannels } from "./views/channels.js";
 import { renderDiagnostics } from "./views/diagnostics.js";
+import { renderTokens } from "./views/tokens.js";
 import { installTestProbe } from "./test-probe.js";
 
 const TAB_GROUPS = [
@@ -25,7 +26,7 @@ const TAB_GROUPS = [
   { label: "控制台", tabs: ["overview", "sessions", "tasks"] },
   { label: "大脑", tabs: ["brain", "memory"] },
   { label: "连接", tabs: ["channels", "mcp"] },
-  { label: "设置", tabs: ["plugins", "profile", "config", "diagnostics"] },
+  { label: "设置", tabs: ["plugins", "profile", "config", "diagnostics", "tokens"] },
 ];
 
 const TAB_ICONS = {
@@ -41,6 +42,7 @@ const TAB_ICONS = {
   profile: "user",
   config: "settings",
   diagnostics: "debug",
+  tokens: "overview",
 };
 
 const TAB_TITLES = {
@@ -56,6 +58,7 @@ const TAB_TITLES = {
   profile: "用户画像",
   config: "系统配置",
   diagnostics: "系统诊断",
+  tokens: "Token 看板",
 };
 
 const TAB_SUBS = {
@@ -71,6 +74,7 @@ const TAB_SUBS = {
   profile: "偏好、规则、个性化配置",
   config: "模型、API密钥、大脑设置",
   diagnostics: "工具调用、MCP请求、性能分析、实时日志",
+  tokens: "实时 token 使用量监控与预算管理",
 };
 
 class LucidMindApp extends LitElement {
@@ -597,6 +601,7 @@ class LucidMindApp extends LitElement {
           ${this.tab === "mcp" ? renderMcp(this) : nothing}
           ${this.tab === "plugins" ? renderPlugins(this) : nothing}
           ${this.tab === "diagnostics" ? renderDiagnostics(this) : nothing}
+          ${this.tab === "tokens" ? renderTokens(this) : nothing}
         </main>
       </div>
 
