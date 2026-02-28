@@ -254,9 +254,21 @@ class WebSocketChannelAdapter(ChannelPort):
                 # 执行前创建任务（running状态），让任务看板实时可见
                 import task_dispatcher as td
                 task_id = None
+                # 构建带上下文的任务内容（Daemon重试时不丢失对话上下文）
+                history = brain._sessions.get(sid, [])
+                context_content = user_input[:500]
+                if history:
+                    recent = [m for m in history[-6:]
+                              if m.get("role") in ("user", "assistant") and m.get("content")]
+                    if recent:
+                        ctx_lines = []
+                        for m in recent:
+                            prefix = "用户" if m["role"] == "user" else "助手"
+                            ctx_lines.append(f"{prefix}: {(m['content'] or '')[:150]}")
+                        context_content = f"[对话上下文]\n{'\n'.join(ctx_lines)}\n\n[当前任务] {user_input[:300]}"
                 try:
                     task = td.enqueue(
-                        user_input[:500],
+                        context_content[:800],
                         task_type="task",
                         priority="P2",
                         source="chat",
@@ -281,7 +293,14 @@ class WebSocketChannelAdapter(ChannelPort):
                     # 质量检查: 回复以承诺结尾（任务未完成）
                     is_promise_ending = False
                     if reply:
-                        tail = reply.strip()[-200:] if len(reply.strip()) > 200 else reply.strip()
+                        # 先剥离 DSML/XML 伪工具调用标签再检测承诺
+                        import re
+                        _dsml_re = re.compile(
+                            r'<\s*\|?\s*(?:DSML\s*\|?\s*)?(?:function_calls|invoke|parameter|/invoke|/function_calls|/parameter)\b[^>]*>',
+                            re.IGNORECASE,
+                        )
+                        clean_reply = _dsml_re.sub("", reply.strip()).strip()
+                        tail = clean_reply[-200:] if len(clean_reply) > 200 else clean_reply
                         is_promise_ending = any(
                             p in tail for p in WebSocketChannelAdapter._PROMISE_TAIL_PATTERNS
                         )

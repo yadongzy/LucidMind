@@ -27,37 +27,45 @@ import logging
 
 logger = logging.getLogger("lucid.tool_call_parser")
 
-# 检测是否包含 XML tool call 的快速预检
-_QUICK_CHECK_RE = re.compile(r'<invoke\s+name=', re.IGNORECASE)
+# 检测是否包含 XML tool call 的快速预检（支持标准XML和DSML格式）
+_QUICK_CHECK_RE = re.compile(r'<\s*(?:\|?\s*DSML\s*\|?\s*)?invoke\s+name=', re.IGNORECASE)
 
-# 提取 <invoke name="...">...</invoke> 块
+# 提取 <invoke name="...">...</invoke> 块（支持DSML格式：< | DSML | invoke name="...">）
 _INVOKE_RE = re.compile(
-    r'<invoke\s+name=["\'](\w+)["\'][^>]*>'
+    r'<\s*(?:\|?\s*DSML\s*\|?\s*)?invoke\s+name=["\'](\w+)["\'][^>]*>'
     r'([\s\S]*?)'
-    r'</invoke>',
+    r'<\s*(?:\|?\s*DSML\s*\|?\s*)?/\s*(?:\|?\s*DSML\s*\|?\s*)?invoke\s*>',
     re.IGNORECASE,
 )
 
-# 提取 <parameter name="...">...</parameter>
+# 提取 <parameter name="...">...</parameter>（支持DSML格式）
 _PARAM_RE = re.compile(
-    r'<parameter\s+name=["\'](\w+)["\']>\s*([\s\S]*?)\s*</parameter>',
+    r'<\s*(?:\|?\s*DSML\s*\|?\s*)?parameter\s+name=["\'](\w+)["\'][^>]*>\s*([\s\S]*?)\s*'
+    r'<\s*(?:\|?\s*DSML\s*\|?\s*)?/\s*(?:\|?\s*DSML\s*\|?\s*)?parameter\s*>',
     re.IGNORECASE,
 )
 
-# 剥离 XML tool call 相关标签（用于提取纯文本）
+# 剥离 XML tool call 相关标签（用于提取纯文本，支持标准XML和DSML格式）
 _STRIP_INVOKE_RE = re.compile(
     r'\[tool_call\]\s*'
-    r'(?:<invoke\b[^>]*>[\s\S]*?</invoke>\s*'
+    r'(?:<\s*(?:\|?\s*DSML\s*\|?\s*)?invoke\b[^>]*>[\s\S]*?'
+    r'<\s*(?:\|?\s*DSML\s*\|?\s*)?/\s*(?:\|?\s*DSML\s*\|?\s*)?invoke\s*>\s*'
     r'(?:</minimax:tool_call>\s*)?)',
     re.IGNORECASE,
 )
 _STRIP_INVOKE_ONLY_RE = re.compile(
-    r'<invoke\b[^>]*>[\s\S]*?</invoke>\s*'
+    r'<\s*(?:\|?\s*DSML\s*\|?\s*)?invoke\b[^>]*>[\s\S]*?'
+    r'<\s*(?:\|?\s*DSML\s*\|?\s*)?/\s*(?:\|?\s*DSML\s*\|?\s*)?invoke\s*>\s*'
     r'(?:</minimax:tool_call>\s*)?',
     re.IGNORECASE,
 )
 _STRIP_MINIMAX_TAG_RE = re.compile(r'</?minimax:tool_call>', re.IGNORECASE)
 _STRIP_TOOL_CALL_MARKER_RE = re.compile(r'\[tool_call\]\s*', re.IGNORECASE)
+# 剥离 DSML function_calls 包裹标签（含开闭标签）
+_STRIP_DSML_FC_RE = re.compile(
+    r'<\s*/?\s*\|?\s*DSML\s*\|?\s*/?(?:function_calls)\s*>',
+    re.IGNORECASE,
+)
 
 
 def has_xml_tool_calls(text: str) -> bool:
@@ -126,5 +134,7 @@ def strip_xml_tool_calls(text: str) -> str:
     cleaned = _STRIP_MINIMAX_TAG_RE.sub("", cleaned)
     # 移除残留的 [tool_call] 标记
     cleaned = _STRIP_TOOL_CALL_MARKER_RE.sub("", cleaned)
+    # 移除残留的 DSML function_calls 标签
+    cleaned = _STRIP_DSML_FC_RE.sub("", cleaned)
 
     return cleaned.strip()

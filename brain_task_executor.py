@@ -9,6 +9,7 @@
 - 通过 command_queue 统一入队执行
 """
 import asyncio
+import re
 
 from logs import get_logger
 import task_dispatcher as td
@@ -20,6 +21,16 @@ logger = get_logger("daemon")
 # 对标 OpenClaw BASE_RUN_RETRY_ITERATIONS / MAX_RUN_RETRY_ITERATIONS
 MAX_INLINE_RETRIES = 3          # 单任务内最大内联重试次数
 INLINE_RETRY_DELAY_S = 2.0      # 内联重试间隔（指数退避基数）
+
+# DSML/XML 伪工具调用剥离（MiniMax等模型会输出这种格式）
+_DSML_XML_RE = re.compile(
+    r'<\s*\|?\s*(?:DSML\s*\|?\s*)?(?:function_calls|invoke|parameter|/invoke|/function_calls|/parameter)\b[^>]*>',
+    re.IGNORECASE,
+)
+
+def _strip_dsml_xml(text: str) -> str:
+    """剥离 DSML/XML 伪工具调用标签，保留纯文本。"""
+    return _DSML_XML_RE.sub("", text).strip()
 
 # 承诺性结尾模式：回复以这些短语结尾表示任务未完成
 _PROMISE_TAIL_PATTERNS = [
@@ -156,7 +167,9 @@ class TaskExecutorMixin:
                         # 检测回复以承诺结尾（工具调用了但任务未完成）
                         is_promise_ending = False
                         if reply and not is_empty_fallback:
-                            tail = reply.strip()[-200:] if len(reply.strip()) > 200 else reply.strip()
+                            # 先剥离 DSML/XML 伪工具调用标签再检测承诺
+                            clean_reply = _strip_dsml_xml(reply.strip())
+                            tail = clean_reply[-200:] if len(clean_reply) > 200 else clean_reply
                             is_promise_ending = any(p in tail for p in _PROMISE_TAIL_PATTERNS)
                         if (empty_promise and not tool_happened) or is_empty_fallback or is_promise_ending:
                             if is_promise_ending:
@@ -173,6 +186,9 @@ class TaskExecutorMixin:
                                 )
                                 await asyncio.sleep(delay)
                                 continue
+                            else:
+                                # 所有内联重试耗尽且仍是软失败 → 不标记完成
+                                break
                     # 成功完成
                     self._brain._sessions.pop(sid, None)
                     td.complete_task(tid)
