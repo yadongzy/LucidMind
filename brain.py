@@ -154,6 +154,7 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, Brain
 
             tools = self.tools.list_tools() if self.tools else None
             _tool_calls_happened = False
+            _tool_steps: list[str] = []  # 追踪每个工具步骤用于任务进度更新
             if self.tools:
                 if await self._pre_execute_intent(session_id, user_input, _s):
                     _tool_calls_happened = True
@@ -203,6 +204,11 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, Brain
 
                 _tool_calls_happened = True
                 _round_t0 = time.time()
+                # 记录本轮工具名称用于步骤追踪
+                for _tc in tool_calls:
+                    _fn = _tc.get("function", {}).get("name", "")
+                    if _fn:
+                        _tool_steps.append(_fn)
                 await self._execute_tool_round(session_id, tool_calls, response, _s)
                 _round_elapsed = time.time() - _round_t0
                 await _s.emit("info", f"⚡ 工具轮 {round_i + 1}/{max_rounds} 完成 ({_round_elapsed:.1f}s)")
@@ -250,6 +256,7 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, Brain
 
             content = await self._stream_final_reply(session_id, messages, response, t0, _s)
             _result["tool_calls_happened"] = _tool_calls_happened
+            _result["tool_steps"] = _tool_steps
             _result["reply"] = content
 
             # P0: 简单对话跳过学习检测（省 1-2 次 LLM 调用，~3-6s）

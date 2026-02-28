@@ -317,7 +317,13 @@ class WebSocketChannelAdapter(ChannelPort):
                 if task_id and isinstance(result, dict):
                     tool_happened = result.get("tool_calls_happened", False)
                     empty_promise = result.get("empty_promise_detected", False)
+                    tool_steps = result.get("tool_steps", [])
                     reply = result.get("reply", "")
+
+                    # 更新结构化步骤进度
+                    if tool_steps:
+                        steps_summary = " → ".join(tool_steps[-5:])
+                        td.update_task_progress(task_id, f"工具: {steps_summary}")
 
                     clean_reply = WebSocketChannelAdapter._clean_reply_for_check(reply)
                     tail = clean_reply[-200:] if len(clean_reply) > 200 else clean_reply
@@ -339,19 +345,31 @@ class WebSocketChannelAdapter(ChannelPort):
                         WebSocketChannelAdapter._session_tasks.pop(sid, None)
                         logger.warning(f"[{sid}] 对话任务失败({error_reason}): {task_id}")
                         _wake_daemon()
-                    elif is_question:
-                        # 回复以提问结尾 → 任务仍在进行中（等待用户下一步输入）
-                        td.update_task_progress(task_id, "等待用户响应")
-                        logger.info(f"[{sid}] 任务等待用户响应: {task_id}")
+                    elif is_question and tool_happened:
+                        # 工具已执行但回复以提问结尾 → 步骤完成，等待用户
+                        td.update_task_progress(task_id, f"步骤完成,等待响应")
+                        logger.info(f"[{sid}] 任务步骤完成,等待用户响应: {task_id}")
+                    elif is_question and not tool_happened:
+                        # 未执行工具就问用户选择 → Brain未自主决策 → fail
+                        td.fail_task(task_id, "未自主执行:向用户询问选择")
+                        WebSocketChannelAdapter._session_tasks.pop(sid, None)
+                        logger.warning(f"[{sid}] Brain未自主决策,向用户询问: {task_id}")
+                        _wake_daemon()
                     elif tool_happened and not is_new_task:
                         # 多步任务中工具已执行 → 步骤完成，任务继续
-                        td.update_task_progress(task_id, f"步骤完成: {user_input[:40]}")
+                        steps_str = " → ".join(tool_steps[-3:]) if tool_steps else user_input[:40]
+                        td.update_task_progress(task_id, f"步骤完成: {steps_str}")
                         logger.info(f"[{sid}] 任务步骤完成(继续): {task_id}")
-                    else:
-                        # 无提问+无承诺 → 目标完成
+                    elif tool_happened and is_new_task:
+                        # 新任务+工具已执行+无提问+无承诺 → 目标完成
                         td.complete_task(task_id)
                         WebSocketChannelAdapter._session_tasks.pop(sid, None)
                         logger.info(f"[{sid}] 对话任务目标完成: {task_id}")
+                    else:
+                        # 纯文本回复（无工具调用） → 完成
+                        td.complete_task(task_id)
+                        WebSocketChannelAdapter._session_tasks.pop(sid, None)
+                        logger.info(f"[{sid}] 对话任务完成(纯文本): {task_id}")
                 elif task_id:
                     td.complete_task(task_id)
                     WebSocketChannelAdapter._session_tasks.pop(sid, None)
