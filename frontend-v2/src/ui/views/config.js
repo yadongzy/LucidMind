@@ -15,6 +15,7 @@ let _localScanning = false;
 let _switchStatus = "";
 let _expandedProvider = null;
 let _localModelsCollapsed = false;
+let _proxyCollapsed = true;
 
 function _loadModels(app) {
   if (_modelLoading) return;
@@ -267,6 +268,80 @@ export function renderConfig(app) {
           <span id="cfg-status" class="mono" style="font-size:11px;min-width:30px;"></span>
         </div>
       </div>
+    </div>
+
+    <!-- 自定义代理配置 -->
+    <div class="card" style="margin-top:16px">
+      <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;"
+        @click=${() => { _proxyCollapsed = !_proxyCollapsed; app.requestUpdate(); }}>
+        <span>自定义代理 (OpenAI 兼容)</span>
+        <span style="font-size:12px;color:var(--text-dim);transition:transform .2s;display:inline-block;transform:rotate(${_proxyCollapsed ? '0deg' : '90deg'});">&#9654;</span>
+      </div>
+      ${_proxyCollapsed ? nothing : html`
+      <div class="form-hint" style="margin-bottom:10px;">粘贴 OpenAI 兼容 API 的连接信息，自动配置并切换使用</div>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <div style="display:flex;gap:6px;align-items:center;">
+          <label style="font-size:12px;font-weight:600;min-width:70px;color:var(--text);">Base URL</label>
+          <input class="form-input" type="text" id="proxy-base-url" placeholder="http://127.0.0.1:8045/v1" style="flex:1;font-size:12px;" />
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <label style="font-size:12px;font-weight:600;min-width:70px;color:var(--text);">API Key</label>
+          <input class="form-input" type="password" id="proxy-api-key" placeholder="sk-..." style="flex:1;font-size:12px;" />
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <label style="font-size:12px;font-weight:600;min-width:70px;color:var(--text);">模型</label>
+          <input class="form-input" type="text" id="proxy-model" placeholder="gemini-3-flash" style="flex:1;font-size:12px;" />
+          <button class="btn" style="font-size:11px;white-space:nowrap;" @click=${async () => {
+            const baseUrl = document.getElementById("proxy-base-url").value.trim();
+            const statusEl = document.getElementById("proxy-status");
+            if (!baseUrl) { statusEl.textContent = "请填写 Base URL"; statusEl.style.color = "var(--danger)"; return; }
+            statusEl.textContent = "探测模型...";
+            statusEl.style.color = "var(--warn)";
+            try {
+              const res = await fetch(baseUrl.replace(/\/+$/, '') + '/models');
+              const data = await res.json();
+              const models = (data.data || []).map(m => m.id).slice(0, 20);
+              statusEl.textContent = models.length + " 个模型可用";
+              statusEl.style.color = "var(--ok)";
+              const sel = document.getElementById("proxy-model");
+              if (models.length > 0 && !sel.value) sel.value = models.find(m => m.includes('gemini') || m.includes('gpt') || m.includes('claude')) || models[0];
+            } catch (e) {
+              statusEl.textContent = "探测失败";
+              statusEl.style.color = "var(--danger)";
+            }
+          }}>探测</button>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <label style="font-size:12px;font-weight:600;min-width:70px;color:var(--text);">名称</label>
+          <input class="form-input" type="text" id="proxy-name" placeholder="My Proxy" value="Antigravity" style="flex:1;font-size:12px;" />
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;margin-top:4px;">
+          <button class="btn btn--primary" style="font-size:12px;" @click=${async () => {
+            const baseUrl = document.getElementById("proxy-base-url").value.trim();
+            const apiKey = document.getElementById("proxy-api-key").value.trim();
+            const model = document.getElementById("proxy-model").value.trim();
+            const name = document.getElementById("proxy-name").value.trim() || "Custom Proxy";
+            const statusEl = document.getElementById("proxy-status");
+            if (!baseUrl || !model) { statusEl.textContent = "请填写 Base URL 和模型"; statusEl.style.color = "var(--danger)"; return; }
+            statusEl.textContent = "配置中...";
+            statusEl.style.color = "var(--warn)";
+            try {
+              const pid = name.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+              await api.addProvider({ id: pid, name, base_url: baseUrl, api_key: apiKey || "none", api_type: "openai", models: [{ id: model, name: model }] });
+              await api.switchModel(pid, model);
+              statusEl.textContent = "已配置并切换到 " + model;
+              statusEl.style.color = "var(--ok)";
+              _modelData = null; _loadModels(app);
+              app._refreshStatus();
+            } catch (e) {
+              statusEl.textContent = "失败: " + (e.message || e);
+              statusEl.style.color = "var(--danger)";
+            }
+          }}>保存并切换</button>
+          <span id="proxy-status" class="mono" style="font-size:11px;"></span>
+        </div>
+      </div>
+      `}
     </div>
 
     <!-- 本地模型 -->

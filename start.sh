@@ -6,7 +6,7 @@
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$PROJECT_DIR"
 
-PORT=8765
+PORT=8000
 URL="http://localhost:$PORT"
 
 # 出错时暂停，防止双击闪退

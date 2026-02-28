@@ -145,6 +145,14 @@ export async function switchModel(provider, model) {
   });
 }
 
+export async function addProvider(data) {
+  return request("/api/models/add-provider", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
 export async function installLocalModel(model) {
   return request("/api/models/install", {
     method: "POST",
