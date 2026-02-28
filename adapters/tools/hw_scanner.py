@@ -90,12 +90,17 @@ def _cmd(cmd: str, timeout: int = 10) -> str:
 
 
 def scan_hardware() -> dict:
-    """扫描硬件配置：CPU、内存、GPU、显存。跨平台支持。"""
+    """扫描硬件配置：CPU、内存、GPU、显存。跨平台支持（macOS/Linux/Windows）。"""
     hw = {"os": platform.system(), "arch": platform.machine(), "python": platform.python_version()}
-    is_win = platform.system() == "Windows"
+    os_name = platform.system()
+    is_mac = os_name == "Darwin"
+    is_win = os_name == "Windows"
 
     # CPU
-    if is_win:
+    if is_mac:
+        cpu_name = _cmd("sysctl -n machdep.cpu.brand_string")
+        cores = _cmd("sysctl -n hw.ncpu")
+    elif is_win:
         cpu_name = _cmd('wmic cpu get Name /format:list').replace("Name=", "").strip()
         cores = _cmd('wmic cpu get NumberOfCores /format:list').replace("NumberOfCores=", "").strip()
     else:
@@ -103,12 +108,17 @@ def scan_hardware() -> dict:
         cores = _cmd("nproc")
     hw["cpu"] = cpu_name or platform.processor()
     hw["cpu_cores"] = int(cores) if cores.isdigit() else 0
+    # Apple Silicon 检测
+    hw["apple_silicon"] = is_mac and platform.machine() == "arm64"
     # CPU频率检测（用于纯CPU推理性能评估）
     cpu_str = hw["cpu"].lower()
     hw["cpu_low_power"] = any(tag in cpu_str for tag in ["u cpu", "1.6ghz", "1.8ghz", "1.0ghz", "1.2ghz", "celeron", "pentium", "atom"])
 
     # RAM
-    if is_win:
+    if is_mac:
+        mem_bytes = _cmd("sysctl -n hw.memsize")
+        hw["ram_gb"] = round(int(mem_bytes) / (1024**3), 1) if mem_bytes.isdigit() else 0
+    elif is_win:
         raw = _cmd('wmic memorychip get Capacity /format:list')
         caps = [int(x.replace("Capacity=", "")) for x in raw.strip().split("\n") if x.strip().startswith("Capacity=")]
         hw["ram_gb"] = round(sum(caps) / (1024**3), 1) if caps else 0
@@ -116,28 +126,69 @@ def scan_hardware() -> dict:
         mem_kb = _cmd("grep MemTotal /proc/meminfo | awk '{print $2}'")
         hw["ram_gb"] = round(int(mem_kb) / (1024**2), 1) if mem_kb.isdigit() else 0
 
-    # GPU (NVIDIA)
+    # GPU
     gpu_info = _cmd("nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader,nounits")
     if gpu_info:
+        # NVIDIA GPU
         parts = [p.strip() for p in gpu_info.split(",")]
         hw["gpu"] = parts[0] if len(parts) > 0 else "Unknown"
         hw["gpu_vram_mb"] = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
         hw["gpu_vram_free_mb"] = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
         hw["gpu_vram_gb"] = round(hw["gpu_vram_mb"] / 1024, 1)
+    elif hw.get("apple_silicon"):
+        # Apple Silicon — 统一内存架构，GPU 共享全部 RAM
+        hw["gpu"] = f"Apple {hw['cpu'].split()[1] if ' ' in hw['cpu'] else 'Silicon'} (统一内存)"
+        # Apple Silicon 可用于 GPU 推理的内存约为总内存的 75%
+        hw["gpu_vram_mb"] = int(hw["ram_gb"] * 1024 * 0.75)
+        hw["gpu_vram_free_mb"] = hw["gpu_vram_mb"]
+        hw["gpu_vram_gb"] = round(hw["ram_gb"] * 0.75, 1)
+    elif is_mac:
+        # Intel Mac — 检查独立/集成 GPU
+        gpu_raw = _cmd("system_profiler SPDisplaysDataType 2>/dev/null | grep 'Chipset Model' | head -1 | cut -d: -f2")
+        vram_raw = _cmd("system_profiler SPDisplaysDataType 2>/dev/null | grep 'VRAM' | head -1 | cut -d: -f2")
+        hw["gpu"] = gpu_raw.strip() if gpu_raw.strip() else "Intel Integrated"
+        vram_val = 0
+        if vram_raw:
+            import re
+            nums = re.findall(r'(\d+)', vram_raw)
+            if nums:
+                vram_val = int(nums[0])
+                if "GB" in vram_raw.upper():
+                    vram_val *= 1024
+        hw["gpu_vram_mb"] = vram_val
+        hw["gpu_vram_free_mb"] = vram_val
+        hw["gpu_vram_gb"] = round(vram_val / 1024, 1)
     else:
         hw["gpu"] = "None (CPU only)"
         hw["gpu_vram_mb"] = 0
         hw["gpu_vram_gb"] = 0
 
     # 可用内存
-    if is_win:
+    if is_mac:
+        # macOS: 用 vm_stat 估算可用内存
+        vm_stat = _cmd("vm_stat")
+        page_size = 16384  # macOS ARM default
+        free_pages = 0
+        for line in vm_stat.split("\n"):
+            if "page size" in line.lower():
+                import re
+                ps = re.findall(r'(\d+)', line)
+                if ps:
+                    page_size = int(ps[0])
+            if "Pages free" in line or "Pages inactive" in line or "Pages speculative" in line:
+                import re
+                nums = re.findall(r'(\d+)', line.replace(".", ""))
+                if nums:
+                    free_pages += int(nums[0])
+        hw["ram_free_gb"] = round(free_pages * page_size / (1024**3), 1)
+    elif is_win:
         free = _cmd('wmic OS get FreePhysicalMemory /format:list').replace("FreePhysicalMemory=", "").strip()
         hw["ram_free_gb"] = round(int(free) / (1024**2), 1) if free.isdigit() else 0
     else:
         avail = _cmd("grep MemAvailable /proc/meminfo | awk '{print $2}'")
         hw["ram_free_gb"] = round(int(avail) / (1024**2), 1) if avail.isdigit() else 0
 
-    logger.info(f"硬件扫描: CPU={hw['cpu'][:30]}, RAM={hw['ram_gb']}GB, GPU={hw.get('gpu','?')}, VRAM={hw['gpu_vram_gb']}GB")
+    logger.info(f"硬件扫描: CPU={hw['cpu'][:30]}, RAM={hw['ram_gb']}GB, GPU={hw.get('gpu','?')[:25]}, VRAM={hw['gpu_vram_gb']}GB")
     return hw
 
 

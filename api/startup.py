@@ -105,12 +105,20 @@ def init():
     logger.info(f"硬件扫描: 最优本地模型={_optimal_local_model}")
     _local = DeepSeekAdapter(api_key="ollama", base_url="http://localhost:11434/v1", model=_optimal_local_model)
     _local.provider_name = "local"
+    # --- Antigravity 本地代理 (OpenAI 兼容，含 100+ 模型) ---
+    _antigravity = DeepSeekAdapter(
+        api_key="sk-9455ba5346a04b5294bbaf2589cf2f2c",
+        base_url="http://127.0.0.1:8045/v1",
+        model="gemini-3-flash",
+    )
+    _antigravity.provider_name = "antigravity"
+
     _special_kb = SpecialKB()
-    llm_adapter = FallbackLLMAdapter(primary=_deepseek, fallbacks=[_minimax, _local], special_kb=_special_kb)
-    llm_adapter.provider_name = "deepseek+minimax+local"
+    llm_adapter = FallbackLLMAdapter(primary=_deepseek, fallbacks=[_minimax, _antigravity, _local], special_kb=_special_kb)
+    llm_adapter.provider_name = "deepseek+minimax+antigravity+local"
 
     # --- Provider 持久化 ---
-    provider_adapter_map.update({"deepseek": _deepseek, "minimax": _minimax, "local": _local})
+    provider_adapter_map.update({"deepseek": _deepseek, "minimax": _minimax, "antigravity": _antigravity, "local": _local})
     try:
         if os.path.exists(_ACTIVE_PROVIDER_PATH):
             with open(_ACTIVE_PROVIDER_PATH) as f:

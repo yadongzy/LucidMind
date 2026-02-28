@@ -12,10 +12,19 @@ logger = get_logger("api.config")
 router = APIRouter()
 
 _PROVIDERS = {
-    "deepseek": ("https://api.deepseek.com/v1", "deepseek-chat"),
-    "minimax": ("https://api.minimax.io/anthropic", "MiniMax-M2.5"),
-    "openai": ("https://api.openai.com/v1", "gpt-4-turbo"),
-    "local": ("http://localhost:11434/v1", "qwen3:8b"),
+    "deepseek": ("https://api.deepseek.com/v1", "deepseek-chat", "openai"),
+    "minimax": ("https://api.minimax.io/anthropic", "MiniMax-M2.5", "anthropic"),
+    "openai": ("https://api.openai.com/v1", "gpt-4o", "openai"),
+    "local": ("http://localhost:11434/v1", "qwen3:8b", "openai"),
+    "anthropic": ("https://api.anthropic.com", "claude-sonnet-4-5", "anthropic"),
+    "google": ("https://generativelanguage.googleapis.com/v1beta/openai", "gemini-2.0-flash", "openai"),
+    "groq": ("https://api.groq.com/openai/v1", "llama-3.3-70b-versatile", "openai"),
+    "moonshot": ("https://api.moonshot.cn/v1", "moonshot-v1-128k", "openai"),
+    "zhipu": ("https://open.bigmodel.cn/api/paas/v4", "glm-4-plus", "openai"),
+    "xai": ("https://api.x.ai/v1", "grok-2", "openai"),
+    "mistral": ("https://api.mistral.ai/v1", "mistral-large-latest", "openai"),
+    "volcengine": ("https://ark.cn-beijing.volces.com/api/v3", "doubao-seed-1-8-251228", "openai"),
+    "antigravity": ("http://127.0.0.1:8045/v1", "gemini-3-flash", "openai"),
 }
 
 
@@ -47,9 +56,9 @@ async def verify_config(req: ConfigRequest):
     entry = _PROVIDERS.get(req.provider)
     if not entry:
         raise HTTPException(status_code=400, detail="Unknown provider")
-    base_url, default_model = entry
+    base_url, default_model, api_type = entry
     model = req.model or default_model
-    if req.provider == "minimax":
+    if api_type == "anthropic":
         test = AnthropicAdapter(api_key=req.api_key, base_url=base_url, model=model)
     else:
         test = DeepSeekAdapter(api_key=req.api_key, base_url=base_url, model=model)

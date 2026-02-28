@@ -129,6 +129,30 @@ export async function verifyConnection(provider, apiKey, model) {
   });
 }
 
+export async function listModels() {
+  return request("/api/models");
+}
+
+export async function scanLocalModels() {
+  return request("/api/models/scan");
+}
+
+export async function switchModel(provider, model) {
+  return request("/api/models/switch", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ provider, model }),
+  });
+}
+
+export async function installLocalModel(model) {
+  return request("/api/models/install", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model }),
+  });
+}
+
 export async function uploadFile(file) {
   const form = new FormData();
   form.append("file", file);

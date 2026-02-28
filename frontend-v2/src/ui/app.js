@@ -536,6 +536,7 @@ class LucidMindApp extends LitElement {
                 @change=${(e) => this._switchModel(e.target.value)}>
                 <option value="deepseek" ?selected=${this.modelInfo.provider === 'deepseek'}>DeepSeek</option>
                 <option value="minimax" ?selected=${this.modelInfo.provider === 'minimax'}>MiniMax</option>
+                <option value="antigravity" ?selected=${this.modelInfo.provider === 'antigravity'}>Antigravity</option>
                 <option value="local" ?selected=${this.modelInfo.provider === 'local'}>Local (Ollama)</option>
               </select>
             </div>
