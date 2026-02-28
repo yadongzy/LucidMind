@@ -112,6 +112,7 @@ def init():
         model="gemini-3-flash",
     )
     _antigravity.provider_name = "antigravity"
+    _antigravity._is_local = False  # 云端代理，非本地模型，不要精简工具
 
     _special_kb = SpecialKB()
     llm_adapter = FallbackLLMAdapter(primary=_deepseek, fallbacks=[_minimax, _antigravity, _local], special_kb=_special_kb)

@@ -8,5 +8,5 @@
     "llama": 8192,
     "gemma": 8192
   },
-  "strong_fc_models": ["deepseek", "gpt-4"]
+  "strong_fc_models": ["deepseek", "gpt-4", "gpt-4o", "claude", "gemini", "minimax"]
 }

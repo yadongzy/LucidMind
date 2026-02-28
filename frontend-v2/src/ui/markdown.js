@@ -37,7 +37,9 @@ function preprocessLinks(text) {
     .replace(/(?:^|[\s，。、：:（(])(\/(?:Users|home|private|tmp|var|etc|opt|usr)\/[^\s，。、：）)）]*[^\s，。、：）)\]）])/gm, (match, path) => {
       const prefix = match.slice(0, match.length - path.length);
       return `${prefix}[${path}](file://${encodeURI(path)})`;
-    });
+    })
+    // 自动链接纯文本 URL（不在 markdown 链接内的）
+    .replace(/(?<!\]\(|"|'|\[)(https?:\/\/[^\s<>\[\]()，。、；：！？）)]+)/g, '[$1]($1)');
 }
 
 export function renderMarkdown(text) {
