@@ -230,41 +230,79 @@ class WebSocketChannelAdapter(ChannelPort):
             except Exception as e:
                 logger.warning(f"服务端心跳异常: {e}")
 
+    # 承诺性结尾模式：回复以这些短语结尾表示任务未完成
+    _PROMISE_TAIL_PATTERNS = [
+        "让我", "我来", "正在", "接下来", "下面我", "现在我",
+        "让我用", "让我试", "我来试", "我来帮",
+        "稍等", "请稍等", "马上",
+        "正在尝试", "正在执行", "正在处理", "正在搜索", "正在查找",
+        "I'll", "Let me", "I'm going to", "I will now",
+    ]
+
     @staticmethod
     async def _safe_process(brain, stream, sid, user_input, on_message):
         """后台安全执行 brain.process，通过 command_queue CHAT lane 统一入队。
         工具调用/复杂操作自动入队 task_dispatcher，实现对话→任务看板联动。
         对标 OpenClaw: 所有操作通过 enqueueCommandInLane 统一入队。
+
+        修复: 任务在执行前创建(running)，执行后检查质量再决定完成/失败。
         """
         async def _do_process():
             if on_message:
                 await on_message(sid, user_input)
             else:
-                result = await brain.process(sid, user_input, stream=stream)
-                if not isinstance(result, dict):
-                    return
-                # 对话→任务看板联动：工具调用/复杂操作自动入队追踪
+                # 执行前创建任务（running状态），让任务看板实时可见
                 import task_dispatcher as td
-                tool_happened = result.get("tool_calls_happened", False)
-                empty_promise = result.get("empty_promise_detected", False)
-                if tool_happened or empty_promise:
-                    try:
-                        task = td.enqueue(
-                            user_input[:500],
-                            task_type="task",
-                            priority="P1" if (empty_promise and not tool_happened) else "P2",
-                            source="chat",
-                            timeout_s=300,
+                task_id = None
+                try:
+                    task = td.enqueue(
+                        user_input[:500],
+                        task_type="task",
+                        priority="P2",
+                        source="chat",
+                        timeout_s=300,
+                    )
+                    task_id = task["id"]
+                    td.update_task_progress(task_id, "执行中")
+                    logger.info(f"[{sid}] 对话任务已创建(running): {task_id}")
+                except Exception as e:
+                    logger.debug(f"对话任务创建失败: {e}")
+
+                result = await brain.process(sid, user_input, stream=stream)
+
+                # 执行后: 检查结果质量，决定完成/失败
+                if task_id and isinstance(result, dict):
+                    tool_happened = result.get("tool_calls_happened", False)
+                    empty_promise = result.get("empty_promise_detected", False)
+                    reply = result.get("reply", "")
+
+                    # 质量检查: 空回复 fallback
+                    is_empty_fallback = reply and "没有生成有效的回复" in reply
+                    # 质量检查: 回复以承诺结尾（任务未完成）
+                    is_promise_ending = False
+                    if reply:
+                        tail = reply.strip()[-200:] if len(reply.strip()) > 200 else reply.strip()
+                        is_promise_ending = any(
+                            p in tail for p in WebSocketChannelAdapter._PROMISE_TAIL_PATTERNS
                         )
-                        if tool_happened:
-                            td.complete_task(task["id"])
-                            logger.info(f"[{sid}] 对话任务已联动(完成): {task['id']}")
-                        else:
-                            # 空承诺且工具未执行 → 唤醒 Daemon 立即重试
-                            logger.warning(f"[{sid}] 对话任务已联动(待重试): {task['id']}")
-                            _wake_daemon()
-                    except Exception as e:
-                        logger.debug(f"对话任务联动失败: {e}")
+
+                    if is_empty_fallback or is_promise_ending or (empty_promise and not tool_happened):
+                        error_reason = (
+                            "空回复" if is_empty_fallback
+                            else "承诺未兑现" if is_promise_ending
+                            else "空承诺:工具未执行"
+                        )
+                        td.fail_task(task_id, error_reason)
+                        logger.warning(f"[{sid}] 对话任务失败({error_reason}): {task_id}")
+                        _wake_daemon()
+                    elif tool_happened or not reply:
+                        td.complete_task(task_id)
+                        logger.info(f"[{sid}] 对话任务已完成: {task_id}")
+                    else:
+                        # 纯文本回复（无工具调用），清理掉不需要追踪的任务
+                        td.complete_task(task_id)
+                elif task_id:
+                    td.complete_task(task_id)
 
         try:
             cq = get_command_queue()
