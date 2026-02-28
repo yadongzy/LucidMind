@@ -31,6 +31,27 @@ TOOL_GROUPS: dict[str, set[str] | None] = {
         "introspect", "run_command", "write_file",
         "read_file", "search_files",
     },
+    # ── 聊天上下文分组（按 fast_path category 映射）──
+    # 知识问答：只需搜索+阅读工具（省 ~85% 工具 token）
+    "knowledge": {
+        "web_search", "read_file", "search_files",
+        "introspect", "identity_read",
+    },
+    # 纠正/教学：只需教学+内省工具
+    "correction": {
+        "teaching", "introspect", "identity_read",
+        "read_file",
+    },
+}
+
+# fast_path category → tool group scope 映射
+FAST_PATH_TOOL_SCOPE: dict[str, str] = {
+    "greeting": "none",       # skip_tools=True 已处理
+    "trivial": "none",        # skip_tools=True 已处理
+    "knowledge": "knowledge", # 知识问答只需搜索工具
+    "correction": "correction",
+    "tool_use": "task",       # 全部工具
+    "complex": "task",        # 全部工具
 }
 
 

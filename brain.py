@@ -152,14 +152,28 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, Brain
             if self.memory:
                 await self.memory.save_message(session_id, {"role": "user", "content": user_input})
 
-            tools = self.tools.list_tools() if self.tools else None
-            # Token 预算：工具定义过多时裁剪（技能架构改进3）
-            if tools:
-                try:
-                    from skills.token_budget import filter_tools_by_budget
-                    tools = filter_tools_by_budget(tools)
-                except Exception:
-                    pass
+            # Token 优化：按快速路径分类决定加载哪些工具
+            if _fp.skip_tools:
+                tools = None
+                logger.info(f"[{session_id}] ⚡ 快速路径跳过工具定义 (category={_fp.category})")
+            else:
+                tools = self.tools.list_tools() if self.tools else None
+                if tools:
+                    # 按意图分组过滤工具（知识问答只加载5个工具，省85%）
+                    try:
+                        from tool_groups import filter_tools, FAST_PATH_TOOL_SCOPE
+                        scope = FAST_PATH_TOOL_SCOPE.get(_fp.category, "task")
+                        if scope != "task":
+                            tools = filter_tools(tools, scope)
+                            logger.info(f"[{session_id}] 🔧 工具分组[{scope}]: {len(tools)} 个工具")
+                    except Exception:
+                        pass
+                    # Token 预算：工具定义过多时裁剪（技能架构改进3）
+                    try:
+                        from skills.token_budget import filter_tools_by_budget
+                        tools = filter_tools_by_budget(tools)
+                    except Exception:
+                        pass
             _tool_calls_happened = False
             _tool_steps: list[str] = []  # 追踪每个工具步骤用于任务进度更新
             if self.tools:
@@ -566,56 +580,66 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, Brain
         return "\n".join(s)
 
     async def _build_messages(self, skip_lessons: bool = False) -> list[dict]:
-        """构建发送给 LLM 的消息列表。本地模型时精简 prompt。"""
+        """构建发送给 LLM 的消息列表。本地模型时精简 prompt。
+        
+        Prompt 结构优化（缓存友好）：
+        静态前缀（不变，触发 Gemini/OpenAI 隐式缓存 75-90% 折扣）：
+          SOUL.md → USER.md → 角色人格 → 知识技能 → 首次引导
+        动态后缀（每次变化，不影响前缀缓存命中）：
+          当前状态 → 目标 → 经验 → 自省
+        """
         self._reload_soul_if_changed()
         local = self._is_local_model()
 
         messages = []
         if self._soul_prompt:
-            awareness = self._build_self_awareness()
+            # ── 静态前缀（缓存友好：请求间保持不变）──
             if local:
-                # 本地模型：只用 SOUL.md 前80行（核心身份），省 token 给回复
                 soul_lines = self._soul_prompt.splitlines()[:LOCAL_SOUL_MAX_LINES]
-                system_content = "\n".join(soul_lines) + f"\n\n## 状态\n{awareness}"
+                system_content = "\n".join(soul_lines)
             else:
-                system_content = self._soul_prompt + f"\n\n## 当前状态\n{awareness}"
+                system_content = self._soul_prompt
             # 用户画像注入（identity/USER.md，兼容旧 user_profile.md）
             user_text = self._load_identity_file(_USER_PATH)
             if not user_text:
                 user_text = self._load_identity_file(pathlib.Path(__file__).parent / "user_profile.md")
             if user_text:
                 system_content += f"\n\n{user_text}"
-            # 首次引导检测
-            bootstrap_text = self._load_identity_file(_BOOTSTRAP_PATH)
-            if bootstrap_text and "BOOTSTRAP_COMPLETE" not in bootstrap_text:
-                system_content += f"\n\n## 首次启动引导\n{bootstrap_text}"
-            # 可选部分 — 按优先级排列，超预算时从末尾裁剪
-            optional_sections = []
-            # P2a: 多角色人格注入（最高优先）
+            # P2a: 多角色人格注入（静态：角色不会每次调用都换）
             if self._persona_manager:
                 persona_prompt = self._persona_manager.get_persona_prompt()
                 if persona_prompt:
-                    optional_sections.append(f"\n\n## 当前角色\n{persona_prompt}")
-            if self._goal_context:
-                optional_sections.append(f"\n\n{self._goal_context}")
-            # 经验库注入（精炼后的高质量经验）— 受A/B开关控制 + P0快速路径控制
-            if self.lessons_enabled and not skip_lessons:
-                lessons_text = await self._get_relevant_lessons()
-                if lessons_text:
-                    optional_sections.append(f"\n\n## 过往经验（参考）\n{lessons_text}")
-            if not local and self._reflection_text:
-                optional_sections.append(f"\n\n## 自省\n{self._reflection_text}")
-            # 知识型技能注入（kind:"prompt" 技能的 SKILL.md 内容）
+                    system_content += f"\n\n## 当前角色\n{persona_prompt}"
+            # 知识型技能注入（静态：技能不会每次调用都换）
             try:
                 from skills.token_budget import get_prompt_skills_content
                 _prompt_skills = get_prompt_skills_content()
                 if _prompt_skills:
-                    optional_sections.append(f"\n\n## 知识技能\n{_prompt_skills}")
+                    system_content += f"\n\n## 知识技能\n{_prompt_skills}"
             except Exception:
                 pass
-            # Token 预算控制：system prompt 超预算时从末尾裁剪可选部分
+            # 首次引导检测（静态）
+            bootstrap_text = self._load_identity_file(_BOOTSTRAP_PATH)
+            if bootstrap_text and "BOOTSTRAP_COMPLETE" not in bootstrap_text:
+                system_content += f"\n\n## 首次启动引导\n{bootstrap_text}"
+
+            # ── 动态后缀（每次变化，放在最后不影响前缀缓存）──
+            dynamic_sections = []
+            awareness = self._build_self_awareness()
+            dynamic_sections.append(f"\n\n## 当前状态\n{awareness}")
+            if self._goal_context:
+                dynamic_sections.append(f"\n\n{self._goal_context}")
+            # 经验库注入 — 受A/B开关控制 + P0快速路径控制
+            if self.lessons_enabled and not skip_lessons:
+                lessons_text = await self._get_relevant_lessons()
+                if lessons_text:
+                    dynamic_sections.append(f"\n\n## 过往经验（参考）\n{lessons_text}")
+            if not local and self._reflection_text:
+                dynamic_sections.append(f"\n\n## 自省\n{self._reflection_text}")
+
+            # Token 预算控制：超预算时从动态后缀末尾裁剪
             base_tokens = self._estimate_tokens(system_content)
-            for section in optional_sections:
+            for section in dynamic_sections:
                 section_tokens = self._estimate_tokens(section)
                 if base_tokens + section_tokens <= MAX_SYSTEM_PROMPT_TOKENS:
                     system_content += section

@@ -18,20 +18,23 @@ from brain_config import (
 
 class FastPathResult:
     """快速路径分类结果。"""
-    __slots__ = ("category", "skip_metacog", "skip_lessons", "skip_learn_detect")
+    __slots__ = ("category", "skip_metacog", "skip_lessons", "skip_learn_detect", "skip_tools")
 
     def __init__(self, category: str, skip_metacog: bool = False,
-                 skip_lessons: bool = False, skip_learn_detect: bool = False):
+                 skip_lessons: bool = False, skip_learn_detect: bool = False,
+                 skip_tools: bool = False):
         self.category = category
         self.skip_metacog = skip_metacog
         self.skip_lessons = skip_lessons
         self.skip_learn_detect = skip_learn_detect
+        self.skip_tools = skip_tools
 
     def __repr__(self):
         skips = []
         if self.skip_metacog: skips.append("metacog")
         if self.skip_lessons: skips.append("lessons")
         if self.skip_learn_detect: skips.append("learn")
+        if self.skip_tools: skips.append("tools")
         return f"FastPath({self.category}, skip=[{','.join(skips)}])"
 
 
@@ -54,7 +57,7 @@ def classify(user_input: str, history_len: int = 0) -> FastPathResult:
 
     # 0. 空输入
     if not stripped:
-        return FastPathResult("trivial", skip_metacog=True, skip_lessons=True, skip_learn_detect=True)
+        return FastPathResult("trivial", skip_metacog=True, skip_lessons=True, skip_learn_detect=True, skip_tools=True)
 
     # 1. 工具触发 — 最高优先级（即使短输入也优先识别工具意图）
     if any(kw in lowered for kw in _TOOL_TRIGGER_KEYWORDS):
@@ -64,11 +67,11 @@ def classify(user_input: str, history_len: int = 0) -> FastPathResult:
     if len(stripped) <= 15:
         # 纯表情/标点
         if re.match(r'^[\s\W]+$', stripped):
-            return FastPathResult("trivial", skip_metacog=True, skip_lessons=True, skip_learn_detect=True)
+            return FastPathResult("trivial", skip_metacog=True, skip_lessons=True, skip_learn_detect=True, skip_tools=True)
         if lowered in _GREETING_PATTERNS or any(lowered.startswith(g) for g in _GREETING_PATTERNS if len(g) >= 2):
-            return FastPathResult("greeting", skip_metacog=True, skip_lessons=True, skip_learn_detect=True)
+            return FastPathResult("greeting", skip_metacog=True, skip_lessons=True, skip_learn_detect=True, skip_tools=True)
         if lowered in _TRIVIAL_PATTERNS:
-            return FastPathResult("trivial", skip_metacog=True, skip_lessons=True, skip_learn_detect=True)
+            return FastPathResult("trivial", skip_metacog=True, skip_lessons=True, skip_learn_detect=True, skip_tools=True)
 
     # 3. 纠正/教学 — 需要学习检测，但不需要元认知和经验
     if any(kw in lowered for kw in _CORRECTION_KEYWORDS):
