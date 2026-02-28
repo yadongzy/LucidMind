@@ -21,6 +21,15 @@ logger = get_logger("daemon")
 MAX_INLINE_RETRIES = 3          # 单任务内最大内联重试次数
 INLINE_RETRY_DELAY_S = 2.0      # 内联重试间隔（指数退避基数）
 
+# 承诺性结尾模式：回复以这些短语结尾表示任务未完成
+_PROMISE_TAIL_PATTERNS = [
+    "让我", "我来", "正在", "接下来", "下面我", "现在我",
+    "让我用", "让我试", "我来试", "我来帮",
+    "稍等", "请稍等", "马上",
+    "正在尝试", "正在执行", "正在处理", "正在搜索", "正在查找",
+    "I'll", "Let me", "I'm going to", "I will now",
+]
+
 
 class TaskExecutorMixin:
     """任务执行能力混入 — BrainDaemon 继承此 Mixin。"""
@@ -144,8 +153,18 @@ class TaskExecutorMixin:
                         reply = result.get("reply", "")
                         # 检测空回复 fallback（工具执行成功但 LLM 未生成有效回复）
                         is_empty_fallback = reply and "没有生成有效的回复" in reply
-                        if (empty_promise and not tool_happened) or is_empty_fallback:
-                            last_error = "空承诺:工具未执行" if not is_empty_fallback else "空回复:LLM未总结工具结果"
+                        # 检测回复以承诺结尾（工具调用了但任务未完成）
+                        is_promise_ending = False
+                        if reply and not is_empty_fallback:
+                            tail = reply.strip()[-200:] if len(reply.strip()) > 200 else reply.strip()
+                            is_promise_ending = any(p in tail for p in _PROMISE_TAIL_PATTERNS)
+                        if (empty_promise and not tool_happened) or is_empty_fallback or is_promise_ending:
+                            if is_promise_ending:
+                                last_error = f"承诺未兑现:回复以'{tail[-30:]}...'结尾"
+                            elif is_empty_fallback:
+                                last_error = "空回复:LLM未总结工具结果"
+                            else:
+                                last_error = "空承诺:工具未执行"
                             if attempt <= MAX_INLINE_RETRIES:
                                 delay = INLINE_RETRY_DELAY_S * (2 ** (attempt - 1))
                                 logger.warning(

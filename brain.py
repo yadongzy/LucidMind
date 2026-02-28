@@ -184,6 +184,14 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, Brain
                         response["content"] = strip_xml_tool_calls(response.get("content", "") or "")
                         response["tool_calls"] = xml_tcs
                 if not tool_calls or not self.tools:
+                    # 检测"回复以承诺结尾"：工具已调用过，但最后一轮LLM说"让我..."却没调工具
+                    final_text = (response.get("content", "") or "").strip()
+                    if _tool_calls_happened and final_text and self._detect_empty_promise(final_text):
+                        logger.warning(f"[{session_id}] 工具轮后检测到未兑现承诺: '{final_text[:60]}...'")
+                        await _s.emit("info", "🔄 检测到未完成的操作承诺，继续执行...")
+                        self._history.append({"role": "user", "content":
+                            "[系统] 你刚才承诺要执行操作但没有调用工具。请立即使用工具完成操作，不要只是描述你要做什么。"})
+                        continue  # 回到工具循环，让 LLM 重新产生工具调用
                     break
                 if time.time() > deadline:
                     logger.warning(f"[{session_id}] 工具循环超时({TOOL_LOOP_TIMEOUT_SEC}s)")

@@ -28,11 +28,13 @@ class BrainToolGuardMixin:
     _PROMISE_PATTERNS = PROMISE_PATTERNS
 
     def _detect_empty_promise(self, reply_text: str) -> bool:
-        """检测 LLM 回复是否包含行动承诺但实际未调用任何工具。"""
+        """检测 LLM 回复是否包含行动承诺但实际未调用任何工具。
+        短回复(<500字符)全文匹配；长回复只检查尾部200字符（防止长分析文本+承诺结尾漏检）。"""
         text = reply_text.strip()
-        if not text or len(text) > EMPTY_PROMISE_MAX_LEN:
+        if not text:
             return False
-        return any(p in text for p in self._PROMISE_PATTERNS)
+        check_text = text if len(text) <= EMPTY_PROMISE_MAX_LEN else text[-200:]
+        return any(p in check_text for p in self._PROMISE_PATTERNS)
 
     # === 强FC模型查找 ===
     def _get_stronger_fc_model(self):
