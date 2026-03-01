@@ -271,6 +271,7 @@ class MemoryStore:
     _LENGTH_NORM_ANCHOR = 500       # 长度归一化锚点（字符数）
     _HARD_MIN_SCORE = 0.20          # 最终硬过滤阈值
     _MMR_SIMILARITY_THRESHOLD = 0.85 # MMR 去重相似度阈值
+    _EVERGREEN_COLLECTIONS = frozenset({"facts", "skills"})  # 常青集合: 不受时间衰减
 
     def search_hybrid(self, query_text: str, query_embedding: list[float] | None = None,
                       collection: str | None = None,
@@ -428,6 +429,9 @@ class MemoryStore:
 
         Formula: score *= 0.5 + 0.5 * exp(-ageDays / halfLife)
         Floor at 0.5x (永远不会惩罚超过一半)
+
+        Evergreen 豁免: facts/skills 集合不受时间衰减（对标 OpenClaw temporal-decay.ts 的
+        isEvergreenMemoryPath）。这些集合存储持久知识，无论多久都应该被检索到。
         """
         half_life = self._TIME_DECAY_HALF_LIFE_DAYS
         if half_life <= 0:
@@ -437,6 +441,8 @@ class MemoryStore:
         now = datetime.now(timezone.utc)
 
         for r in results:
+            if r.collection in self._EVERGREEN_COLLECTIONS:
+                continue  # Evergreen: 不衰减
             age_days = self._calc_age_days(r, now)
             factor = 0.5 + 0.5 * math.exp(-age_days / half_life)
             r.score = max(0.0, r.score * factor)

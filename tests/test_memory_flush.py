@@ -300,3 +300,89 @@ class TestT11_VectorCacheSqlite:
                 "SELECT hash FROM embedding_cache WHERE hash='hash_0014'"
             ).fetchone()
             assert row is not None
+
+
+# ═══════════════════════════════════════════
+# T12: Evergreen 常青集合豁免测试
+# ═══════════════════════════════════════════
+
+class TestT12_EvergreenExemption:
+    """验证 facts/skills 集合不受时间衰减影响。"""
+
+    def _make_store(self, tmp_path):
+        """创建临时 MemoryStore。"""
+        from memory.store import MemoryStore
+        db_path = tmp_path / "test_memory.db"
+        store = MemoryStore(db_path)
+        return store
+
+    def _make_result(self, collection: str, age_days: float, score: float = 0.8):
+        """创建指定年龄的 MemoryResult。"""
+        from memory.types import MemoryResult
+        from datetime import datetime, timezone, timedelta
+        ts = (datetime.now(timezone.utc) - timedelta(days=age_days)).isoformat()
+        return MemoryResult(
+            id=f"mem_{collection}_{age_days}",
+            collection=collection,
+            content=f"Test content for {collection}",
+            score=score,
+            metadata={},
+            created_at=ts,
+            updated_at=ts,
+        )
+
+    def test_facts_no_decay(self, tmp_path):
+        """T12-1: facts 集合不受时间衰减。"""
+        store = self._make_store(tmp_path)
+        old_fact = self._make_result("facts", age_days=365, score=0.8)
+        results = store._apply_time_decay([old_fact])
+        # facts 是 Evergreen，365天前的记忆分数不应改变
+        assert results[0].score == 0.8
+
+    def test_skills_no_decay(self, tmp_path):
+        """T12-2: skills 集合不受时间衰减。"""
+        store = self._make_store(tmp_path)
+        old_skill = self._make_result("skills", age_days=180, score=0.7)
+        results = store._apply_time_decay([old_skill])
+        assert results[0].score == 0.7
+
+    def test_lessons_decay(self, tmp_path):
+        """T12-3: lessons 集合正常衰减。"""
+        store = self._make_store(tmp_path)
+        old_lesson = self._make_result("lessons", age_days=180, score=0.8)
+        results = store._apply_time_decay([old_lesson])
+        # 180天 / 60天半衰期 = 3个半衰期，应该明显衰减
+        assert results[0].score < 0.8
+        assert results[0].score > 0.0
+
+    def test_sessions_decay(self, tmp_path):
+        """T12-4: sessions 集合正常衰减。"""
+        store = self._make_store(tmp_path)
+        old_session = self._make_result("sessions", age_days=90, score=0.8)
+        results = store._apply_time_decay([old_session])
+        assert results[0].score < 0.8
+
+    def test_mixed_collections_ranking(self, tmp_path):
+        """T12-5: 混合集合中 Evergreen 记忆排名不受衰减影响。"""
+        store = self._make_store(tmp_path)
+        # 旧 fact (365天) vs 新 lesson (1天) — 起始分数相同
+        old_fact = self._make_result("facts", age_days=365, score=0.7)
+        new_lesson = self._make_result("lessons", age_days=1, score=0.7)
+        old_lesson = self._make_result("lessons", age_days=365, score=0.7)
+
+        results = store._apply_time_decay([old_fact, new_lesson, old_lesson])
+        # old_fact 不衰减 (0.7)
+        # new_lesson 几乎不衰减 (~0.7)
+        # old_lesson 严重衰减 (<0.5)
+        scores = {r.id: r.score for r in results}
+        assert scores[old_fact.id] == 0.7  # 不变
+        assert scores[new_lesson.id] > 0.65  # 几乎不变
+        assert scores[old_lesson.id] < 0.5  # 严重衰减
+
+    def test_evergreen_set_is_correct(self, tmp_path):
+        """T12-6: 验证 _EVERGREEN_COLLECTIONS 包含正确的集合。"""
+        store = self._make_store(tmp_path)
+        assert "facts" in store._EVERGREEN_COLLECTIONS
+        assert "skills" in store._EVERGREEN_COLLECTIONS
+        assert "lessons" not in store._EVERGREEN_COLLECTIONS
+        assert "sessions" not in store._EVERGREEN_COLLECTIONS
