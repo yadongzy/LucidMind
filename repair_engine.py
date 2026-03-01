@@ -5,6 +5,7 @@
 """
 
 import json
+import asyncio
 from pathlib import Path
 from logs import get_logger
 from issue_tracker import (
@@ -16,6 +17,8 @@ logger = get_logger("engines")
 
 _PROJECT_ROOT = Path(__file__).parent
 _REPAIR_PROMPT = _PROJECT_ROOT / "prompts" / "self_repair.md"
+_L3_MCP_SERVER = "external_repair"  # MCP server name for L3
+_L3_TIMEOUT = 300  # seconds
 
 
 class RepairEngine:
@@ -94,7 +97,7 @@ class RepairEngine:
             return False
 
     async def _fix_medium(self, issue: dict) -> bool:
-        """中等问题：标准修复流程。retries>=5 升级到 L2 Brain自服务修复。"""
+        """中等问题：标准修复流程。retries>=5→L2, retries>=10→L3。"""
         desc = issue.get("desc", "")
         retries = issue.get("retries", 0)
         try:
@@ -105,6 +108,9 @@ class RepairEngine:
                 return False
             if "ERROR" in desc:
                 return True
+            # L3: retries>=10 升级到外部代理
+            if retries >= 10:
+                return await self._delegate_to_external(issue)
             # L2: retries>=5 升级到 Brain 自服务修复
             if retries >= 5:
                 return self._enqueue_brain_repair(issue)
@@ -113,8 +119,9 @@ class RepairEngine:
             return False
 
     async def _fix_severe(self, issue: dict) -> bool:
-        """严重问题：报警 + L2 Brain自服务修复。"""
+        """严重问题：报警 + L2/L3 分级修复。"""
         desc = issue.get("desc", "")
+        retries = issue.get("retries", 0)
         logger.warning(f"🚨 严重问题需处理: {desc[:60]}")
         if "LLM不可用" in desc:
             try:
@@ -122,13 +129,20 @@ class RepairEngine:
                 return avail
             except Exception:
                 return False
+        # L3: retries>=10 升级到外部代理
+        if retries >= 10:
+            return await self._delegate_to_external(issue)
         # L2: 非 LLM 问题交给 Brain 自服务修复
         return self._enqueue_brain_repair(issue)
 
     async def _fix_fatal(self, issue: dict) -> bool:
-        """致命问题：需要重启或人工介入。"""
-        logger.error(f"💀 致命问题: {issue.get('desc', '')[:60]}")
-        return False
+        """致命问题：尝试 L3 外部代理，否则需要人工介入。"""
+        desc = issue.get("desc", "")[:60]
+        logger.error(f"💀 致命问题: {desc}")
+        result = await self._delegate_to_external(issue)
+        if not result:
+            logger.error(f"💀 L3也无法修复，需要人工介入: {desc}")
+        return result
 
     def _enqueue_brain_repair(self, issue: dict) -> bool:
         """L2: 生成修复任务，通过 TaskDispatcher 交给 Brain 处理。
@@ -173,6 +187,109 @@ class RepairEngine:
         prompt = prompt.replace("{file_path}", "未知，请自行定位")
         prompt = prompt.replace("{project_path}", str(_PROJECT_ROOT))
         return prompt[:500]
+
+    async def _delegate_to_external(self, issue: dict) -> bool:
+        """L3: 委派给外部代理修复。
+
+        优先级: MCP external_repair server > CLI agent
+        外部代理需要单独配置，未配置时记录日志并返回 False。
+        """
+        desc = issue.get("desc", "")[:200]
+        severity = issue.get("severity", "")
+        # 尝试 1: MCP 外部修复服务器
+        mcp_result = await self._try_mcp_repair(issue)
+        if mcp_result is not None:
+            return mcp_result
+        # 尝试 2: CLI 外部代理 (e.g. claude-code)
+        cli_result = await self._try_cli_repair(issue)
+        if cli_result is not None:
+            return cli_result
+        # 无外部代理可用
+        logger.info(f"🔗 L3: 无外部代理可用 [{severity}] {desc[:60]}")
+        return False
+
+    async def _try_mcp_repair(self, issue: dict) -> bool | None:
+        """通过 MCP external_repair 服务器修复。未配置时返回 None。"""
+        tools = getattr(self._brain, 'tools', None)
+        if not tools:
+            return None
+        # 检查是否有 mcp_external_repair_* 工具
+        all_tools = []
+        try:
+            all_tools = tools.list_tools()
+        except Exception:
+            return None
+        repair_tools = [t for t in all_tools
+                        if t.get("function", {}).get("name", "").startswith(f"mcp_{_L3_MCP_SERVER}_")]
+        if not repair_tools:
+            return None
+        # 找 repair/fix/diagnose 工具
+        target = None
+        for t in repair_tools:
+            name = t["function"]["name"]
+            if any(kw in name for kw in ("repair", "fix", "diagnose")):
+                target = name
+                break
+        if not target:
+            target = repair_tools[0]["function"]["name"]
+        # 调用外部修复
+        try:
+            result = await tools.execute(target, {
+                "issue": issue.get("desc", "")[:200],
+                "severity": issue.get("severity", ""),
+                "project_path": str(_PROJECT_ROOT),
+                "retries": issue.get("retries", 0),
+            })
+            if result.get("success"):
+                text = str(result.get("result", ""))
+                if "REPAIR_OK" in text or "fixed" in text.lower():
+                    logger.info(f"🔗 L3 MCP修复成功: {issue.get('desc', '')[:40]}")
+                    return True
+                logger.info(f"🔗 L3 MCP已执行但未确认修复: {text[:80]}")
+                return False
+            logger.warning(f"🔗 L3 MCP执行失败: {result.get('error', '')}")
+            return False
+        except Exception as e:
+            logger.warning(f"🔗 L3 MCP异常: {e}")
+            return False
+
+    async def _try_cli_repair(self, issue: dict) -> bool | None:
+        """通过 CLI 外部代理修复 (e.g. claude-code)。未配置时返回 None。"""
+        import shutil
+        # 检查是否有 claude CLI 可用
+        claude_path = shutil.which("claude")
+        if not claude_path:
+            return None
+        desc = issue.get("desc", "")[:200]
+        severity = issue.get("severity", "")
+        prompt = (
+            f"请修复以下问题并运行 pytest 验证:\n"
+            f"描述: {desc}\n严重度: {severity}\n"
+            f"项目路径: {_PROJECT_ROOT}\n"
+            f"修复后用 pytest tests/ -x -q 验证。"
+        )
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                claude_path, "--print", "-p", prompt,
+                cwd=str(_PROJECT_ROOT),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(), timeout=_L3_TIMEOUT
+            )
+            output = stdout.decode("utf-8", errors="replace")[:500]
+            if proc.returncode == 0 and ("REPAIR_OK" in output or "fixed" in output.lower()):
+                logger.info(f"🔗 L3 CLI修复成功: {desc[:40]}")
+                return True
+            logger.info(f"🔗 L3 CLI已执行 (rc={proc.returncode}): {output[:80]}")
+            return False
+        except asyncio.TimeoutError:
+            logger.warning(f"🔗 L3 CLI超时 ({_L3_TIMEOUT}s)")
+            return False
+        except Exception as e:
+            logger.warning(f"🔗 L3 CLI异常: {e}")
+            return False
 
     async def _clean_noise_lessons(self) -> bool:
         """清洗经验库中的噪音条目。"""
