@@ -152,31 +152,21 @@ class VectorStore:
             return False
         self._loading = True
         self._model_loaded = True
-        # 方案1: Ollama 专用嵌入模型 (需先 ollama pull nomic-embed-text)
-        try:
-            import requests
-            for m in ("nomic-embed-text", "all-minilm"):
-                try:
-                    r = requests.post("http://localhost:11434/api/embeddings",
-                                      json={"model": m, "prompt": "test"}, timeout=15)
-                    if r.status_code == 200 and r.json().get("embedding"):
-                        self._model = "ollama"
-                        self._ollama_model = m
-                        self._embed_dim = len(r.json()["embedding"])
-                        logger.info(f"向量模型: Ollama {m} (dim={self._embed_dim})")
-                        self._loading = False
-                        return True
-                except Exception:
-                    continue
-        except Exception:
-            pass
-        # 方案2: sentence-transformers (后台线程加载，不阻塞对话)
+        # 按优先级尝试: Ollama → OpenAI → sentence-transformers
+        if self._try_ollama():
+            self._loading = False
+            return True
+        if self._try_openai():
+            self._loading = False
+            return True
+        # sentence-transformers (后台线程加载，不阻塞对话)
         import threading
         def _bg_load():
             try:
                 from sentence_transformers import SentenceTransformer
                 self._model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
                 self._model_loaded = True
+                self._provider = "sentence-transformers"
                 logger.info("向量模型: sentence-transformers (后台加载完成)")
             except Exception as e:
                 logger.info(f"向量检索降级到 BM25（{e}）")
@@ -185,11 +175,66 @@ class VectorStore:
         logger.info("向量模型后台加载中，暂时降级到 BM25")
         return False
 
+    def _try_ollama(self) -> bool:
+        """尝试 Ollama 嵌入模型。"""
+        try:
+            import requests
+            for m in ("nomic-embed-text", "all-minilm"):
+                try:
+                    r = requests.post("http://localhost:11434/api/embeddings",
+                                      json={"model": m, "prompt": "test"}, timeout=15)
+                    if r.status_code == 200 and r.json().get("embedding"):
+                        self._model = "ollama"
+                        self._provider = "ollama"
+                        self._ollama_model = m
+                        self._embed_dim = len(r.json()["embedding"])
+                        logger.info(f"向量模型: Ollama {m} (dim={self._embed_dim})")
+                        return True
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        return False
+
+    def _try_openai(self) -> bool:
+        """尝试 OpenAI Embeddings API（需 OPENAI_API_KEY 环境变量）。"""
+        import os
+        api_key = os.environ.get("OPENAI_API_KEY", "")
+        if not api_key:
+            return False
+        try:
+            import requests
+            model = os.environ.get("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+            base_url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
+            r = requests.post(
+                f"{base_url}/embeddings",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={"model": model, "input": "test"},
+                timeout=15,
+            )
+            if r.status_code == 200:
+                data = r.json().get("data", [{}])
+                if data and data[0].get("embedding"):
+                    self._model = "openai"
+                    self._provider = "openai"
+                    self._openai_model = model
+                    self._openai_key = api_key
+                    self._openai_base = base_url
+                    self._embed_dim = len(data[0]["embedding"])
+                    logger.info(f"向量模型: OpenAI {model} (dim={self._embed_dim})")
+                    return True
+        except Exception as e:
+            logger.debug(f"OpenAI embedding 探测失败: {e}")
+        return False
+
     def _text_hash(self, text: str) -> str:
         return hashlib.md5(text.encode("utf-8")).hexdigest()[:12]
 
     def embed(self, text: str) -> list[float] | None:
-        """生成文本嵌入向量（带 SQLite 缓存，上限 10,000 条）。"""
+        """生成文本嵌入向量（带 SQLite 缓存，上限 10,000 条）。
+
+        支持三种 provider: ollama / openai / sentence-transformers
+        """
         if not self._ensure_model():
             return None
         h = self._text_hash(text)
@@ -202,6 +247,16 @@ class VectorStore:
                 r = requests.post("http://localhost:11434/api/embeddings",
                                   json={"model": getattr(self, '_ollama_model', 'nomic-embed-text'), "prompt": text[:512]}, timeout=15)
                 vec = r.json().get("embedding")
+            elif self._model == "openai":
+                import requests
+                r = requests.post(
+                    f"{self._openai_base}/embeddings",
+                    headers={"Authorization": f"Bearer {self._openai_key}"},
+                    json={"model": self._openai_model, "input": text[:8000]},
+                    timeout=30,
+                )
+                data = r.json().get("data", [{}])
+                vec = data[0].get("embedding") if data else None
             else:
                 vec = self._model.encode(text[:512], normalize_embeddings=True).tolist()
             if vec:
@@ -210,6 +265,10 @@ class VectorStore:
         except Exception as e:
             logger.warning(f"嵌入生成失败: {e}")
             return None
+
+    def get_provider(self) -> str:
+        """返回当前 embedding provider 名称。"""
+        return getattr(self, '_provider', 'none')
 
     def cosine_similarity(self, a: list[float], b: list[float]) -> float:
         """余弦相似度。"""

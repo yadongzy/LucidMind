@@ -562,3 +562,97 @@ class TestT14_QueryExpansion:
         # 注: 实际效果取决于 FTS5 tokenizer 和同义词扩展
         # 这里主要验证不报错且返回结果
         assert isinstance(results, list)
+
+
+# ═══════════════════════════════════════════
+# T15: Multi Embedding Provider 测试
+# ═══════════════════════════════════════════
+
+class TestT15_MultiProvider:
+    """验证多 Provider 嵌入支持。"""
+
+    def test_get_provider_default(self, tmp_path):
+        """T15-1: 默认 provider 为 'none'。"""
+        db_path = tmp_path / "test_cache.db"
+        with patch("adapters.memory.vector_store._DATA_DIR", tmp_path), \
+             patch("adapters.memory.vector_store._CACHE_DB_PATH", db_path), \
+             patch("adapters.memory.vector_store._CACHE_PATH", tmp_path / "old.json"):
+            from adapters.memory.vector_store import VectorStore
+            store = VectorStore()
+            assert store.get_provider() == "none"
+
+    def test_try_openai_no_key(self, tmp_path):
+        """T15-2: 无 OPENAI_API_KEY 时 _try_openai 返回 False。"""
+        db_path = tmp_path / "test_cache.db"
+        with patch("adapters.memory.vector_store._DATA_DIR", tmp_path), \
+             patch("adapters.memory.vector_store._CACHE_DB_PATH", db_path), \
+             patch("adapters.memory.vector_store._CACHE_PATH", tmp_path / "old.json"), \
+             patch.dict("os.environ", {"OPENAI_API_KEY": ""}, clear=False):
+            from adapters.memory.vector_store import VectorStore
+            store = VectorStore()
+            assert store._try_openai() is False
+
+    def test_try_openai_with_mock(self, tmp_path):
+        """T15-3: 有 API Key 时 _try_openai 正确调用 API。"""
+        db_path = tmp_path / "test_cache.db"
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "data": [{"embedding": [0.1, 0.2, 0.3]}]
+        }
+
+        with patch("adapters.memory.vector_store._DATA_DIR", tmp_path), \
+             patch("adapters.memory.vector_store._CACHE_DB_PATH", db_path), \
+             patch("adapters.memory.vector_store._CACHE_PATH", tmp_path / "old.json"), \
+             patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}, clear=False), \
+             patch("requests.post", return_value=mock_response):
+            from adapters.memory.vector_store import VectorStore
+            store = VectorStore()
+            result = store._try_openai()
+            assert result is True
+            assert store._model == "openai"
+            assert store.get_provider() == "openai"
+            assert store._embed_dim == 3
+
+    def test_try_ollama_fallback(self, tmp_path):
+        """T15-4: Ollama 不可用时自动跳过。"""
+        db_path = tmp_path / "test_cache.db"
+        with patch("adapters.memory.vector_store._DATA_DIR", tmp_path), \
+             patch("adapters.memory.vector_store._CACHE_DB_PATH", db_path), \
+             patch("adapters.memory.vector_store._CACHE_PATH", tmp_path / "old.json"), \
+             patch("requests.post", side_effect=ConnectionError("no ollama")):
+            from adapters.memory.vector_store import VectorStore
+            store = VectorStore()
+            assert store._try_ollama() is False
+
+    def test_embed_openai_provider(self, tmp_path):
+        """T15-5: OpenAI provider 生成嵌入并缓存。"""
+        db_path = tmp_path / "test_cache.db"
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "data": [{"embedding": [0.5] * 10}]
+        }
+
+        with patch("adapters.memory.vector_store._DATA_DIR", tmp_path), \
+             patch("adapters.memory.vector_store._CACHE_DB_PATH", db_path), \
+             patch("adapters.memory.vector_store._CACHE_PATH", tmp_path / "old.json"), \
+             patch("requests.post", return_value=mock_response):
+            from adapters.memory.vector_store import VectorStore
+            store = VectorStore()
+            # 手动设置为 openai provider
+            store._model = "openai"
+            store._model_loaded = True
+            store._provider = "openai"
+            store._openai_model = "text-embedding-3-small"
+            store._openai_key = "test-key"
+            store._openai_base = "https://api.openai.com/v1"
+
+            vec = store.embed("测试文本")
+            assert vec is not None
+            assert len(vec) == 10
+            # 验证缓存命中
+            vec2 = store.embed("测试文本")
+            assert vec2 == vec
