@@ -335,7 +335,24 @@ function isEvergreenMemoryPath(filePath: string): boolean {
 - `api/memory.py` 新增 7 个 API 端点（files CRUD + search + index）
 - 测试: T13-1~10 共 10 个测试通过
 
-**累计**: 500/500 全量测试通过，新增 26 个测试
+### 2026-03-01 P2 完成 ✅
+
+**GAP-6 查询扩展（中文搜索增强）** — commit `9c3dab9`
+- 新增 `memory/query_expansion.py` (~180行)
+- 智能分词: 优先 jieba，回退 CJK n-gram（unigram+bigram+trigram）
+- 停用词过滤: 中英文各 50+
+- 同义词扩展: 20+ 高频映射（bug→错误/问题, 配置→设置 等）
+- `build_fts5_query()` 增强 FTS5 查询 + `extract_search_keywords()` 关键词提取
+- `store.py _fts5_query()` 集成，带降级回退
+- 测试: T14-1~8 共 8 个测试通过
+
+**GAP-4 多 Embedding Provider** — commit `d22b13f`
+- `vector_store.py`: 重构为三级 fallback 链: Ollama → OpenAI → sentence-transformers
+- `_try_openai()`: 支持 `OPENAI_API_KEY` + `OPENAI_EMBEDDING_MODEL` + `OPENAI_BASE_URL`
+- `get_provider()`: 返回当前 provider 名称
+- 测试: T15-1~5 共 5 个测试通过
+
+**累计**: 614/614 全量测试通过，新增 39 个测试
 
 ### 补齐状态更新
 
@@ -344,13 +361,13 @@ function isEvergreenMemoryPath(filePath: string): boolean {
 | GAP-1 Memory Flush | ✅ 完成 | `69571e8` |
 | GAP-2 向量缓存扩容 | ✅ 完成 | `69571e8` |
 | GAP-3 Markdown 记忆 | ✅ 完成 | `1fd8610` |
-| GAP-4 多 Provider | ⏳ 待做 (P2) | — |
+| GAP-4 多 Provider | ✅ 完成 | `d22b13f` |
 | GAP-5 Evergreen 豁免 | ✅ 完成 | `7068280` |
-| GAP-6 查询扩展 | ⏳ 待做 (P2) | — |
+| GAP-6 查询扩展 | ✅ 完成 | `9c3dab9` |
 
-**P0+P1 全部完成（4/6 GAP），剩余 P2 为锦上添花。**
+**全部 6/6 GAP 补齐完成。** 🎉
 
 ---
 
 *本报告基于 LucidMind commit rebuild/v2.0 和 OpenClaw openclaw-main 源码逐行审查。*
-*最后更新: 2026-03-01 12:30 — P0+P1 全部实施完成。*
+*最后更新: 2026-03-01 12:45 — 全部 6 个 GAP 实施完成。*
