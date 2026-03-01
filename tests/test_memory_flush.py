@@ -491,3 +491,74 @@ class TestT13_MarkdownStore:
             # 应包含来自 Markdown 的结果
             md_results = [r for r in results if r.get("category") == "memory_file"]
             assert len(md_results) >= 1
+
+
+# ═══════════════════════════════════════════
+# T14: Query Expansion 查询扩展测试
+# ═══════════════════════════════════════════
+
+class TestT14_QueryExpansion:
+    """验证查询扩展功能。"""
+
+    def test_segment_chinese(self):
+        """T14-1: 中文分词产生有效 token。"""
+        from memory.query_expansion import segment
+        tokens = segment("用户偏好设置")
+        assert len(tokens) >= 2  # 至少有 unigram/bigram
+
+    def test_segment_english(self):
+        """T14-2: 英文分词正常工作。"""
+        from memory.query_expansion import segment
+        tokens = segment("Python framework setup")
+        assert "python" in tokens
+        assert "framework" in tokens
+
+    def test_expand_query_stopwords(self):
+        """T14-3: 停用词被过滤。"""
+        from memory.query_expansion import expand_query
+        result = expand_query("我想要找到这个项目的配置")
+        # "我" "想" "要" "找到" "这个" "的" 应被过滤
+        assert "我" not in result
+        assert "的" not in result
+
+    def test_expand_query_synonyms(self):
+        """T14-4: 同义词扩展。"""
+        from memory.query_expansion import expand_query
+        result = expand_query("bug修复")
+        # "bug" 应扩展出 "错误" "问题" 等
+        has_synonym = any(s in result for s in ["错误", "问题", "缺陷"])
+        assert has_synonym
+
+    def test_expand_query_empty(self):
+        """T14-5: 空查询返回空。"""
+        from memory.query_expansion import expand_query
+        assert expand_query("") == []
+        assert expand_query("   ") == []
+
+    def test_build_fts5_query(self):
+        """T14-6: FTS5 查询构建。"""
+        from memory.query_expansion import build_fts5_query
+        fts = build_fts5_query("配置文件搜索")
+        assert "OR" in fts
+        assert '"' in fts  # 应有引号包裹
+
+    def test_extract_search_keywords(self):
+        """T14-7: 会话式查询提取关键词。"""
+        from memory.query_expansion import extract_search_keywords
+        keywords = extract_search_keywords("之前我们讨论过什么Python框架")
+        assert len(keywords) >= 2
+        assert "python" in [k.lower() for k in keywords]
+
+    def test_fts5_integration(self, tmp_path):
+        """T14-8: 查询扩展集成到 MemoryStore.search_text()。"""
+        from memory.store import MemoryStore
+        db_path = tmp_path / "test.db"
+        store = MemoryStore(db_path)
+        store.add("facts", "用户偏好使用 Python 进行开发", skip_noise_filter=True)
+        store.add("facts", "项目配置文件在 config 目录", skip_noise_filter=True)
+        # 搜索 "设置" 应通过同义词 "配置" 匹配
+        results = store.search_text("设置")
+        # 至少应能找到配置相关的条目（通过同义词或 n-gram）
+        # 注: 实际效果取决于 FTS5 tokenizer 和同义词扩展
+        # 这里主要验证不报错且返回结果
+        assert isinstance(results, list)

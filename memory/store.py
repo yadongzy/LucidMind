@@ -134,14 +134,18 @@ class MemoryStore:
         return mem_id
 
     def _fts5_query(self, query: str) -> str:
-        """将用户查询转换为 FTS5 兼容的查询语法。"""
-        # 去除 FTS5 特殊字符，拆分为词，用 OR 连接
-        import re
-        cleaned = re.sub(r'[^\w\s]', ' ', query)
-        terms = [t.strip() for t in cleaned.split() if t.strip()]
-        if not terms:
-            return query
-        return " OR ".join(f'"{t}"' for t in terms)
+        """将用户查询转换为 FTS5 兼容的查询语法（增强版: 分词+同义词扩展）。"""
+        try:
+            from memory.query_expansion import build_fts5_query
+            return build_fts5_query(query)
+        except Exception:
+            # 回退到基础实现
+            import re
+            cleaned = re.sub(r'[^\w\s]', ' ', query)
+            terms = [t.strip() for t in cleaned.split() if t.strip()]
+            if not terms:
+                return query
+            return " OR ".join(f'"{t}"' for t in terms)
 
     def search_text(self, query: str, collection: str | None = None,
                     limit: int = 6) -> list[MemoryResult]:
