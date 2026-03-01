@@ -239,4 +239,5 @@ def get_markdown_store() -> MarkdownMemoryStore:
     global _instance
     if _instance is None:
         _instance = MarkdownMemoryStore()
+        _instance.ensure_evergreen()
     return _instance
