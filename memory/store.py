@@ -195,8 +195,17 @@ class MemoryStore:
 
     def _fallback_search(self, query: str, collection: str | None,
                          limit: int) -> list[MemoryResult]:
-        """降级搜索: 使用 LIKE 模糊匹配（多词 OR）。"""
+        """降级搜索: 使用 LIKE 模糊匹配（多词 OR，支持 CJK 分词）。"""
         terms = [t.strip() for t in query.split() if t.strip()]
+        # CJK 文本无空格时用 segment 分词
+        if len(terms) <= 1 and len(query) >= 2:
+            try:
+                from memory.query_expansion import segment
+                seg_terms = [t for t in segment(query) if len(t) >= 2]
+                if seg_terms:
+                    terms = seg_terms
+            except Exception:
+                pass
         if not terms:
             terms = [query]
         like_clauses = " OR ".join(["content LIKE ?"] * len(terms))

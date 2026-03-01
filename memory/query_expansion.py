@@ -173,6 +173,7 @@ def build_fts5_query(query: str) -> str:
     - 分词后用 OR 连接
     - 加入同义词扩展
     - 对 CJK 文本用双引号包裹确保子串匹配
+    - trigram 安全: 只保留 3+ 字符的 token (SQLite trigram tokenizer 要求)
     """
     expanded = expand_query(query)
     if not expanded:
@@ -183,7 +184,12 @@ def build_fts5_query(query: str) -> str:
             return query
         return " OR ".join(f'"{t}"' for t in terms)
 
-    return " OR ".join(f'"{t}"' for t in expanded)
+    # trigram-safe: 过滤掉 <3 字符的 token（trigram tokenizer 无法匹配短 token）
+    trigram_safe = [t for t in expanded if len(t) >= 3]
+    if not trigram_safe:
+        # 所有 token 都太短，拼接为短语尝试匹配
+        trigram_safe = [query] if len(query) >= 3 else expanded
+    return " OR ".join(f'"{t}"' for t in trigram_safe)
 
 
 def extract_search_keywords(query: str) -> list[str]:

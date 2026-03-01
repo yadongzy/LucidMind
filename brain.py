@@ -82,6 +82,8 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, Brain
         self._session_user_map: dict[str, str] = {}  # session_id → user_id
         self._identity_mgr = get_user_identity_manager()
         self._profile_adapter = UserProfileAdapter()
+        self._session_msg_counter: dict[str, int] = {}  # P1: 消息计数器，用于空闲同步触发
+        self._SYNC_EVERY_N_MSGS = 20  # 每 N 条消息触发一次同步
         self._reload_soul_if_changed()
 
     _AB_STATS_PATH = Path(__file__).parent / "data" / "ab_stats.json"
@@ -128,6 +130,17 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, Brain
     def _current_user_id(self) -> str:
         """获取当前会话绑定的用户 ID。"""
         return self._session_user_map.get(self._current_sid, "default")
+
+    async def _idle_sync_and_cleanup(self, session_id: str) -> None:
+        """P1: 异步空闲同步 — 每 N 条消息触发一次 SyncManager + Curator。"""
+        try:
+            if hasattr(self.learning, "sync_if_idle"):
+                msgs = self._sessions.get(session_id, self._history)
+                await self.learning.sync_if_idle(session_id, msgs, llm=self.llm)
+            if hasattr(self.learning, "run_curator_cleanup"):
+                await self.learning.run_curator_cleanup()
+        except Exception as e:
+            logger.debug(f"[{session_id}] 空闲同步/清理跳过: {e}")
 
     async def switch_session(self, session_id: str) -> None:
         # BUG-3 fix: 切换前触发旧会话的 MemorySyncManager 提取
@@ -478,6 +491,10 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, Brain
         self._ab_stats[mode].append({"elapsed": round(elapsed, 2), "tokens": total_tokens, "response_len": len(content), "ts": time.time()})
         self._ab_stats[mode] = self._ab_stats[mode][-100:]; self._save_ab_stats()
         logger.info(f"[{session_id}] 回复完成(流式推送): {content[:80]}...")
+        # P1: 消息计数 → 空闲同步 + Curator 清理
+        self._session_msg_counter[session_id] = self._session_msg_counter.get(session_id, 0) + 1
+        if self._session_msg_counter[session_id] % self._SYNC_EVERY_N_MSGS == 0 and self.learning:
+            asyncio.create_task(self._idle_sync_and_cleanup(session_id))
         if len(self._history) > MAX_HISTORY_HARD_LIMIT:  # 安全截断：保护 tool_calls/tool 配对
             self._history = self._history[self._find_safe_cut_point(len(self._history)-50, len(self._history)-40):]
         try:

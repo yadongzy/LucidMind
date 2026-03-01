@@ -246,6 +246,39 @@ class MemoryStoreLearningAdapter(LearningPort):
             "updated_at": result.updated_at,
         }
 
+    async def run_curator_cleanup(self) -> dict[str, int]:
+        """P1: 运行 Curator 组合删除（周期性+历史性+质量清理）。
+
+        由 cron 或空闲检测调用，不在每次 learn() 中运行。
+        """
+        try:
+            from adapters.learning.memory_curator import curate
+            all_items = self.store.get_all(limit=500)
+            all_items = [r for r in all_items if r.collection != "observations"]
+            if len(all_items) < 30:
+                return {"skipped": True, "reason": "经验不足30条", "count": len(all_items)}
+            lessons = [self._to_lesson_dict(r) for r in all_items]
+            cleaned, stats = curate(lessons)
+            # 删除被移除的经验
+            cleaned_ids = {l["id"] for l in cleaned}
+            removed_ids = [l["id"] for l in lessons if l["id"] not in cleaned_ids]
+            for rid in removed_ids:
+                self.store.delete(rid)
+            if removed_ids:
+                logger.info(f"Curator 清理完成: 删除 {len(removed_ids)} 条, 保留 {len(cleaned)} 条")
+            return stats
+        except Exception as e:
+            logger.warning(f"Curator 清理失败: {e}")
+            return {"error": str(e)}
+
+    async def sync_if_idle(self, session_id: str, messages: list[dict], llm=None) -> int:
+        """P1: 空闲时触发 MemorySyncManager 提取（补充 switch_session 触发点）。"""
+        try:
+            return await self._sync_manager.on_session_end(session_id, messages, llm=llm)
+        except Exception as e:
+            logger.debug(f"空闲同步跳过: {e}")
+            return 0
+
     def close(self) -> None:
         """关闭底层 MemoryStore。"""
         self.store.close()

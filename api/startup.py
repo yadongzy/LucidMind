@@ -157,6 +157,22 @@ def init():
     reflection_adapter = JSONReflectionAdapter()
     IntrospectAdapter._learning_adapter = learning_adapter
 
+    # --- P0: 向量检索可用性探测 — 明确日志告知用户实际状态 ---
+    try:
+        from adapters.memory.vector_store import get_vector_store
+        _vs = get_vector_store()
+        if _vs.is_available():
+            _provider = _vs.get_provider()
+            _test_vec = _vs.embed("startup probe")
+            _dim = len(_test_vec) if _test_vec else 0
+            logger.info(f"✅ 向量检索已启用: provider={_provider}, dim={_dim}")
+        else:
+            logger.warning("⚠️ 向量检索不可用 — 记忆检索降级为纯 FTS5 文本搜索。"
+                           " 安装 Ollama 并拉取 nomic-embed-text 可启用语义搜索: "
+                           "ollama pull nomic-embed-text")
+    except Exception as e:
+        logger.warning(f"⚠️ 向量检索探测失败: {e}")
+
     # --- BUG-4 fix: 启动时将 Markdown 记忆文件索引到 MemoryStore ---
     try:
         from memory.markdown_store import get_markdown_store
@@ -178,6 +194,7 @@ def init():
     # --- Letta Memory Blocks ---
     block_manager = BlockManager()
     block_manager.ensure_defaults()
+    block_manager.sync_human_block_from_profile()  # P2: 自动填充 human block
     _memory_tool = MemoryToolAdapter(block_manager)
     tool_adapter._adapters.append(_memory_tool)
     tool_adapter._refresh()

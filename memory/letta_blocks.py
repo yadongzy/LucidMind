@@ -122,6 +122,28 @@ class BlockManager:
         if changed:
             self._save()
 
+    def sync_human_block_from_profile(self, user_id: str = "default") -> bool:
+        """P2: 从 UserProfile 自动同步 human block 内容。
+
+        仅在 human block 为空时填充，不覆盖用户手动设置的内容。
+        """
+        human = self._blocks.get("human")
+        if not human or human.value.strip():
+            return False  # 已有内容，不覆盖
+        try:
+            from adapters.memory.user_profile import UserProfileAdapter
+            profile_adapter = UserProfileAdapter()
+            prompt = profile_adapter.get_context_prompt(user_id)
+            if prompt and len(prompt) > 10:
+                human.value = prompt[:human.limit]
+                human.updated_at = time.time()
+                self._save()
+                logger.info(f"human block 已从 UserProfile 同步 ({len(prompt)} chars)")
+                return True
+        except Exception as e:
+            logger.debug(f"human block 同步跳过: {e}")
+        return False
+
     # ─── CRUD ───
 
     def get(self, name: str) -> MemoryBlock | None:
