@@ -23,6 +23,8 @@ from adapters.tools.discover import discover_tool_adapters
 from adapters.memory.json_memory import JSONMemoryAdapter
 from adapters.learning.memory_store_adapter import MemoryStoreLearningAdapter
 from adapters.tools.observed_tool import ObservedToolAdapter
+from adapters.tools.memory_tool import MemoryToolAdapter
+from memory.letta_blocks import BlockManager
 from adapters.reflection.json_reflection import JSONReflectionAdapter
 from adapters.learning.special_kb import SpecialKB
 from adapters.tools.mcp_client import MCPClientAdapter
@@ -140,7 +142,7 @@ def init():
     mcp_client = MCPClientAdapter()
     _builtin_tools.append(mcp_client)
     tool_adapter = CompositeToolAdapter(_builtin_tools)
-    _skill_tools = discover_skills()
+    _skill_tools = discover_skills(lazy=True)
     for _sa in _skill_tools:
         tool_adapter._adapters.append(_sa)
     tool_adapter._refresh()
@@ -152,6 +154,13 @@ def init():
     learning_adapter = MemoryStoreLearningAdapter()
     reflection_adapter = JSONReflectionAdapter()
     IntrospectAdapter._learning_adapter = learning_adapter
+
+    # --- Letta Memory Blocks ---
+    block_manager = BlockManager()
+    block_manager.ensure_defaults()
+    _memory_tool = MemoryToolAdapter(block_manager)
+    tool_adapter._adapters.append(_memory_tool)
+    tool_adapter._refresh()
 
     # --- P1#7: 工具观察装饰器 ---
     tool_adapter = ObservedToolAdapter(tool_adapter, observer=learning_adapter._tool_observer)

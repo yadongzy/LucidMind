@@ -218,6 +218,110 @@ def layer3_full_load(name: str) -> list[Any]:
         return []
 
 
+class LazyPluginAdapter:
+    """Layer 1/3 适配器：启动时提供 stub 工具定义，首次调用时加载完整代码。
+
+    实现 ToolPort 接口但不继承（避免循环导入），通过 duck typing 兼容 CompositeToolAdapter。
+    """
+
+    def __init__(self, meta: PluginMeta):
+        self._meta = meta
+        self._loaded = False
+        self._real_adapters: list[Any] = []
+        self._tool_map: dict[str, Any] = {}
+
+    def list_tools(self) -> list[dict[str, Any]]:
+        """返回工具定义：已加载时返回真实定义，否则返回 stub。"""
+        if self._loaded and self._real_adapters:
+            tools = []
+            for a in self._real_adapters:
+                tools.extend(a.list_tools())
+            return tools
+        # Stub: 从 manifest 生成最小工具定义
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": tn,
+                    "description": f"[{self._meta.name}] {self._meta.description}",
+                    "parameters": {"type": "object", "properties": {}, "required": []},
+                },
+            }
+            for tn in self._meta.tool_names
+        ]
+
+    async def execute(self, tool_name: str, params: dict[str, Any],
+                      **kwargs) -> dict[str, Any]:
+        """执行工具：首次调用触发 Layer 3 加载。"""
+        if not self._loaded:
+            self._do_load()
+        adapter = self._tool_map.get(tool_name)
+        if not adapter:
+            return {"success": False, "result": None,
+                    "error": f"工具 {tool_name} 在插件 {self._meta.name} 中未找到"}
+        return await adapter.execute(tool_name, params, **kwargs)
+
+    def _do_load(self) -> None:
+        """触发 Layer 3 完整加载。"""
+        t0 = time.time()
+        adapters = layer3_full_load(self._meta.name)
+        self._real_adapters = adapters
+        for a in adapters:
+            for td in a.list_tools():
+                self._tool_map[td["function"]["name"]] = a
+        self._loaded = True
+        elapsed = (time.time() - t0) * 1000
+        logger.info(f"⚡ 懒加载触发: {self._meta.name} ({elapsed:.0f}ms) → {list(self._tool_map.keys())}")
+
+    @property
+    def is_lazy(self) -> bool:
+        return True
+
+    @property
+    def is_loaded(self) -> bool:
+        return self._loaded
+
+
+def discover_skills_lazy() -> list["LazyPluginAdapter"]:
+    """懒加载模式：Layer 1 扫描 + 为每个可用插件创建 LazyPluginAdapter。
+
+    不加载任何 Python 代码，返回的 adapter 在首次 execute() 时触发加载。
+    prompt 型技能直接读取 SKILL.md（无需懒加载）。
+    """
+    from skills.registry import _registry
+    metas = layer1_scan()
+    lazy_adapters: list[LazyPluginAdapter] = []
+
+    for name, meta in metas.items():
+        if meta.status not in ("registered",):
+            # disabled / platform_skip / error → 写入旧 registry 保持兼容
+            _registry[name] = {**meta._manifest_raw, "status": meta.status, "adapters": []}
+            continue
+
+        kind = meta._manifest_raw.get("kind", "code")
+
+        # prompt 型：直接读取 SKILL.md，不需要懒加载
+        if kind == "prompt":
+            from skills.discovery import _load_prompt_skill
+            prompt_data = _load_prompt_skill(meta.path, meta._manifest_raw)
+            if prompt_data:
+                _registry[name] = {**meta._manifest_raw, "status": "loaded", "kind": "prompt",
+                                   "adapters": [], **prompt_data}
+                logger.info(f"✅ 加载知识技能: {name} v{meta.version} [📄prompt]")
+            continue
+
+        # code / hybrid 型：创建 LazyPluginAdapter
+        adapter = LazyPluginAdapter(meta)
+        lazy_adapters.append(adapter)
+        _registry[name] = {
+            **meta._manifest_raw, "status": "registered", "adapters": [adapter],
+            "tools_actual": meta.tool_names, "kind": kind, "lazy": True,
+        }
+
+    logger.info(f"🎯 懒加载模式: {len(lazy_adapters)} 个插件 (Layer 1 only)")
+    return lazy_adapters
+
+
 def find_plugin_by_tool(tool_name: str) -> str | None:
     """根据工具名查找对应的插件（用于懒加载）。"""
     for name, meta in _meta_registry.items():

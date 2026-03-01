@@ -60,10 +60,13 @@ class CompositeToolAdapter(ToolPort):
 
     async def execute(self, tool_name: str, params: dict[str, Any],
                       session_id: str = "") -> dict[str, Any]:
-        """路由到对应的适配器执行（经过安全审批 + 诊断记录）。"""
+        """路由到对应的适配器执行（经过安全审批 + 诊断记录 + 懒加载）。"""
         import time as _time
         _t0 = _time.time()
         adapter = self._tool_map.get(tool_name)
+        if not adapter:
+            # 懒加载 fallback：检查 loader 注册表中是否有未加载的匹配插件
+            adapter = self._try_lazy_load(tool_name)
         if not adapter:
             self._record_diagnostic(tool_name, "failure", 0, "未知工具", session_id=session_id)
             return {"success": False, "result": None, "error": f"未知工具: {tool_name}"}
@@ -84,6 +87,28 @@ class CompositeToolAdapter(ToolPort):
         error = result.get("error") if not result.get("success") else None
         self._record_diagnostic(tool_name, status, duration, error, session_id=session_id)
         return result
+
+    def _try_lazy_load(self, tool_name: str):
+        """尝试从 loader 注册表中找到并加载包含该工具的插件。"""
+        try:
+            from skills.loader import find_plugin_by_tool, layer3_full_load, get_meta_registry
+            plugin_name = find_plugin_by_tool(tool_name)
+            if not plugin_name:
+                return None
+            meta_reg = get_meta_registry()
+            meta = meta_reg.get(plugin_name)
+            if not meta or meta.status not in ("registered",):
+                return None
+            adapters = layer3_full_load(plugin_name)
+            if adapters:
+                for a in adapters:
+                    if a not in self._adapters:
+                        self._adapters.append(a)
+                self._rebuild_map()
+                return self._tool_map.get(tool_name)
+        except Exception as e:
+            logger.debug(f"懒加载失败 [{tool_name}]: {e}")
+        return None
 
     @staticmethod
     def _record_diagnostic(tool_name: str, status: str, duration_ms: float,

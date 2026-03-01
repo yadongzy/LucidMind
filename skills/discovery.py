@@ -53,14 +53,20 @@ def _load_prompt_skill(sub_dir, manifest: dict) -> dict | None:
         return None
 
 
-def discover_skills() -> list[Any]:
+def discover_skills(lazy: bool = False) -> list[Any]:
     """扫描 skills/ 目录，加载所有插件（manifest目录 + 旧格式单文件）。
+
+    Args:
+        lazy: 为 True 时使用三层懒加载架构（Layer 1 only，首次调用时加载代码）
 
     支持三种 kind：
     - "code"（默认）：加载 Python Adapter，提供可执行工具
     - "prompt"：只读取 SKILL.md，注入 LLM context 作为知识
     - "hybrid"：既加载代码又读取 SKILL.md
     """
+    if lazy:
+        from skills.loader import discover_skills_lazy
+        return discover_skills_lazy()
     _registry.clear()
     all_adapters = []
     current_platform = platform.system().lower()

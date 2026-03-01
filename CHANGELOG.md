@@ -4,6 +4,41 @@
 
 ---
 
+## v3.1.0 (2026-03-01) — Phase A/B/C/D 工程深度提升
+
+### Phase A: 安全修复
+- **ToolSafetyGuard 闭环**: `CompositeToolAdapter.execute()` 执行前经过安全审批链
+- **路径穿越防护**: `_validate_plugin_name()` 正则+resolve 双重校验
+- **HTTP 错误码规范**: API 端点统一使用 400/404/500 标准错误码
+
+### Phase B: 插件三层加载
+- **`skills/loader.py`**: `LazyPluginAdapter` — 启动时只读 manifest (Layer 1)，首次调用时加载代码 (Layer 3)
+- **`discover_skills(lazy=True)`**: 懒加载模式，启动时不加载任何插件 Python 代码
+- **`CompositeToolAdapter._try_lazy_load()`**: 未知工具自动触发懒加载 fallback
+- **SKILL.md**: 新增 clipboard、web_monitor 文档（共 6 个插件有 SKILL.md）
+
+### Phase C: 安全体系化
+- **`discovery_safety.py`**: 5 项安全检查（路径逃逸/符号链接/权限/所有权/文件大小）
+- **`skill_scanner.py`**: 16 种危险模式扫描 + 扫描历史持久化
+- **`mcp_transport.py`**: MCP Server 配置安全验证（命令白名单/shell元字符/受保护环境变量/URL协议）
+- **`api/security.py`**: `POST /scan/{plugin}` + `GET /scan-history` API
+
+### Phase D: Letta 增量模式
+- **`memory/letta_blocks.py`**: `MemoryBlock` + `BlockManager` — 命名记忆块 + 字符限制 + 受保护块 + Block 分裂
+- **`adapters/tools/memory_tool.py`**: `MemoryToolAdapter` — Agent 自主记忆管理工具 (memory_read/write/append)
+- **Block 分裂**: 大块自动按段落拆为子块 (project → project-overview/details/notes)
+- **`format_for_prompt()`**: XML 标签格式注入 system prompt
+
+### 测试结果
+- 全量: **535/535 passed** (较 v2.02 增加 48 个新测试)
+- test_phase0_safety.py: 19/19
+- test_three_layer_loader.py: 17/17
+- test_phase2_security.py: 25/25
+- test_letta_blocks.py: 31/31
+- 退化: 0
+
+---
+
 ## v2.02 (2026-03-01) — 记忆系统 P0+P1 最优方案实施
 
 ### 新增
