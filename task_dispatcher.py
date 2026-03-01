@@ -19,9 +19,6 @@ from task_dispatcher_utils import (
 
 logger = get_logger("dispatcher")
 
-# ═══════════════════════════════════════════════
-# 通知钩子：外部订阅任务变更事件
-# ═══════════════════════════════════════════════
 _notify_hooks: list = []
 
 def register_notify_hook(hook):
@@ -35,11 +32,6 @@ def _notify(event: str, task: dict):
             hook(event, task)
         except Exception as e:
             logger.debug(f"通知钩子异常: {e}")
-
-
-# ═══════════════════════════════════════════════
-# 入队：信息分类（三层闸门第1层）
-# ═══════════════════════════════════════════════
 
 def enqueue(
     content: str,
@@ -126,11 +118,6 @@ def enqueue_learning(content: str, priority: str = "L2",
     return enqueue(content, task_type="learn", priority=priority,
                    source=source, parent_id=parent_id, timeout_s=180)
 
-
-# ═══════════════════════════════════════════════
-# 出队：取最高优先级任务
-# ═══════════════════════════════════════════════
-
 _PRIORITY_ORDER = {
     "P0": 0, "P1": 1, "P2": 2, "P3": 3,
     "L0": 4, "L1": 5, "L2": 6, "L3": 7,
@@ -163,11 +150,6 @@ def dequeue() -> Optional[dict]:
     _save_store(store)
     logger.info(f"🎯 出队: {chosen['id']} priority={chosen['priority']} content={chosen['content'][:40]}")
     return chosen
-
-
-# ═══════════════════════════════════════════════
-# 状态流转
-# ═══════════════════════════════════════════════
 
 def update_task_progress(task_id: str, progress: str):
     """推送任务执行中间状态（对标 OpenClaw onAgentEvent 实时推送）。"""

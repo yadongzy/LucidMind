@@ -62,7 +62,7 @@ class TestT10_MemoryFlush:
             {"role": "assistant", "content": "项目使用 Python 3.12"},
         ]
 
-        with patch("brain_resilience._MEMORY_DIR", tmp_memory_dir):
+        with patch("brain_compact._MEMORY_DIR", tmp_memory_dir):
             await mixin._memory_flush_before_compact("test_session", old_msgs)
 
         # 验证 Markdown 文件写入
@@ -82,7 +82,7 @@ class TestT10_MemoryFlush:
             {"role": "assistant", "content": "好的，我来帮你实现"},
         ]
 
-        with patch("brain_resilience._MEMORY_DIR", tmp_memory_dir):
+        with patch("brain_compact._MEMORY_DIR", tmp_memory_dir):
             await mixin._memory_flush_before_compact("test_session", old_msgs)
 
         md_files = list(tmp_memory_dir.glob("*.md"))
@@ -101,7 +101,7 @@ class TestT10_MemoryFlush:
             {"role": "assistant", "content": "好的，我会用中文回答"},
         ]
 
-        with patch("brain_resilience._MEMORY_DIR", tmp_memory_dir):
+        with patch("brain_compact._MEMORY_DIR", tmp_memory_dir):
             await mixin._memory_flush_before_compact("s1", old_msgs)
             await mixin._memory_flush_before_compact("s2", old_msgs)
 
@@ -116,7 +116,7 @@ class TestT10_MemoryFlush:
         """T10-4: 空消息列表不写入。"""
         mixin = self._make_brain_mixin()
 
-        with patch("brain_resilience._MEMORY_DIR", tmp_memory_dir):
+        with patch("brain_compact._MEMORY_DIR", tmp_memory_dir):
             await mixin._memory_flush_before_compact("test", [])
             await mixin._memory_flush_before_compact("test", [
                 {"role": "tool", "content": "some tool output"}
@@ -137,7 +137,7 @@ class TestT10_MemoryFlush:
             {"role": "assistant", "content": "构建一个AI助手"},
         ]
 
-        with patch("brain_resilience._MEMORY_DIR", tmp_memory_dir):
+        with patch("brain_compact._MEMORY_DIR", tmp_memory_dir):
             await mixin._memory_flush_before_compact("test", old_msgs)
 
         # 验证 memory.save 被调用

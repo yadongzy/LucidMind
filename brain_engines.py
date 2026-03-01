@@ -23,10 +23,6 @@ _DATA = Path(__file__).parent / "data"
 _DAILY_FILE = _DATA / "daily_log.json"
 
 
-# ═══════════════════════════════════════════════
-# 1. 自检引擎
-# ═══════════════════════════════════════════════
-
 class SelfCheckEngine:
     """自检引擎 — 每日轻量自检 + 每月全量自检。"""
 
@@ -131,21 +127,12 @@ class SelfCheckEngine:
         logger.info(f"🔍 每月全量自检完成: {len(issues)}个问题")
         return issues
 
-
-# ═══════════════════════════════════════════════
-# 3. 每日任务引擎
-# ═══════════════════════════════════════════════
-
 def _load_daily() -> dict:
-    if _DAILY_FILE.exists():
-        try: return json.loads(_DAILY_FILE.read_text("utf-8"))
-        except Exception: pass
-    return {}
+    try: return json.loads(_DAILY_FILE.read_text("utf-8")) if _DAILY_FILE.exists() else {}
+    except Exception: return {}
 
 def _save_daily(data: dict):
-    _DATA.mkdir(exist_ok=True)
-    _DAILY_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), "utf-8")
-
+    _DATA.mkdir(exist_ok=True); _DAILY_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), "utf-8")
 
 class DailyRoutineEngine:
     """每日任务引擎 — 5项必做，完成才进入下一天。"""
@@ -180,14 +167,10 @@ class DailyRoutineEngine:
         data = self._get_today_log()
         tasks = data.get("tasks", {})
         report = []
-
         # 1. 前一天任务总结
         if not tasks.get("yesterday_summary"):
-            note = f"[{self._today()}] 每日任务总结已执行"
-            data.setdefault("notes", []).append(note)
-            tasks["yesterday_summary"] = True
-            report.append("📝 前日任务总结")
-
+            data.setdefault("notes", []).append(f"[{self._today()}] 每日任务总结已执行")
+            tasks["yesterday_summary"] = True; report.append("📝 前日任务总结")
         # 2. 前一天学习总结
         if not tasks.get("yesterday_learning"):
             lesson_count = 0
@@ -197,22 +180,15 @@ class DailyRoutineEngine:
                     lesson_count = len(lessons)
                 except Exception: pass
             data.setdefault("notes", []).append(f"经验库: {lesson_count}条")
-            tasks["yesterday_learning"] = True
-            report.append(f"📚 学习总结(经验{lesson_count}条)")
-
+            tasks["yesterday_learning"] = True; report.append(f"📚 学习总结(经验{lesson_count}条)")
         # 3. 今日规划
         if not tasks.get("today_plan"):
             open_count = len(get_open_issues())
-            plan = f"今日待解决问题: {open_count}个"
-            data.setdefault("notes", []).append(plan)
-            tasks["today_plan"] = True
-            report.append(f"📋 今日规划({open_count}个问题)")
-
+            data.setdefault("notes", []).append(f"今日待解决问题: {open_count}个")
+            tasks["today_plan"] = True; report.append(f"📋 今日规划({open_count}个问题)")
         # 4. 每日轻量自检（由 SelfCheckEngine 执行）
         if not tasks.get("daily_check"):
-            tasks["daily_check"] = True
-            report.append("🔍 每日自检已标记")
-
+            tasks["daily_check"] = True; report.append("🔍 每日自检已标记")
         # 5. 报警/未解决问题复查
         if not tasks.get("issue_review"):
             open_issues = get_open_issues()
@@ -231,10 +207,6 @@ class DailyRoutineEngine:
             logger.info(f"📅 每日任务: {'; '.join(report)}")
         return report
 
-
-# ═══════════════════════════════════════════════
-# 5. 定时学习引擎
-# ═══════════════════════════════════════════════
 
 class LearningEngine:
     """定时学习引擎 — 3:00-6:00 或空闲时深度学习。"""
