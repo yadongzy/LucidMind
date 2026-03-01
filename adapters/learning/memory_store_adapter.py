@@ -131,6 +131,8 @@ class MemoryStoreLearningAdapter(LearningPort):
         """混合检索经验: FTS5 + 向量 + ACE 反馈加权 + Core Block 直注。"""
         if not context:
             all_items = self.store.get_all(limit=limit)
+            # 排除 observations（工具调用日志），只返回真正的经验
+            all_items = [r for r in all_items if r.collection != "observations"]
             return [self._to_lesson_dict(r) for r in all_items]
 
         # P1#6: Core Block 直注 — 高频记忆始终置顶

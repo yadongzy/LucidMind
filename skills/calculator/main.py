@@ -44,7 +44,7 @@ class CalculatorAdapter(ToolPort):
 
     async def execute(self, tool_name: str, params: dict[str, Any]) -> dict[str, Any]:
         if tool_name == "calc":
-            return self._calc(params.get("expression", ""))
+            return self._calc(params.get("expression") or params.get("expr", ""))
         elif tool_name == "unit_convert":
             return self._convert(params.get("value", 0), params.get("from_to", ""))
         return {"success": False, "error": f"未知工具: {tool_name}"}
