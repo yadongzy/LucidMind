@@ -32,10 +32,12 @@ except ImportError:
 class MemoryStore:
     """SQLite + FTS5 + 可选向量存储后端。"""
 
-    def __init__(self, db_path: Path, embedding_dim: int = 768):
+    def __init__(self, db_path: Path, embedding_dim: int = 768,
+                 embed_fn: "Callable[[str], list[float] | None] | None" = None):
         self.db_path = Path(db_path)
         self.embedding_dim = embedding_dim
         self._vec_enabled = _VEC_AVAILABLE
+        self._embed_fn = embed_fn
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(str(self.db_path))
         self.db.row_factory = sqlite3.Row
@@ -88,8 +90,13 @@ class MemoryStore:
         self.db.commit()
 
     def add(self, collection: str, content: str, embedding: list[float] | None = None,
-            metadata: dict | None = None) -> str:
+            metadata: dict | None = None, skip_noise_filter: bool = False) -> str:
         """添加一条记忆。"""
+        if not skip_noise_filter:
+            from memory.noise_filter import is_noise
+            if is_noise(content):
+                logger.info(f"噪声过滤: 跳过存储 ({content[:50]}...)")
+                return ""
         mem_id = f"mem_{uuid.uuid4().hex[:12]}"
         now = datetime.now(timezone.utc).isoformat()
         meta_json = json.dumps(metadata or {}, ensure_ascii=False)
@@ -106,7 +113,12 @@ class MemoryStore:
             )
         except Exception:
             pass
-        # 向量
+        # 向量: 优先用外部传入，否则自动生成
+        if self._vec_enabled and not embedding and self._embed_fn:
+            try:
+                embedding = self._embed_fn(content[:512])
+            except Exception as e:
+                logger.debug(f"自动 embedding 失败: {e}")
         if self._vec_enabled and embedding:
             try:
                 import struct
@@ -267,6 +279,7 @@ class MemoryStore:
         """Multi-Stage Hybrid Retrieval Pipeline.
 
         管线阶段:
+        0. 自适应跳过: 简单问候/命令直接返回空
         1. 并行检索: Vector Search + FTS5 BM25
         2. RRF 融合: 向量分数为基底，FTS5 命中给 15% 加成
         3. Recency Boost: 新记忆加分 (指数衰减 + 加性)
@@ -276,11 +289,22 @@ class MemoryStore:
         7. Hard Min Score: 最终过滤
         8. MMR Diversity: 去重近似条目
         """
+        # Stage 0: 自适应跳过
+        from memory.noise_filter import should_skip_retrieval
+        if should_skip_retrieval(query_text):
+            logger.debug(f"自适应跳过检索: {query_text[:40]}")
+            return []
+
         candidate_pool = max(limit * 4, 20)
 
         # Stage 1: 并行检索
         text_results = self.search_text(query_text, collection, limit=candidate_pool)
         vec_results = []
+        if not query_embedding and self._vec_enabled and self._embed_fn:
+            try:
+                query_embedding = self._embed_fn(query_text[:512])
+            except Exception as e:
+                logger.debug(f"查询 embedding 失败: {e}")
         if query_embedding and self._vec_enabled:
             vec_results = self.search_vector(query_embedding, collection,
                                              limit=candidate_pool, min_score=0.1)
@@ -645,7 +669,8 @@ class MemoryStore:
                 meta.setdefault("source_sessions", [])
                 if meta.get("source_session"):
                     meta["source_sessions"].append(meta["source_session"])
-                self.add(collection, content, embedding=embedding, metadata=meta)
+                self.add(collection, content, embedding=embedding, metadata=meta,
+                         skip_noise_filter=True)
                 appended += 1
 
         # Prune: 清理 harmful > helpful 的条目
@@ -743,6 +768,90 @@ class MemoryStore:
         if collapsed:
             logger.warning(f"⚠️ Context collapse 检测: {before} → {after} (下降 {drop_pct:.1%})")
         return {"collapsed": collapsed, "before_count": before, "after_count": after, "drop_pct": drop_pct}
+
+    # ── 自动备份 (P0) ──────────────────────────────────────────────
+
+    def backup_jsonl(self, backup_dir: Path | str | None = None,
+                     max_backups: int = 7) -> Path | None:
+        """将所有记忆导出为 JSONL 备份文件。
+
+        Args:
+            backup_dir: 备份目录，默认为 db_path 同级的 backups/
+            max_backups: 保留最近 N 个备份文件
+
+        Returns:
+            备份文件路径，失败返回 None
+        """
+        backup_dir = Path(backup_dir) if backup_dir else self.db_path.parent / "backups"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        backup_file = backup_dir / f"memory_backup_{timestamp}.jsonl"
+
+        try:
+            rows = self.db.execute(
+                "SELECT id, collection, content, metadata_json, created_at, updated_at FROM memories"
+            ).fetchall()
+
+            with open(backup_file, "w", encoding="utf-8") as f:
+                for row in rows:
+                    record = {
+                        "id": row["id"],
+                        "collection": row["collection"],
+                        "content": row["content"],
+                        "metadata": json.loads(row["metadata_json"]),
+                        "created_at": row["created_at"],
+                        "updated_at": row["updated_at"],
+                    }
+                    f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+            logger.info(f"备份完成: {backup_file} ({len(rows)} 条记忆)")
+
+            # 清理旧备份
+            existing = sorted(backup_dir.glob("memory_backup_*.jsonl"))
+            if len(existing) > max_backups:
+                for old in existing[:-max_backups]:
+                    old.unlink()
+                    logger.debug(f"清理旧备份: {old.name}")
+
+            return backup_file
+        except Exception as e:
+            logger.error(f"备份失败: {e}")
+            return None
+
+    def backfill_embeddings(self, batch_size: int = 10) -> int:
+        """渐进回填缺失的向量 embedding（每次只处理 batch_size 条，适合 cron 调用）。
+
+        Returns:
+            本次回填的条数
+        """
+        if not self._vec_enabled or not self._embed_fn:
+            return 0
+        try:
+            import struct
+            existing = set(r[0] for r in self.db.execute("SELECT id FROM memory_vectors").fetchall())
+            missing = self.db.execute(
+                "SELECT id, content FROM memories ORDER BY created_at DESC"
+            ).fetchall()
+            filled = 0
+            for row in missing:
+                if row["id"] in existing:
+                    continue
+                vec = self._embed_fn(row["content"][:512])
+                if vec:
+                    blob = struct.pack(f"{len(vec)}f", *vec)
+                    self.db.execute("INSERT INTO memory_vectors (id, embedding) VALUES (?,?)",
+                                   (row["id"], blob))
+                    filled += 1
+                if filled >= batch_size:
+                    break
+            if filled:
+                self.db.commit()
+                logger.info(f"向量回填: {filled} 条 (剩余 {len(missing) - len(existing) - filled})")
+            return filled
+        except Exception as e:
+            logger.warning(f"向量回填失败: {e}")
+            return 0
 
     def close(self) -> None:
         """关闭数据库连接。"""

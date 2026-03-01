@@ -20,6 +20,8 @@ from ports.learning_port import LearningPort
 from memory.store import MemoryStore
 from memory.types import MemoryConfig
 from memory.config import load_config
+from memory.block_inject import CoreMemoryBlock
+from memory.tool_observer import ToolObserver
 from adapters.memory.vector_store import get_vector_store
 from logs import get_logger
 
@@ -76,8 +78,12 @@ class MemoryStoreLearningAdapter(LearningPort):
         self.config = config or load_config()
         self.db_path = db_path or _DEFAULT_DB_PATH
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self.store = MemoryStore(self.db_path, embedding_dim=self.config.embedding_dim)
         self._vec_store = get_vector_store()
+        embed_fn = self._vec_store.embed if self._vec_store.is_available() else None
+        self.store = MemoryStore(self.db_path, embedding_dim=self.config.embedding_dim,
+                                 embed_fn=embed_fn)
+        self._core_block = CoreMemoryBlock(self.store, max_items=5)
+        self._tool_observer = ToolObserver(self.store)
         logger.info(f"MemoryStoreLearningAdapter 初始化: {self.db_path} (条目={self.store.count()}, vec={self._vec_store.is_available()})")
 
     async def learn(self, experience: dict[str, Any]) -> None:
@@ -122,22 +128,27 @@ class MemoryStoreLearningAdapter(LearningPort):
             logger.info(f"新经验: tier={tier}, trigger='{trigger[:50]}' → {collection}")
 
     async def get_lessons(self, context: str, limit: int = 3) -> list[dict[str, Any]]:
-        """混合检索经验: FTS5 + 向量 + ACE 反馈加权。"""
+        """混合检索经验: FTS5 + 向量 + ACE 反馈加权 + Core Block 直注。"""
         if not context:
             all_items = self.store.get_all(limit=limit)
             return [self._to_lesson_dict(r) for r in all_items]
+
+        # P1#6: Core Block 直注 — 高频记忆始终置顶
+        core_items = self._core_block.get_items()
+        core_ids = {item.id for item in core_items}
 
         # 向量嵌入（ISS-017: 接入 Ollama embedding）
         query_embedding = self._vec_store.embed(context) if self._vec_store.is_available() else None
 
         # 混合搜索（跨 lessons + facts + skills 集合）
+        search_limit = max(limit * 3, limit + len(core_items))
         results = self.store.search_hybrid(
             query_text=context,
             query_embedding=query_embedding,
             collection=None,  # 跨集合搜索
             vector_weight=self.config.vector_weight,
             text_weight=self.config.text_weight,
-            limit=limit * 3,
+            limit=search_limit,
             min_score=0.0,  # 不过滤，让下面的加权处理
         )
 
@@ -152,13 +163,18 @@ class MemoryStoreLearningAdapter(LearningPort):
             if applied > 10:
                 r.score *= 0.8
 
-        # 排序并截取
+        # 排序并截取（排除已在 core block 中的条目）
         results.sort(key=lambda r: r.score, reverse=True)
-        lessons = [self._to_lesson_dict(r) for r in results[:limit]]
+        search_lessons = [r for r in results if r.id not in core_ids]
+
+        # 合并: Core Block 置顶 + 搜索结果填充
+        combined = list(core_items) + search_lessons
+        lessons = [self._to_lesson_dict(r) for r in combined[:limit]]
 
         if lessons:
             tiers = [l.get("tier", "?") for l in lessons]
-            logger.info(f"检索到 {len(lessons)} 条经验 tiers={tiers} (context='{context[:50]}')")
+            core_count = min(len(core_items), limit)
+            logger.info(f"检索到 {len(lessons)} 条经验 (core={core_count}) tiers={tiers} (context='{context[:50]}')")
         return lessons
 
     async def mark_applied(self, lesson_id: str) -> None:

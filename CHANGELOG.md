@@ -4,6 +4,43 @@
 
 ---
 
+## v2.02 (2026-03-01) — 记忆系统 P0+P1 最优方案实施
+
+### 新增
+- **噪声过滤模块** (`memory/noise_filter.py`): 3类过滤(agent拒绝/寒暄/错误噪声) + CJK感知长度检查 + 自适应检索跳过
+- **核心记忆Block直注** (`memory/block_inject.py`): 高频记忆(helpful≥2/用户偏好)直注prompt顶部，5分钟缓存，零搜索延迟（对标Letta memory blocks）
+- **工具级观察采集** (`memory/tool_observer.py`): 记录tool_name/input/output/success/duration，每会话限流50条，失败模式分析（对标claude-mem observation）
+- **两阶段提取器** (`memory/two_stage_extractor.py`): Stage1 LLM提取事实/偏好/教训 → Stage2 对比已有记忆决策ADD/UPDATE/DELETE/SKIP（对标mem0 add()）
+- **自动备份JSONL** (`memory/store.py`): `backup_jsonl()` 方法，7天轮转
+- **sqlite-vec向量搜索**: `requirements.txt` 添加 sqlite-vec>=0.1.6，8阶段管线向量阶段激活
+- **测试**: `tests/test_noise_filter.py` (25个) + `tests/test_p1_enhancements.py` (32个)
+
+### 修复
+- **harmful反馈通路**: `brain_learning.py` L92 — `update_effectiveness(lid, effective)` 替代原来只传True的bug，harmful_count不再永远为0
+
+### 变更
+- **search_hybrid()**: 新增 Stage 0 自适应跳过（问候/简单命令直接返回空）
+- **store.add()**: 新增 `skip_noise_filter` 参数，merge_deltas内部跳过过滤
+- **reflect_on_session()**: 新增 `store`/`use_two_stage` 参数，支持两阶段模式
+- **MemoryStoreLearningAdapter**: 集成CoreMemoryBlock(get_lessons置顶) + ToolObserver
+- **memory/__init__.py**: 导出 CoreMemoryBlock, ToolObserver, TwoStageExtractor
+
+### 激活与集成
+- **ACE 全面激活**: `cli.py` + `adapters/tools/introspect.py` 切换到 MemoryStoreLearningAdapter（api/startup.py 此前已切换）
+- **工具观察装饰器**: `adapters/tools/observed_tool.py` (新建78行) — ObservedToolAdapter 包装所有工具调用
+- **api/startup.py**: 工具链增加 ObservedToolAdapter 装饰层，自动采集每次 tool call
+- **brain_daemon.py**: _run_engines_inner() 第5步增加自动备份 + 向量回填 cron
+- **embedding 管线打通**: `store.py` 新增 `embed_fn` 回调注入 + `add()` 自动生成向量 + `backfill_embeddings()` 渐进回填
+- **adapter 注入 Ollama embed**: `memory_store_adapter.py` 初始化时将 `VectorStore.embed` 注入 MemoryStore
+- **88条记忆全部向量化**: `memory_vectors` 表从 0 行回填至 88 行，search_hybrid 向量路径真正生效
+
+### 测试结果
+- 全量: **487/487 passed** (较上版本 455 增加 32 个新测试)
+- 新增: test_noise_filter.py 25/25 + test_p1_enhancements.py 32/32
+- 退化: 0
+
+---
+
 ## v1.7 (2026-02-26) — 模型切换 + 记忆优化 + 自动构建 + pip 打包
 
 ### 修复

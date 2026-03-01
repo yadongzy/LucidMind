@@ -149,7 +149,8 @@ _REFINE_SYSTEM = (
 
 
 async def reflect_on_session(messages: list[dict], tool_results: list[dict] | None = None,
-                              llm: Any = None, max_refine_rounds: int = 3) -> list[dict]:
+                              llm: Any = None, max_refine_rounds: int = 3,
+                              store: Any = None, use_two_stage: bool = False) -> list[dict]:
     """ACE Reflector: 从执行轨迹中提炼结构化 delta bullets。
 
     三步流程:
@@ -157,17 +158,34 @@ async def reflect_on_session(messages: list[dict], tool_results: list[dict] | No
     2. 多轮 refinement 精炼
     3. 输出结构化 delta bullets
 
+    P1#8: 当 use_two_stage=True 且有 LLM+store 时，使用两阶段提取模式。
+
     Args:
         messages: 对话消息列表
         tool_results: 工具执行结果列表 [{"tool": str, "success": bool, "result": str, "error": str}]
         llm: LLM 实例（可选，无则回退规则提取）
         max_refine_rounds: 最大精炼轮数
+        store: MemoryStore 实例（两阶段模式需要）
+        use_two_stage: 是否使用两阶段提取模式
 
     Returns:
         list of delta bullets: [{"content": str, "collection": str, "metadata": dict}]
     """
     if not messages:
         return []
+
+    # P1#8: 两阶段模式（有 LLM + store 时可选启用）
+    if use_two_stage and llm and store:
+        try:
+            from memory.two_stage_extractor import TwoStageExtractor
+            extractor = TwoStageExtractor(store)
+            decisions = await extractor.extract_and_decide(messages, llm=llm)
+            stats = await extractor.apply_decisions(decisions)
+            logger.info(f"两阶段提取完成: {stats}")
+            # 返回空 deltas（已直接写入 store，无需外部 merge）
+            return []
+        except Exception as e:
+            logger.warning(f"两阶段提取失败，回退单阶段: {e}")
 
     # Step 1: 提取初始策略
     raw_lessons = []

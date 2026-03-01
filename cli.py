@@ -120,7 +120,7 @@ def _cmd_chat(args):
     from adapters.tools.search_files import SearchFilesAdapter
     from adapters.tools.composite import CompositeToolAdapter
     from adapters.memory.json_memory import JSONMemoryAdapter
-    from adapters.learning.json_lessons import JSONLessonsAdapter
+    from adapters.learning.memory_store_adapter import MemoryStoreLearningAdapter
 
     print("=" * 50)
     print("  LucidMind CLI v1.7")
@@ -134,7 +134,7 @@ def _cmd_chat(args):
         ShellAdapter(), FileAdapter(), WebSearchAdapter(), SearchFilesAdapter(),
     ])
     memory = JSONMemoryAdapter()
-    learning = JSONLessonsAdapter()
+    learning = MemoryStoreLearningAdapter()
 
     brain = Brain(llm=llm, stream=stream, tools=tools, memory=memory, learning=learning)
     session_id = "cli_session"

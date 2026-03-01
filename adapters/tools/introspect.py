@@ -326,15 +326,15 @@ class IntrospectAdapter(ToolPort):
         try:
             adapter = IntrospectAdapter._learning_adapter
             if not adapter:
-                from adapters.learning.json_lessons import JSONLessonsAdapter
-                adapter = JSONLessonsAdapter(data_dir=str(_DATA_DIR))
+                from adapters.learning.memory_store_adapter import MemoryStoreLearningAdapter
+                adapter = MemoryStoreLearningAdapter()
             await adapter.learn({
                 "trigger": trigger,
                 "lesson": lesson_content,
                 "source": "self_record",
                 "source_session": "introspect",
             })
-            total = len(adapter._lessons)
+            total = adapter.store.count() if hasattr(adapter, 'store') else getattr(adapter, '_lessons', []).__len__()
             logger.info(f"自省: 主动记录经验 trigger='{trigger[:50]}', 总数={total}")
             return {"success": True, "result": f"经验已记录！触发: {trigger}\n内容: {lesson_content}\n经验库总数: {total}条"}
         except Exception as e:

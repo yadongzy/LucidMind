@@ -22,6 +22,7 @@ from adapters.tools.hw_scanner import get_optimal_model_name
 from adapters.tools.discover import discover_tool_adapters
 from adapters.memory.json_memory import JSONMemoryAdapter
 from adapters.learning.memory_store_adapter import MemoryStoreLearningAdapter
+from adapters.tools.observed_tool import ObservedToolAdapter
 from adapters.reflection.json_reflection import JSONReflectionAdapter
 from adapters.learning.special_kb import SpecialKB
 from adapters.tools.mcp_client import MCPClientAdapter
@@ -151,6 +152,9 @@ def init():
     learning_adapter = MemoryStoreLearningAdapter()
     reflection_adapter = JSONReflectionAdapter()
     IntrospectAdapter._learning_adapter = learning_adapter
+
+    # --- P1#7: 工具观察装饰器 ---
+    tool_adapter = ObservedToolAdapter(tool_adapter, observer=learning_adapter._tool_observer)
 
     # --- Multi-channel ---
     telegram_channel = TelegramChannelAdapter()

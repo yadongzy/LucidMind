@@ -176,6 +176,13 @@ class BrainDaemon(DaemonObserveMixin, TaskExecutorMixin):
         try: await self._learn_engine.maybe_learn()
         except Exception as e: logger.warning(f"学习引擎异常: {e}")
         td.cleanup_completed(max_keep=10)  # 4. 清理过期任务
+        # 5. P0#4: 自动备份 + 向量回填
+        try:
+            if hasattr(self._brain, 'learning') and hasattr(self._brain.learning, 'store'):
+                self._brain.learning.store.backup_jsonl()
+                self._brain.learning.store.backfill_embeddings(batch_size=10)
+        except Exception as e:
+            logger.debug(f"记忆备份/回填跳过: {e}")
 
     def wake(self):
         """外部信号唤醒 Daemon（老师发消息、用户输入等）。"""

@@ -89,8 +89,7 @@ class BrainLearningMixin:
         for lid in ids:
             try:
                 await self.learning.mark_applied(lid)
-                if effective:
-                    await self.learning.update_effectiveness(lid, True)
+                await self.learning.update_effectiveness(lid, effective)
             except Exception:
                 pass
         self._last_injected_lesson_ids = []

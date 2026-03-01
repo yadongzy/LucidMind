@@ -57,7 +57,7 @@ class TestACEBulletFeedback(unittest.TestCase):
         self.assertEqual(score, 1.0)
 
     def test_mixed_feedback(self):
-        mid = self.store.add("lessons", "测试", metadata={"helpful_count": 0, "harmful_count": 0})
+        mid = self.store.add("lessons", "测试", metadata={"helpful_count": 0, "harmful_count": 0}, skip_noise_filter=True)
         for _ in range(5):
             self.store.increment_feedback(mid, "helpful")
         for _ in range(2):
@@ -690,7 +690,8 @@ class TestFeedbackLoop(unittest.TestCase):
     def test_mark_applied_increments_count(self):
         """mark_applied() 增加 applied_count"""
         mid = self.adapter.store.add("lessons", "测试",
-                                     metadata={"trigger": "t", "applied_count": 0})
+                                     metadata={"trigger": "t", "applied_count": 0},
+                                     skip_noise_filter=True)
         asyncio.get_event_loop().run_until_complete(
             self.adapter.mark_applied(mid)
         )

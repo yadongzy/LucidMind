@@ -73,16 +73,16 @@ class TestMemoryStore(unittest.TestCase):
         self.assertEqual(results[0].content, "更新后的内容")
 
     def test_update_metadata(self):
-        mid = self.store.add("lessons", "测试", metadata={"source": "test"})
+        mid = self.store.add("lessons", "测试", metadata={"source": "test"}, skip_noise_filter=True)
         self.store.update(mid, metadata={"source": "updated", "extra": True})
         results = self.store.get_all()
         self.assertEqual(results[0].metadata["source"], "updated")
 
     def test_list_collections(self):
-        self.store.add("lessons", "l1")
-        self.store.add("lessons", "l2")
-        self.store.add("facts", "f1")
-        self.store.add("sessions", "s1")
+        self.store.add("lessons", "l1", skip_noise_filter=True)
+        self.store.add("lessons", "l2", skip_noise_filter=True)
+        self.store.add("facts", "f1", skip_noise_filter=True)
+        self.store.add("sessions", "s1", skip_noise_filter=True)
         cols = self.store.list_collections()
         self.assertEqual(cols["lessons"], 2)
         self.assertEqual(cols["facts"], 1)
