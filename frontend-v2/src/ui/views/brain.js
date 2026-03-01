@@ -3,6 +3,7 @@
  */
 import { html, nothing } from "lit";
 import { icons } from "../icons.js";
+import { renderMemoryFiles } from "./memory-files.js";
 
 // === 大脑状态页 ===
 let _goals = null, _thoughts = null, _brainLoading = false, _brainDetailTs = 0;
@@ -227,10 +228,13 @@ export function renderMemory(app) {
           @click=${() => { _memTab = 'memory'; app.requestUpdate(); }}>💬 对话记忆</button>
         <button class="btn ${_memTab === 'lessons' ? 'btn--primary' : ''}" style="font-size:12px;padding:5px 12px;"
           @click=${() => { _memTab = 'lessons'; app.requestUpdate(); }}>📚 经验库</button>
+        <button class="btn ${_memTab === 'files' ? 'btn--primary' : ''}" style="font-size:12px;padding:5px 12px;"
+          @click=${() => { _memTab = 'files'; app.requestUpdate(); }}>📄 记忆文件</button>
       </div>
 
       ${_memTab === 'memory' ? _renderMemoryContent(app, sid) : nothing}
       ${_memTab === 'lessons' ? _renderLessonsContent(app) : nothing}
+      ${_memTab === 'files' ? renderMemoryFiles(app) : nothing}
     </div>
   `;
 }
