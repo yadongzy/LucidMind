@@ -64,9 +64,9 @@ class ObservedToolAdapter(ToolPort):
                 )
             raise
 
-    def get_tools(self) -> list[dict]:
+    def list_tools(self) -> list[dict]:
         """透传内部工具列表。"""
-        return self._inner.get_tools()
+        return self._inner.list_tools()
 
     def __getattr__(self, name: str) -> Any:
         """透传所有其他属性到内部适配器。"""
