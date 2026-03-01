@@ -60,14 +60,22 @@ class SelfCheckEngine:
         # 3. 经验库完整性
         if self._brain.learning:
             try:
-                lessons = await self._brain.learning.get_lessons("", limit=200)
+                lessons = await self._brain.learning.get_lessons("", limit=500)
                 if len(lessons) == 0:
                     new_issues.append(report_issue("经验库为空", "severe", "daily_check"))
-                triggers = [l.get("trigger", "") for l in lessons]
+                triggers = [l.get("trigger", "")[:60] for l in lessons]
                 dupes = len(triggers) - len(set(triggers))
                 if dupes > 10:
                     new_issues.append(report_issue(
                         f"经验库有{dupes}条重复", "minor", "daily_check"))
+                # 噪音检测
+                from memory.noise_filter import is_noise
+                noise_count = sum(1 for l in lessons
+                    if is_noise(l.get("lesson", "") or l.get("trigger", ""))
+                    or (l.get("trigger", "") or "").startswith("[Tool]"))
+                if noise_count > 5:
+                    new_issues.append(report_issue(
+                        f"经验库有{noise_count}条噪音", "minor", "daily_check"))
             except Exception as e:
                 new_issues.append(report_issue(f"经验库检查失败: {e}", "medium", "daily_check"))
 

@@ -28,6 +28,18 @@ _BLOCKED_PATHS = [
     ".rules", "identity",
 ]
 
+# 核心保护文件：允许读取但禁止写入/删除（修改可能导致系统崩溃）
+_PROTECTED_FILES = [
+    "brain.py", "brain_daemon.py", "brain_config.py",
+    "brain_resilience.py", "brain_intent.py",
+    "command_queue.py", "goal_tracker.py",
+    "api/main.py", "api/startup.py", "api/brain_init.py",
+    "main.py",
+]
+
+# 核心保护目录：允许读取但禁止写入/删除
+_PROTECTED_DIRS = ["ports"]
+
 
 class FileAdapter(ToolPort):
     """文件工具适配器。在指定工作区内安全地读写文件。"""
@@ -125,8 +137,12 @@ class FileAdapter(ToolPort):
             return await self._list_directory(params.get("path", "."))
         return {"success": False, "result": None, "error": f"未知工具: {tool_name}"}
 
-    def _safe_resolve(self, path: str) -> Path | None:
-        """安全解析路径，防止路径遍历攻击。返回 None 表示路径不安全。"""
+    def _safe_resolve(self, path: str, write_mode: bool = False) -> Path | None:
+        """安全解析路径，防止路径遍历攻击。返回 None 表示路径不安全。
+
+        Args:
+            write_mode: 写入/删除模式时额外检查 _PROTECTED_FILES
+        """
         try:
             resolved = (self.workspace / path).resolve()
             # 确保路径在工作区内
@@ -139,10 +155,26 @@ class FileAdapter(ToolPort):
                 if blocked in rel.split(os.sep):
                     logger.warning(f"禁止路径拦截: {path} 包含 {blocked}")
                     return None
+            # 写入模式: 检查核心保护文件
+            if write_mode and self._is_protected(rel):
+                logger.warning(f"核心保护拦截: {rel} 不允许修改")
+                return None
             return resolved
         except (ValueError, OSError) as e:
             logger.warning(f"路径解析失败: {path}, {e}")
             return None
+
+    @staticmethod
+    def _is_protected(rel_path: str) -> bool:
+        """检查相对路径是否在核心保护名单中。"""
+        normalized = rel_path.replace(os.sep, "/")
+        for pf in _PROTECTED_FILES:
+            if normalized == pf or normalized.endswith("/" + pf):
+                return True
+        for pd in _PROTECTED_DIRS:
+            if normalized.startswith(pd + "/") or ("/" + pd + "/") in normalized:
+                return True
+        return False
 
     async def _read_file(self, path: str) -> dict[str, Any]:
         """读取文件。"""
@@ -198,9 +230,9 @@ class FileAdapter(ToolPort):
                 "error": f"内容过大 (上限 {_MAX_WRITE_SIZE // 1024}KB)",
             }
 
-        resolved = self._safe_resolve(path)
+        resolved = self._safe_resolve(path, write_mode=True)
         if not resolved:
-            return {"success": False, "result": None, "error": "路径不安全或被禁止"}
+            return {"success": False, "result": None, "error": "路径不安全、被禁止或属于核心保护文件"}
 
         logger.info(f"写入文件: {resolved}, {len(content)}字")
 
@@ -246,9 +278,9 @@ class FileAdapter(ToolPort):
         if not path.strip():
             return {"success": False, "result": None, "error": "路径为空"}
 
-        resolved = self._safe_resolve(path)
+        resolved = self._safe_resolve(path, write_mode=True)
         if not resolved:
-            return {"success": False, "result": None, "error": "路径不安全或被禁止"}
+            return {"success": False, "result": None, "error": "路径不安全、被禁止或属于核心保护文件"}
 
         logger.info(f"删除文件: {resolved}")
 

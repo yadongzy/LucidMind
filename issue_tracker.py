@@ -16,6 +16,7 @@ from logs import get_logger
 logger = get_logger("issues")
 _DATA = Path(__file__).parent / "data"
 _ISSUES_FILE = _DATA / "issues.json"
+_MAX_RETRY = 20  # 超过此次数自动关闭，避免僵尸 issue 无限循环
 
 
 def _load_issues() -> list[dict]:
@@ -39,6 +40,11 @@ def report_issue(desc: str, severity: str = "medium", source: str = "self_check"
         if i["status"] == "open" and i["desc"] == desc_trimmed:
             i["retries"] = i.get("retries", 0) + 1
             i["last_check"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+            if i["retries"] >= _MAX_RETRY:
+                i["status"] = "closed"
+                i["resolution"] = "max_retry_exceeded"
+                i["closed_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                logger.warning(f"⚠️ 重试超限({i['retries']}), 自动关闭: {desc_trimmed[:60]}")
             _save_issues(issues)
             return i
     issue = {
@@ -116,4 +122,9 @@ def bump_retry(issue_id: int):
         if i["id"] == issue_id:
             i["retries"] = i.get("retries", 0) + 1
             i["last_check"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+            if i["retries"] >= _MAX_RETRY:
+                i["status"] = "closed"
+                i["resolution"] = "max_retry_exceeded"
+                i["closed_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                logger.warning(f"⚠️ 重试超限({i['retries']}), 自动关闭: {i['desc'][:60]}")
     _save_issues(issues)

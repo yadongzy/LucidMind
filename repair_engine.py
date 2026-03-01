@@ -5,12 +5,17 @@
 """
 
 import json
+from pathlib import Path
 from logs import get_logger
 from issue_tracker import (
     get_open_issues, mark_verifying, bump_retry
 )
+from memory.noise_filter import is_noise
 
 logger = get_logger("engines")
+
+_PROJECT_ROOT = Path(__file__).parent
+_REPAIR_PROMPT = _PROJECT_ROOT / "prompts" / "self_repair.md"
 
 
 class RepairEngine:
@@ -61,25 +66,37 @@ class RepairEngine:
         desc = issue.get("desc", "")
         try:
             if "重复" in desc and self._brain.learning:
-                path = getattr(self._brain.learning, 'lessons_file', None)
-                if path and path.exists():
-                    data = json.loads(path.read_text("utf-8"))
-                    seen, cleaned = set(), []
-                    for item in data:
-                        t = item.get("trigger", "")
-                        if t not in seen: seen.add(t); cleaned.append(item)
-                    if len(cleaned) < len(data):
-                        path.write_text(json.dumps(cleaned, ensure_ascii=False, indent=2), "utf-8")
-                        return True
+                # 使用 SQLite API 去重（适配 MemoryStoreLearningAdapter）
+                lessons = await self._brain.learning.get_lessons("", limit=500)
+                seen_triggers, dup_ids = set(), []
+                for item in lessons:
+                    t = item.get("trigger", "")[:60]
+                    mid = item.get("id")
+                    if t in seen_triggers and mid:
+                        dup_ids.append(mid)
+                    else:
+                        seen_triggers.add(t)
+                if dup_ids:
+                    store = getattr(self._brain.learning, 'store', None)
+                    if store:
+                        for mid in dup_ids:
+                            try: store.delete(mid)
+                            except Exception: pass
+                        logger.info(f"🔧 经验去重: 删除{len(dup_ids)}条重复")
+                    return True
+                return True  # 无重复，问题已自愈
+            if "噪音" in desc or "噪声" in desc:
+                return await self._clean_noise_lessons()
             if "SOUL.md" in desc:
                 return True
-            return True
+            return False  # 未匹配的 minor issue 不应假报成功
         except Exception:
             return False
 
     async def _fix_medium(self, issue: dict) -> bool:
-        """中等问题：标准修复流程。"""
+        """中等问题：标准修复流程。retries>=5 升级到 L2 Brain自服务修复。"""
         desc = issue.get("desc", "")
+        retries = issue.get("retries", 0)
         try:
             if "LLM" in desc and self._brain.llm:
                 avail = await self._brain.llm.is_available()
@@ -88,12 +105,15 @@ class RepairEngine:
                 return False
             if "ERROR" in desc:
                 return True
+            # L2: retries>=5 升级到 Brain 自服务修复
+            if retries >= 5:
+                return self._enqueue_brain_repair(issue)
             return False
         except Exception:
             return False
 
     async def _fix_severe(self, issue: dict) -> bool:
-        """严重问题：报警 + 尝试修复。"""
+        """严重问题：报警 + L2 Brain自服务修复。"""
         desc = issue.get("desc", "")
         logger.warning(f"🚨 严重问题需处理: {desc[:60]}")
         if "LLM不可用" in desc:
@@ -102,12 +122,82 @@ class RepairEngine:
                 return avail
             except Exception:
                 return False
-        return False
+        # L2: 非 LLM 问题交给 Brain 自服务修复
+        return self._enqueue_brain_repair(issue)
 
     async def _fix_fatal(self, issue: dict) -> bool:
         """致命问题：需要重启或人工介入。"""
         logger.error(f"💀 致命问题: {issue.get('desc', '')[:60]}")
         return False
+
+    def _enqueue_brain_repair(self, issue: dict) -> bool:
+        """L2: 生成修复任务，通过 TaskDispatcher 交给 Brain 处理。
+
+        Brain 会用已有工具(read_file/write_file/run_script/git_*)
+        诊断和修复问题，并用 pytest 验证。
+        """
+        try:
+            from task_dispatcher import enqueue
+            prompt = self._create_repair_prompt(issue)
+            enqueue(
+                content=prompt,
+                task_type="task",
+                priority="P1",
+                source="self_repair",
+                timeout_s=180,
+                max_retries=1,
+            )
+            logger.info(f"🧠 L2修复任务已入队: {issue.get('desc', '')[:50]}")
+            return True
+        except Exception as e:
+            logger.warning(f"L2修复任务入队失败: {e}")
+            return False
+
+    def _create_repair_prompt(self, issue: dict) -> str:
+        """从 self_repair.md 模板生成修复提示词。"""
+        desc = issue.get("desc", "")
+        severity = issue.get("severity", "medium")
+        retries = issue.get("retries", 0)
+        # 加载模板
+        if _REPAIR_PROMPT.exists():
+            template = _REPAIR_PROMPT.read_text("utf-8")
+        else:
+            template = (
+                "请诊断并修复以下问题:\n"
+                "描述: {issue_desc}\n严重度: {severity}\n"
+                "修复后运行 pytest 验证。"
+            )
+        prompt = template.replace("{issue_desc}", desc[:200])
+        prompt = prompt.replace("{severity}", severity)
+        prompt = prompt.replace("{retries}", str(retries))
+        prompt = prompt.replace("{file_path}", "未知，请自行定位")
+        prompt = prompt.replace("{project_path}", str(_PROJECT_ROOT))
+        return prompt[:500]
+
+    async def _clean_noise_lessons(self) -> bool:
+        """清洗经验库中的噪音条目。"""
+        if not self._brain.learning:
+            return False
+        try:
+            lessons = await self._brain.learning.get_lessons("", limit=500)
+            store = getattr(self._brain.learning, 'store', None)
+            if not store:
+                return False
+            noise_ids = []
+            for item in lessons:
+                content = item.get("lesson", "") or item.get("trigger", "")
+                if is_noise(content) or content.startswith("[Tool]"):
+                    mid = item.get("id")
+                    if mid:
+                        noise_ids.append(mid)
+            if noise_ids:
+                for mid in noise_ids:
+                    try: store.delete(mid)
+                    except Exception: pass
+                logger.info(f"🧹 噪音清洗: 删除{len(noise_ids)}条噪音经验")
+            return True
+        except Exception:
+            return False
 
     async def _record_repair_lesson(self, desc: str, severity: str):
         """修复成功后记录修复经验到经验库（设计文档要求）。"""
@@ -133,8 +223,8 @@ class RepairEngine:
                 diag = await self._brain._self_diagnose()
                 return diag.get("healthy", False)
             if "重复" in desc and self._brain.learning:
-                lessons = await self._brain.learning.get_lessons("", limit=200)
-                triggers = [l.get("trigger", "") for l in lessons]
+                lessons = await self._brain.learning.get_lessons("", limit=500)
+                triggers = [l.get("trigger", "")[:60] for l in lessons]
                 return len(triggers) == len(set(triggers))
             return True
         except Exception:

@@ -52,6 +52,8 @@ class TaskExecutorMixin:
         src = task.get("source", "")
         if src == "self_check":
             return "self_check"
+        if src == "self_repair":
+            return "task"  # L2自修复需要完整工具访问
         return "task"
 
     def _should_use_local(self, task: dict) -> bool:
