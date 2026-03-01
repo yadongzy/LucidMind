@@ -61,7 +61,7 @@ class JSONMemoryAdapter(MemoryPort):
         logger.info(f"保存记忆: key={key}, category={category}")
 
     async def recall(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
-        """混合检索记忆：BM25 + 时间衰减 + MMR 去重。"""
+        """混合检索记忆：BM25 + 时间衰减 + MMR 去重 + Markdown 文件搜索。"""
         from adapters.memory.retrieval import hybrid_search
         results = hybrid_search(
             query=query,
@@ -74,6 +74,26 @@ class JSONMemoryAdapter(MemoryPort):
         )
         # 清理内部评分字段
         cleaned = [{k: v for k, v in r.items() if not k.startswith("_")} for r in results]
+
+        # GAP-3: 同时搜索 Markdown 记忆文件
+        try:
+            from memory.markdown_store import get_markdown_store
+            md_store = get_markdown_store()
+            md_results = md_store.search(query, limit=limit)
+            for mr in md_results:
+                if mr["score"] >= 0.3:
+                    cleaned.append({
+                        "key": mr.get("title", ""),
+                        "value": mr.get("snippet", ""),
+                        "category": "memory_file",
+                        "source": mr.get("file", ""),
+                        "timestamp": time.time(),
+                    })
+        except Exception as e:
+            logger.debug(f"Markdown 记忆搜索失败(降级): {e}")
+
+        # 截断到 limit
+        cleaned = cleaned[:limit]
         logger.info(f"检索记忆: query='{query}', 命中={len(cleaned)}")
         return cleaned
 

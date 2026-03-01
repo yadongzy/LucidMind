@@ -386,3 +386,108 @@ class TestT12_EvergreenExemption:
         assert "skills" in store._EVERGREEN_COLLECTIONS
         assert "lessons" not in store._EVERGREEN_COLLECTIONS
         assert "sessions" not in store._EVERGREEN_COLLECTIONS
+
+
+# ═══════════════════════════════════════════
+# T13: Markdown Memory Store 测试
+# ═══════════════════════════════════════════
+
+class TestT13_MarkdownStore:
+    """验证 Markdown 记忆文件管理。"""
+
+    @pytest.fixture
+    def md_store(self, tmp_path):
+        from memory.markdown_store import MarkdownMemoryStore
+        mem_dir = tmp_path / "memory"
+        mem_dir.mkdir()
+        return MarkdownMemoryStore(memory_dir=mem_dir)
+
+    def test_list_files_empty(self, md_store):
+        """T13-1: 空目录列出零文件。"""
+        files = md_store.list_files()
+        assert len(files) == 0
+
+    def test_write_and_read(self, md_store):
+        """T13-2: 写入并读取文件。"""
+        md_store.write_file("test.md", "# Test\nHello world")
+        content = md_store.read_file("test.md")
+        assert content is not None
+        assert "Hello world" in content
+
+    def test_list_files_with_content(self, md_store):
+        """T13-3: 写入后可列出文件。"""
+        md_store.write_file("2026-03-01.md", "# Daily")
+        md_store.write_file("MEMORY.md", "# Evergreen")
+        files = md_store.list_files()
+        assert len(files) == 2
+        names = [f["name"] for f in files]
+        assert "2026-03-01.md" in names
+        assert "MEMORY.md" in names
+        # MEMORY.md 应标记为 evergreen
+        mem_file = [f for f in files if f["name"] == "MEMORY.md"][0]
+        assert mem_file["is_evergreen"] is True
+        daily_file = [f for f in files if f["name"] == "2026-03-01.md"][0]
+        assert daily_file["is_evergreen"] is False
+
+    def test_append_entry_dedup(self, md_store):
+        """T13-4: 追加条目自动去重。"""
+        md_store.append_entry("test.md", "- 用户喜欢中文", heading="偏好")
+        md_store.append_entry("test.md", "- 用户喜欢中文", heading="偏好")
+        content = md_store.read_file("test.md")
+        assert content.count("用户喜欢中文") == 1
+
+    def test_delete_file(self, md_store):
+        """T13-5: 删除文件。"""
+        md_store.write_file("temp.md", "# Temp")
+        assert md_store.delete_file("temp.md")
+        assert md_store.read_file("temp.md") is None
+
+    def test_search_basic(self, md_store):
+        """T13-6: 跨文件搜索。"""
+        md_store.write_file("2026-03-01.md",
+                            "# 日志\n## 会话\n用户偏好使用 Python 开发项目")
+        md_store.write_file("MEMORY.md",
+                            "# 常青\n## 事实\n项目名称是 LucidMind")
+        results = md_store.search("Python 项目")
+        assert len(results) >= 1
+        assert any("Python" in r["snippet"] for r in results)
+
+    def test_search_no_match(self, md_store):
+        """T13-7: 无匹配返回空。"""
+        md_store.write_file("test.md", "# Test\nHello world")
+        results = md_store.search("完全不相关的查询xyz")
+        assert len(results) == 0
+
+    def test_safe_path_traversal(self, md_store):
+        """T13-8: 路径遍历防护。"""
+        assert md_store._safe_path("../../../etc/passwd") is None
+        assert md_store._safe_path("/etc/passwd") is None
+        assert md_store._safe_path("normal.md") is not None
+
+    def test_ensure_evergreen(self, md_store):
+        """T13-9: 确保 MEMORY.md 存在。"""
+        path = md_store.ensure_evergreen()
+        assert path.exists()
+        content = path.read_text(encoding="utf-8")
+        assert "常青记忆" in content
+
+    def test_recall_includes_markdown(self, tmp_path):
+        """T13-10: json_memory recall() 包含 Markdown 搜索结果。"""
+        # 创建带 Markdown 内容的临时环境
+        mem_dir = tmp_path / "memory"
+        mem_dir.mkdir()
+        from memory.markdown_store import MarkdownMemoryStore
+        md = MarkdownMemoryStore(memory_dir=mem_dir)
+        md.write_file("test.md", "# 记忆\n## 事实\n项目使用 Python 3.12 框架")
+
+        with patch("memory.markdown_store._MEMORY_DIR", mem_dir), \
+             patch("memory.markdown_store._instance", md):
+            from adapters.memory.json_memory import JSONMemoryAdapter
+            adapter = JSONMemoryAdapter(data_dir=str(tmp_path))
+            import asyncio
+            results = asyncio.get_event_loop().run_until_complete(
+                adapter.recall("Python 框架", limit=10)
+            )
+            # 应包含来自 Markdown 的结果
+            md_results = [r for r in results if r.get("category") == "memory_file"]
+            assert len(md_results) >= 1
