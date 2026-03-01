@@ -1,11 +1,16 @@
-"""Persona Manager — 多角色/分身系统。
+"""Persona Manager — 系统级多角色/分身系统。
 
-支持多个人格配置，共享记忆但独立上下文和身份。
-对标 OpenClaw agents/ 的多角色架构。
+管理系统预置人格（identity/personas/），全局共享，所有用户可见。
+与 user_identity.py 的用户级人格（data/users/{uid}/personas/）互不干涉。
+
+边界划分:
+  - 本模块: 系统级人格切换（全局），存储在 identity/personas/
+  - user_identity.py: 用户级自定义人格（per-user），存储在 data/users/{uid}/identity/personas/
+  - 两套独立运作，类似 CORE.md（系统级） vs SOUL.md（用户级）的关系
 
 用法:
 - 默认人格: identity/SOUL.md + CORE.md
-- 自定义人格: identity/personas/<name>.md
+- 系统预置人格: identity/personas/<name>.md
 - 切换人格: persona_manager.switch("coder")
 - 列出人格: persona_manager.list_personas()
 """

@@ -203,7 +203,7 @@ class BrainLearningMixin:
         return None
 
     async def _maybe_promote_to_profile(self, lesson: str) -> None:
-        """检查经验库中是否有相似纠正≥2次，如果是则写入 USER.md 永久化。"""
+        """检查经验库中是否有相似纠正≥2次，如果是则写入 per-user USER.md 永久化。"""
         if not self.learning:
             return
         try:
@@ -211,11 +211,10 @@ class BrainLearningMixin:
             corrections = [l for l in similar if l.get("source") == "correction"]
             if len(corrections) < CORRECTION_PROMOTE_MIN:
                 return
-            import pathlib
-            # 优先写入 identity/USER.md，兼容旧 user_profile.md
-            user_path = pathlib.Path(__file__).parent / "identity" / "USER.md"
-            if not user_path.exists():
-                user_path = pathlib.Path(__file__).parent / "user_profile.md"
+            # 写入当前用户的 USER.md（而非系统级模板）
+            user_id = self._current_user_id()
+            user_dir = self._identity_mgr.ensure_user_dir(user_id)
+            user_path = user_dir / "USER.md"
             if not user_path.exists():
                 return
             content = user_path.read_text(encoding="utf-8")
@@ -225,7 +224,10 @@ class BrainLearningMixin:
             rule = f"- {lesson[:150]}"
             content += f"\n{rule}\n"
             user_path.write_text(content, encoding="utf-8")
-            logger.info(f"⭐ 纠正提升为永久规则: {lesson[:50]}")
+            # 清除缓存使下次 build_identity_prompt 读到最新内容
+            user_cache = self._identity_mgr._cache.get(user_id, {})
+            user_cache.pop(str(user_path), None)
+            logger.info(f"⭐ [{user_id}] 纠正提升为永久规则: {lesson[:50]}")
             await self.stream.emit("info", f"⭐ 已写入永久规则: {lesson[:60]}")
         except Exception as e:
             logger.debug(f"提升规则失败: {e}")

@@ -8,6 +8,7 @@ Brain 可以基于经验修改自己的行为规则：
 不修改 brain.py（规则 06），通过文件操作 SOUL.md。
 """
 import json
+import re
 import time
 from datetime import datetime
 from pathlib import Path
@@ -50,6 +51,53 @@ class SoulEngine:
         except Exception:
             return ""
 
+    # ── Garbage patterns that must never enter SOUL.md ──
+    _GARBAGE_PATTERNS = [
+        re.compile(r"Traceback \(most recent call", re.IGNORECASE),
+        re.compile(r"has no attribute '"),
+        re.compile(r"Error:|Exception:|errno", re.IGNORECASE),
+        re.compile(r"Ralph 循环|尝试了 \d+ 次均失败"),
+        re.compile(r"Client\s*$"),  # truncated network error
+        re.compile(r"处理失败:.*任务驱动学习"),
+        re.compile(r"^\*\*.*\*\*$"),  # pure bold markdown noise
+    ]
+
+    def _passes_quality_gate(self, text: str, trigger: str) -> bool:
+        """Reject garbage before it enters SOUL.md.
+
+        Returns True only if the text is a valid, actionable rule.
+        """
+        if not text:
+            return False
+
+        # Min length — too short to be a useful rule
+        # Note: Chinese is dense (~1 char = 1 word), so threshold must be low
+        if len(text) < 8:
+            logger.info(f"Quality gate: too short ({len(text)} chars), rejected")
+            return False
+
+        # Max length — single rule shouldn't be a paragraph
+        if len(text) > 300:
+            logger.info(f"Quality gate: too long ({len(text)} chars), rejected")
+            return False
+
+        # Garbage pattern match
+        for pat in self._GARBAGE_PATTERNS:
+            if pat.search(text) or pat.search(trigger):
+                logger.info(f"Quality gate: garbage pattern match, rejected: {text[:50]}")
+                return False
+
+        # Truncated text — ends mid-sentence without punctuation
+        last_char = text.rstrip()[-1] if text.rstrip() else ""
+        valid_endings = set(".!?。！？)）」】:：;；")
+        # Allow list items (no ending punctuation) but reject clearly truncated prose
+        words = text.split()
+        if len(words) > 10 and last_char not in valid_endings:
+            logger.info(f"Quality gate: appears truncated, rejected: ...{text[-30:]}")
+            return False
+
+        return True
+
     def evolve(self, trigger: str, new_rule: str, category: str = "Learned Rules") -> bool:
         """向 SOUL.md 添加一条进化规则。
 
@@ -63,13 +111,15 @@ class SoulEngine:
             logger.warning("SOUL.md 不存在，无法进化")
             return False
 
-        # 检查是否已有类似规则（防重复 — 子串包含匹配，取前60字符）
+        # ── Quality gate: reject garbage before writing ──
         normalized_new = new_rule.strip().lstrip("- ").strip()
-        if not normalized_new:
+        if not self._passes_quality_gate(normalized_new, trigger):
             return False
+
+        # Dedup: substring match on first 60 chars
         check_key = normalized_new[:60]
         if check_key in soul:
-            logger.info(f"规则已存在(子串匹配)，跳过: {new_rule[:50]}")
+            logger.info(f"Rule already exists (substring match), skip: {new_rule[:50]}")
             return False
 
         # 查找或创建 Learned Rules 段落

@@ -35,6 +35,8 @@ from brain_config import (
     LOOP_HINT, FAIL_HINT, TOOL_USAGE_HINTS, EMPTY_REPLY_FALLBACK,
     TOOL_INFERENCE_MAP,
 )
+from identity.user_identity import get_user_identity_manager
+from adapters.memory.user_profile import UserProfileAdapter
 from logs import get_logger
 
 logger = get_logger("brain")
@@ -77,6 +79,9 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, Brain
         self.lessons_enabled = True  # A/B开关：经验注入
         self._ab_stats: dict[str, list] = self._load_ab_stats()  # A/B质量追踪（持久化）
         self._persona_manager = None  # P2a: 多角色系统（延迟初始化）
+        self._session_user_map: dict[str, str] = {}  # session_id → user_id
+        self._identity_mgr = get_user_identity_manager()
+        self._profile_adapter = UserProfileAdapter()
         self._reload_soul_if_changed()
 
     _AB_STATS_PATH = Path(__file__).parent / "data" / "ab_stats.json"
@@ -114,6 +119,15 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, Brain
     @_history.setter
     def _history(self, value: list[dict]):
         self._sessions[self._current_sid] = value
+
+    def set_user_for_session(self, session_id: str, user_id: str) -> None:
+        """为会话绑定用户 ID，启用多用户身份隔离。"""
+        self._session_user_map[session_id] = user_id
+        self._identity_mgr.ensure_user_dir(user_id)
+
+    def _current_user_id(self) -> str:
+        """获取当前会话绑定的用户 ID。"""
+        return self._session_user_map.get(self._current_sid, "default")
 
     async def switch_session(self, session_id: str) -> None:
         self._current_sid = session_id
@@ -588,23 +602,18 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, Brain
         动态后缀（每次变化，不影响前缀缓存命中）：
           当前状态 → 目标 → 经验 → 自省
         """
-        self._reload_soul_if_changed()
         local = self._is_local_model()
+        user_id = self._current_user_id()
 
         messages = []
-        if self._soul_prompt:
-            # ── 静态前缀（缓存友好：请求间保持不变）──
+        # ── 静态前缀（缓存友好：请求间保持不变）──
+        # 通过 UserIdentityManager 加载: CORE + SOUL + USER + profile + custom_prompts
+        _profile_ctx = self._profile_adapter.get_context_prompt(user_id)
+        system_content = self._identity_mgr.build_identity_prompt(user_id, profile_context=_profile_ctx)
+        if system_content:
             if local:
-                soul_lines = self._soul_prompt.splitlines()[:LOCAL_SOUL_MAX_LINES]
+                soul_lines = system_content.splitlines()[:LOCAL_SOUL_MAX_LINES]
                 system_content = "\n".join(soul_lines)
-            else:
-                system_content = self._soul_prompt
-            # 用户画像注入（identity/USER.md，兼容旧 user_profile.md）
-            user_text = self._load_identity_file(_USER_PATH)
-            if not user_text:
-                user_text = self._load_identity_file(pathlib.Path(__file__).parent / "user_profile.md")
-            if user_text:
-                system_content += f"\n\n{user_text}"
             # P2a: 多角色人格注入（静态：角色不会每次调用都换）
             if self._persona_manager:
                 persona_prompt = self._persona_manager.get_persona_prompt()
@@ -618,8 +627,8 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, Brain
                     system_content += f"\n\n## 知识技能\n{_prompt_skills}"
             except Exception:
                 pass
-            # 首次引导检测（静态）
-            bootstrap_text = self._load_identity_file(_BOOTSTRAP_PATH)
+            # 首次引导检测（per-user）
+            bootstrap_text = self._identity_mgr.get_bootstrap(user_id)
             if bootstrap_text and "BOOTSTRAP_COMPLETE" not in bootstrap_text:
                 system_content += f"\n\n## 首次启动引导\n{bootstrap_text}"
 
