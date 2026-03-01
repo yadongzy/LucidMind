@@ -296,4 +296,50 @@ function isEvergreenMemoryPath(filePath: string): boolean {
 
 ---
 
+## 八、实施进度日志
+
+### 2026-03-01 P0 完成 ✅
+
+**GAP-1 Memory Flush（压缩前持久化）** — commit `69571e8`
+- `brain_resilience.py`: 新增 `_memory_flush_before_compact()` (~90行)
+- 在 `_smart_compact_history()` 阶段0.5自动调用
+- LLM 提取关键信息 → `data/memory/YYYY-MM-DD.md` Markdown 文件
+- LLM 失败时规则回退（保留 user 消息），去重防重复写入
+- 同步写入 MemoryStore(sessions集合) 确保 search 可检索
+- `brain_config.py`: 新增 `MEMORY_FLUSH_PROMPT`, `MEMORY_FLUSH_TIMEOUT_SEC=15`, `MEMORY_FLUSH_MAX_CHARS=3000`
+- 测试: T10-1~6 共 6 个测试通过
+
+**GAP-2 向量缓存扩容（1,000→10,000）** — commit `69571e8`
+- `vector_store.py`: JSON 缓存 → SQLite `embedding_cache` 表
+- `_CACHE_MAX_ENTRIES = 10000` (原1,000，扩 **10 倍**)
+- LRU 淘汰策略（超限删到80%，按 `accessed_at` 排序）
+- 自动迁移旧 JSON 缓存 → `.json.bak`
+- 双层缓存: `_mem_cache`(内存热缓存) + SQLite(持久化)
+- 测试: T11-1~4 共 4 个测试通过
+
+### 2026-03-01 P1 完成 ✅
+
+**GAP-5 Evergreen 常青集合豁免** — commit `7068280`
+- `store.py`: 新增 `_EVERGREEN_COLLECTIONS = frozenset({"facts", "skills"})`
+- `_apply_time_decay()`: facts/skills 集合跳过衰减
+- 对标 OpenClaw `temporal-decay.ts` 的 `isEvergreenMemoryPath()`
+- 持久知识（用户偏好、项目事实、技能经验）无论多久都保持原始检索分数
+- 测试: T12-1~6 共 6 个测试通过
+
+**累计**: 490/490 全量测试通过，新增 16 个测试
+
+### 补齐状态更新
+
+| GAP | 状态 | 提交 |
+|-----|------|------|
+| GAP-1 Memory Flush | ✅ 完成 | `69571e8` |
+| GAP-2 向量缓存扩容 | ✅ 完成 | `69571e8` |
+| GAP-3 Markdown 记忆 | ⏳ 待做 (P1) | — |
+| GAP-4 多 Provider | ⏳ 待做 (P2) | — |
+| GAP-5 Evergreen 豁免 | ✅ 完成 | `7068280` |
+| GAP-6 查询扩展 | ⏳ 待做 (P2) | — |
+
+---
+
 *本报告基于 LucidMind commit rebuild/v2.0 和 OpenClaw openclaw-main 源码逐行审查。*
+*最后更新: 2026-03-01 12:16 — P0+P1 实施完成。*
