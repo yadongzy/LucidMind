@@ -14,16 +14,22 @@ import time
 
 from logs import get_logger
 from diagnostics import record_event
+from pathlib import Path
+from datetime import datetime, timezone
+
 from brain_config import (
     COMPACT_SKIP_TOKENS, COMPACT_SKIP_MSGS, COMPACT_PRUNE_TOKENS,
     COMPACT_PRUNE_TOOL_CHARS, COMPACT_PRUNE_HEAD_CHARS, COMPACT_PRUNE_TAIL_CHARS,
     COMPACT_FULL_TOKENS, COMPACT_FULL_MSGS, COMPACT_KEEP_RECENT,
     COMPACT_INLINE_TOOL_CHARS, COMPACT_INLINE_HEAD_CHARS, COMPACT_INLINE_TAIL_CHARS,
     COMPACT_SUMMARY_PROMPT, SUMMARY_TIMEOUT_SEC,
+    MEMORY_FLUSH_PROMPT, MEMORY_FLUSH_TIMEOUT_SEC, MEMORY_FLUSH_MAX_CHARS,
     MEM_ALERT_PERCENT, DISK_ALERT_GB,
     ERROR_RESPONSE_BAD_REQUEST, ERROR_RESPONSE_COOLDOWN,
     ERROR_RESPONSE_TIMEOUT, ERROR_RESPONSE_GENERIC,
 )
+
+_MEMORY_DIR = Path(__file__).parent / "data" / "memory"
 
 logger = get_logger("brain")
 
@@ -273,11 +279,99 @@ class BrainResilienceMixin:
                 return cut
         return end
 
+    async def _memory_flush_before_compact(self, session_id: str,
+                                             old_messages: list[dict]) -> None:
+        """压缩前 Memory Flush — 将即将丢失的对话持久化到 Markdown 文件。
+
+        对标 OpenClaw memory-flush.ts：压缩前自动提取关键信息写入磁盘，
+        确保压缩后仍可通过 memory.search() 找回。
+        """
+        if not old_messages:
+            return
+        # 构建 flush 文本
+        flush_lines = []
+        char_count = 0
+        for m in old_messages:
+            role = m.get("role", "")
+            content = (m.get("content") or "").strip()
+            if not content or role not in ("user", "assistant"):
+                continue
+            line = f"{role}: {content[:200]}"
+            flush_lines.append(line)
+            char_count += len(line)
+            if char_count > MEMORY_FLUSH_MAX_CHARS:
+                break
+        if not flush_lines:
+            return
+        flush_text = "\n".join(flush_lines)
+
+        # 方案A: 有 LLM 时用 LLM 提取关键信息
+        extracted = None
+        try:
+            prompt = MEMORY_FLUSH_PROMPT.replace("{flush_text}", flush_text)
+            resp = await asyncio.wait_for(
+                self.llm.chat([{"role": "user", "content": prompt}], tools=None),
+                timeout=MEMORY_FLUSH_TIMEOUT_SEC
+            )
+            raw = resp.get("content", "").strip()
+            raw = re.sub(r"<think>.*?</think>\s*", "", raw, flags=re.DOTALL).strip()
+            if raw and raw != "无" and len(raw) > 10:
+                extracted = raw
+        except Exception as e:
+            logger.debug(f"[{session_id}] Memory Flush LLM 提取失败({e})，回退规则提取")
+
+        # 方案B: LLM 失败时用规则提取（保留 user 消息）
+        if not extracted:
+            user_lines = [l for l in flush_lines if l.startswith("user:")]
+            if user_lines:
+                extracted = "\n".join(f"- {l[6:]}" for l in user_lines[-5:])
+
+        if not extracted:
+            return
+
+        # 写入 Markdown 文件
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        _MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+        md_path = _MEMORY_DIR / f"{today}.md"
+        header = f"\n## {datetime.now(timezone.utc).strftime('%H:%M')} 会话记忆\n"
+        try:
+            if md_path.exists():
+                existing = md_path.read_text(encoding="utf-8")
+                # 去重: 如果前50字符已存在则跳过
+                if extracted[:50] in existing:
+                    logger.debug(f"[{session_id}] Memory Flush 跳过重复内容")
+                    return
+                md_path.write_text(existing + header + extracted + "\n",
+                                   encoding="utf-8")
+            else:
+                md_path.write_text(
+                    f"# {today} 记忆日志\n" + header + extracted + "\n",
+                    encoding="utf-8")
+            logger.info(f"[{session_id}] Memory Flush: {len(extracted)}字 → {md_path.name}")
+        except Exception as e:
+            logger.warning(f"[{session_id}] Memory Flush 写入失败: {e}")
+            return
+
+        # 同步写入 MemoryStore（确保 search 可检索）
+        if self.memory:
+            try:
+                for line in extracted.split("\n"):
+                    line = line.strip().lstrip("- ").strip()
+                    if line and len(line) > 5:
+                        await self.memory.save(
+                            key=f"flush_{today}_{hash(line) & 0xFFFF:04x}",
+                            value=line,
+                            category="sessions"
+                        )
+            except Exception as e:
+                logger.debug(f"[{session_id}] Memory Flush 存入 MemoryStore 失败: {e}")
+
     async def _smart_compact_history(self, session_id: str) -> None:
         """统一上下文窗口管理 — token-aware 压缩，保护 tool_calls/tool 配对。
 
         策略（基于 token 估算，已回退到 v1.7 验证阈值）：
         - 阶段0: <COMPACT_SKIP_TOKENS 且 <=COMPACT_SKIP_MSGS → 不处理
+        - 阶段0.5: Memory Flush — 压缩前持久化即将丢失的内容
         - 阶段1: 截断过长工具结果
         - 阶段2: >COMPACT_FULL_TOKENS 或 >COMPACT_FULL_MSGS → LLM摘要压缩
         - 阶段3: 摘要失败 → 安全截断（保护 tool_calls/tool 配对）
@@ -312,6 +406,12 @@ class BrainResilienceMixin:
 
         if not old_messages:
             return
+
+        # 阶段0.5: Memory Flush — 压缩前持久化
+        try:
+            await self._memory_flush_before_compact(session_id, old_messages)
+        except Exception as e:
+            logger.debug(f"[{session_id}] Memory Flush 异常(不影响压缩): {e}")
 
         # 尝试 LLM 摘要
         try:

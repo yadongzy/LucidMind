@@ -49,6 +49,10 @@ COMPACT_INLINE_TAIL_CHARS = 600
 # — 摘要 —
 SUMMARY_TIMEOUT_SEC = 10.0
 
+# — Memory Flush（压缩前持久化）—
+MEMORY_FLUSH_TIMEOUT_SEC = 15.0
+MEMORY_FLUSH_MAX_CHARS = 3000
+
 # — LLM 重试 —
 LLM_MAX_RETRIES = 3
 LLM_BASE_DELAY_SEC = 2.0
@@ -119,6 +123,15 @@ TOOL_USAGE_HINTS = _load_prompt("tool_usage.md", """
 # 压缩摘要提示
 COMPACT_SUMMARY_PROMPT = _load_prompt("compact_summary.md",
     "请用3-5句话概括以下对话的要点（包括完成了什么、讨论了什么、关键结论）：\n\n{summary_text}")
+
+# Memory Flush 提示（压缩前持久化）
+MEMORY_FLUSH_PROMPT = _load_prompt("memory_flush.md", """从以下即将被压缩的对话中，提取值得长期记住的关键信息。
+只提取：用户偏好、重要决定、关键事实、待办事项、项目进展。
+忽略：闲聊、问候、工具调用细节、临时调试信息。
+每条信息一行，用 "- " 开头。如果没有值得记住的，回复"无"。
+
+对话内容:
+{flush_text}""")
 
 # 学习信号检测提示
 LEARNING_DETECT_SYSTEM = _load_prompt("learning_detect_system.md",

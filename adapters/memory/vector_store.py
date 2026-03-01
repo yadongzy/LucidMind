@@ -8,6 +8,8 @@
 """
 import json
 import hashlib
+import sqlite3
+import struct
 import numpy as np
 from pathlib import Path
 from typing import Any
@@ -18,6 +20,8 @@ logger = get_logger("vector")
 
 _DATA_DIR = Path(__file__).parent.parent.parent / "data"
 _CACHE_PATH = _DATA_DIR / "embeddings_cache.json"
+_CACHE_DB_PATH = _DATA_DIR / "embeddings_cache.db"
+_CACHE_MAX_ENTRIES = 10000
 
 
 class VectorStore:
@@ -27,27 +31,119 @@ class VectorStore:
         self._model = None
         self._model_loaded = False
         self._loading = False
-        self._cache: dict[str, list[float]] = {}
-        self._load_cache()
+        self._cache_db: sqlite3.Connection | None = None
+        self._mem_cache: dict[str, list[float]] = {}
+        self._init_cache_db()
 
-    def _load_cache(self):
-        try:
-            if _CACHE_PATH.exists():
-                self._cache = json.loads(_CACHE_PATH.read_text(encoding="utf-8"))
-                logger.info(f"向量缓存已加载: {len(self._cache)} 条")
-        except Exception:
-            self._cache = {}
-
-    def _save_cache(self):
+    def _init_cache_db(self):
+        """初始化 SQLite 向量缓存（替代 JSON，上限 10,000 条）。"""
         try:
             _DATA_DIR.mkdir(parents=True, exist_ok=True)
-            # 只保留最近1000条缓存
-            if len(self._cache) > 1000:
-                keys = list(self._cache.keys())[-800:]
-                self._cache = {k: self._cache[k] for k in keys}
-            _CACHE_PATH.write_text(json.dumps(self._cache), encoding="utf-8")
+            self._cache_db = sqlite3.connect(str(_CACHE_DB_PATH))
+            self._cache_db.execute("""
+                CREATE TABLE IF NOT EXISTS embedding_cache (
+                    hash TEXT PRIMARY KEY,
+                    embedding BLOB NOT NULL,
+                    dims INTEGER NOT NULL,
+                    accessed_at REAL NOT NULL
+                )
+            """)
+            self._cache_db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_cache_accessed ON embedding_cache(accessed_at)")
+            self._cache_db.commit()
+            count = self._cache_db.execute("SELECT COUNT(*) FROM embedding_cache").fetchone()[0]
+            logger.info(f"向量缓存(SQLite)已加载: {count} 条 (上限 {_CACHE_MAX_ENTRIES})")
+            # 自动迁移旧 JSON 缓存
+            if count == 0:
+                self._migrate_json_cache()
         except Exception as e:
-            logger.warning(f"向量缓存保存失败: {e}")
+            logger.warning(f"SQLite 缓存初始化失败，降级到内存缓存: {e}")
+            self._cache_db = None
+
+    def _migrate_json_cache(self):
+        """将旧 JSON 缓存迁移到 SQLite。"""
+        if not _CACHE_PATH.exists():
+            return
+        try:
+            old_cache = json.loads(_CACHE_PATH.read_text(encoding="utf-8"))
+            if not isinstance(old_cache, dict) or not old_cache:
+                return
+            import time
+            now = time.time()
+            batch = []
+            for h, vec in old_cache.items():
+                if not isinstance(vec, list) or not vec:
+                    continue
+                blob = struct.pack(f"{len(vec)}f", *vec)
+                batch.append((h, blob, len(vec), now))
+            if batch and self._cache_db:
+                self._cache_db.executemany(
+                    "INSERT OR IGNORE INTO embedding_cache (hash, embedding, dims, accessed_at) VALUES (?,?,?,?)",
+                    batch)
+                self._cache_db.commit()
+                logger.info(f"JSON→SQLite 缓存迁移完成: {len(batch)} 条")
+                # 迁移成功后重命名旧文件
+                _CACHE_PATH.rename(_CACHE_PATH.with_suffix(".json.bak"))
+        except Exception as e:
+            logger.warning(f"JSON 缓存迁移失败(不影响使用): {e}")
+
+    def _cache_get(self, h: str) -> list[float] | None:
+        """从缓存获取向量（SQLite → 内存 fallback）。"""
+        # 内存热缓存
+        if h in self._mem_cache:
+            return self._mem_cache[h]
+        if not self._cache_db:
+            return None
+        try:
+            import time
+            row = self._cache_db.execute(
+                "SELECT embedding, dims FROM embedding_cache WHERE hash=?", (h,)
+            ).fetchone()
+            if row:
+                blob, dims = row
+                vec = list(struct.unpack(f"{dims}f", blob))
+                self._cache_db.execute(
+                    "UPDATE embedding_cache SET accessed_at=? WHERE hash=?",
+                    (time.time(), h))
+                self._mem_cache[h] = vec
+                return vec
+        except Exception:
+            pass
+        return None
+
+    def _cache_put(self, h: str, vec: list[float]):
+        """写入缓存（SQLite + 内存热缓存）。"""
+        self._mem_cache[h] = vec
+        if not self._cache_db:
+            return
+        try:
+            import time
+            blob = struct.pack(f"{len(vec)}f", *vec)
+            self._cache_db.execute(
+                "INSERT OR REPLACE INTO embedding_cache (hash, embedding, dims, accessed_at) VALUES (?,?,?,?)",
+                (h, blob, len(vec), time.time()))
+            if hash(h) % 50 == 0:  # 每约50次写入 commit + LRU 清理
+                self._cache_db.commit()
+                self._prune_cache()
+        except Exception as e:
+            logger.debug(f"缓存写入异常: {e}")
+
+    def _prune_cache(self):
+        """LRU 淘汰: 超过上限时删除最久未访问的条目。"""
+        if not self._cache_db:
+            return
+        try:
+            count = self._cache_db.execute("SELECT COUNT(*) FROM embedding_cache").fetchone()[0]
+            if count > _CACHE_MAX_ENTRIES:
+                excess = count - int(_CACHE_MAX_ENTRIES * 0.8)
+                self._cache_db.execute(
+                    "DELETE FROM embedding_cache WHERE hash IN "
+                    "(SELECT hash FROM embedding_cache ORDER BY accessed_at ASC LIMIT ?)",
+                    (excess,))
+                self._cache_db.commit()
+                logger.info(f"向量缓存 LRU 淘汰: {count}→{count - excess} 条")
+        except Exception as e:
+            logger.debug(f"缓存淘汰异常: {e}")
 
     def _ensure_model(self):
         if self._model_loaded:
@@ -93,12 +189,13 @@ class VectorStore:
         return hashlib.md5(text.encode("utf-8")).hexdigest()[:12]
 
     def embed(self, text: str) -> list[float] | None:
-        """生成文本嵌入向量（带缓存）。"""
+        """生成文本嵌入向量（带 SQLite 缓存，上限 10,000 条）。"""
         if not self._ensure_model():
             return None
         h = self._text_hash(text)
-        if h in self._cache:
-            return self._cache[h]
+        cached = self._cache_get(h)
+        if cached is not None:
+            return cached
         try:
             if self._model == "ollama":
                 import requests
@@ -108,9 +205,7 @@ class VectorStore:
             else:
                 vec = self._model.encode(text[:512], normalize_embeddings=True).tolist()
             if vec:
-                self._cache[h] = vec
-                if len(self._cache) % 50 == 0:
-                    self._save_cache()
+                self._cache_put(h, vec)
             return vec
         except Exception as e:
             logger.warning(f"嵌入生成失败: {e}")
