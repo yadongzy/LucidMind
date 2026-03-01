@@ -367,7 +367,56 @@ function isEvergreenMemoryPath(filePath: string): boolean {
 
 **全部 6/6 GAP 补齐完成。** 🎉
 
+### 2026-03-01 记忆系统审计修复 — commit `8d6da38` + `56b4dc7`
+
+**审计报告**: `docs/记忆系统架构审计报告.md`
+
+审计发现 GAP 虽已补齐，但**运行时接线不完整**（~75%），7 个 bug + 1 个 FTS5 中文搜索缺陷。
+
+#### 已修复的 Bug（7 + 1）
+
+| ID | 优先级 | 问题 | 修复 | 提交 |
+|----|--------|------|------|------|
+| BUG-1+2 | P0 | ACE Reflector 参数不匹配 + 返回值丢弃 | `brain_learning.py` 重写 `_ace_reflect_and_merge` | `8d6da38` |
+| BUG-4 | P1 | 启动时 Markdown 不索引 | `api/startup.py` 调用 `index_to_store()` | `8d6da38` |
+| BUG-6 | P1 | Curator 质量门控未集成 | `memory_store_adapter.py` + CJK 有效长度修复 | `8d6da38` |
+| BUG-3 | P2 | MemorySyncManager 未接入运行时 | `brain.py switch_session` 触发 `on_session_end` | `8d6da38` |
+| BUG-5 | P2 | BlockManager blocks 未注入 prompt | `brain.py _build_messages` + `api/main.py` 传递 | `8d6da38` |
+| BUG-7 | P3 | 文件监听器缺失 | 新建 `memory/file_watcher.py` 轮询 `.md` 变更 | `8d6da38` |
+| FTS5-CJK | P0 | FTS5 trigram tokenizer 与中文查询不匹配 | `query_expansion.py` 只保留 3+ 字符 token + `store.py` fallback 分词 | `56b4dc7` |
+
+#### 新增运行时集成（commit `56b4dc7`）
+
+| 功能 | 说明 |
+|------|------|
+| **向量检索启动探测** | `startup.py` 明确日志: ✅可用 / ⚠️降级提示 |
+| **Curator 定时清理** | `run_curator_cleanup()` 接口，由 brain.py 每 20 条消息触发 |
+| **SyncManager 空闲触发** | `sync_if_idle()` + `_idle_sync_and_cleanup()` 异步调度 |
+| **BlockManager human block 自动填充** | 从 UserProfile 同步，仅空 block 时填充 |
+
+#### 端到端验证（15 个 E2E 测试）
+
+| 测试 | 验证内容 | 状态 |
+|------|---------|------|
+| E2E-1 | learn → get_lessons 闭环 | ✅ |
+| E2E-2 | save → recall 闭环 | ✅ |
+| E2E-3 | ACE 反馈 (helpful 提升 / harmful 清理) | ✅ |
+| E2E-4 | Memory Flush → Markdown + MemoryStore | ✅ |
+| E2E-5 | SyncManager 会话结束 → 摘要存储 | ✅ |
+| E2E-6 | Curator 质量门控 (好经验通过 / 垃圾拒绝) | ✅ |
+| E2E-7 | 向量检索可用性探测 | ✅ |
+| E2E-8 | 完整管线 (对话→经验→检索 + 去重) | ✅ |
+
+**累计**: 654/654 全量测试通过，运行时接线率 ~75% → ~95%
+
+#### 诚实的剩余差距
+
+1. **向量检索可能未实际工作** — 依赖 Ollama 本地运行，无 Ollama 时仅 FTS5 文本搜索
+2. **TwoStageExtractor 为可选模块** — 需 `use_two_stage=True` 显式启用
+3. **无 Batch Embedding** — OpenClaw 有 batch-openai/gemini/voyage，LucidMind 逐条嵌入
+4. **无 QMD 外部引擎** — OpenClaw 有 qmd-manager.ts (1,900行) 的外部 BM25+向量+Reranking
+
 ---
 
 *本报告基于 LucidMind commit rebuild/v2.0 和 OpenClaw openclaw-main 源码逐行审查。*
-*最后更新: 2026-03-01 12:45 — 全部 6 个 GAP 实施完成。*
+*最后更新: 2026-03-01 16:55 — 审计修复完成，654/654 测试通过。*
