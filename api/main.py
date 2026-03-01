@@ -57,6 +57,8 @@ def _get_brain(stream=None):
                                   reflection=startup.reflection_adapter)
         from identity.personas import get_persona_manager
         _brain_singleton._persona_manager = get_persona_manager()
+        # BUG-5 fix: 将 BlockManager 传递给 Brain，用于 blocks 直注 system prompt
+        _brain_singleton._block_manager = getattr(startup, 'block_manager', None)
         brain_init.set_brain(_brain_singleton)
         data_views._brain_ref = _brain_singleton
         logger.info("🧠 Brain 单例已创建")

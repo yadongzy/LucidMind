@@ -84,10 +84,13 @@ class MemoryStoreLearningAdapter(LearningPort):
                                  embed_fn=embed_fn)
         self._core_block = CoreMemoryBlock(self.store, max_items=5)
         self._tool_observer = ToolObserver(self.store)
+        # BUG-3 fix: 接入 MemorySyncManager，会话结束时自动提取关键信息
+        from memory.sync import MemorySyncManager
+        self._sync_manager = MemorySyncManager(self.store, self.config, embed_fn=embed_fn)
         logger.info(f"MemoryStoreLearningAdapter 初始化: {self.db_path} (条目={self.store.count()}, vec={self._vec_store.is_available()})")
 
     async def learn(self, experience: dict[str, Any]) -> None:
-        """记录一条经验到 MemoryStore，使用 ACE Bullet 结构。"""
+        """记录一条经验到 MemoryStore，使用 ACE Bullet 结构 + Curator 质量门控。"""
         trigger = experience.get("trigger", experience.get("type", ""))
         lesson = experience.get("lesson", experience.get("input", ""))
         if not trigger or not lesson:
@@ -95,6 +98,17 @@ class MemoryStoreLearningAdapter(LearningPort):
             return
 
         tier = experience.get("tier") or _classify_tier(experience)
+
+        # BUG-6 fix: Curator 质量门控 — 拒绝指令型/空洞/重复经验（strategy tier 豁免）
+        if tier != "strategy":
+            try:
+                from adapters.learning.memory_curator import should_add_lesson
+                existing = [self._to_lesson_dict(r) for r in self.store.get_all(limit=50)]
+                if not should_add_lesson(experience, existing):
+                    logger.debug(f"Curator 门控拒绝: trigger='{trigger[:50]}'")
+                    return
+            except Exception:
+                pass  # Curator 不可用时降级，不阻塞学习
         collection = _TIER_TO_COLLECTION.get(tier, "lessons")
         category = experience.get("category") or _auto_category(trigger, lesson)
         source = experience.get("source", "unknown")

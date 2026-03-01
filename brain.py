@@ -130,6 +130,16 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, Brain
         return self._session_user_map.get(self._current_sid, "default")
 
     async def switch_session(self, session_id: str) -> None:
+        # BUG-3 fix: 切换前触发旧会话的 MemorySyncManager 提取
+        old_sid = self._current_sid
+        if old_sid and old_sid != session_id and self.learning:
+            try:
+                sync_mgr = getattr(self.learning, "_sync_manager", None)
+                old_msgs = self._sessions.get(old_sid, [])
+                if sync_mgr and old_msgs:
+                    await sync_mgr.on_session_end(old_sid, old_msgs, llm=self.llm)
+            except Exception as e:
+                logger.debug(f"[{old_sid}] 会话结束同步跳过: {e}")
         self._current_sid = session_id
         if not self._sessions.get(session_id) and self.memory:
             stored = await self.memory.get_context(session_id)
@@ -636,6 +646,12 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, Brain
                     system_content += f"\n\n## 知识技能\n{_prompt_skills}"
             except Exception:
                 pass
+            # BUG-5 fix: Letta Blocks 直注 — 核心记忆零延迟注入
+            _bm = getattr(self, "_block_manager", None)
+            if _bm:
+                _blocks_text = _bm.format_for_prompt()
+                if _blocks_text:
+                    system_content += f"\n\n## 核心记忆\n{_blocks_text}"
             # 首次引导检测（per-user）
             bootstrap_text = self._identity_mgr.get_bootstrap(user_id)
             if bootstrap_text and "BOOTSTRAP_COMPLETE" not in bootstrap_text:

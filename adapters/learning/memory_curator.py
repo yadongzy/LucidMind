@@ -80,6 +80,17 @@ _COMMAND_PATTERNS = [
 ]
 
 
+def _effective_len(text: str) -> int:
+    """CJK 字符每个算 2 个有效字符（信息密度高于拉丁字母）。"""
+    count = 0
+    for ch in text:
+        if '\u4e00' <= ch <= '\u9fff' or '\u3400' <= ch <= '\u4dbf':
+            count += 2
+        else:
+            count += 1
+    return count
+
+
 def should_add_lesson(lesson: dict[str, Any], existing: list[dict[str, Any]]) -> bool:
     """选择性添加门控。论文发现 add-all 比不添加更差。
 
@@ -92,8 +103,8 @@ def should_add_lesson(lesson: dict[str, Any], existing: list[dict[str, Any]]) ->
     """
     trigger = lesson.get("trigger", "")
     content = lesson.get("lesson", "")
-    if len(trigger) < 5 or len(content) < 10:
-        logger.debug(f"门控拒绝: 内容过短 trigger={len(trigger)} lesson={len(content)}")
+    if _effective_len(trigger) < 4 or _effective_len(content) < 10:
+        logger.debug(f"门控拒绝: 内容过短 trigger={_effective_len(trigger)} lesson={_effective_len(content)}")
         return False
     if "方法有效，可复用" in content and len(content) < 50:
         logger.debug(f"门控拒绝: 空洞的成功记录")

@@ -19,10 +19,35 @@ class BrainLearningMixin:
     """学习能力混入 — 让大脑能从经验中学习。"""
 
     async def _ace_reflect_and_merge(self, session_id: str) -> None:
-        """ACE Reflector: 工具调用后异步反思并合并经验。Phase R6 将完整实现。"""
+        """ACE Reflector: 工具调用后异步反思并合并经验。"""
+        # 跳过系统内部会话
+        _system_sessions = {"boot_check", "daily_check", "self_check", "curiosity"}
+        if session_id in _system_sessions or not self._history or not self.learning:
+            return
         try:
             from memory import reflect_on_session
-            await reflect_on_session(session_id, self._history, self.learning)
+            # 从历史中提取工具执行结果
+            tool_results = []
+            for m in self._history:
+                if m.get("role") == "tool":
+                    tool_results.append({
+                        "tool": m.get("name", ""),
+                        "success": "error" not in (m.get("content") or "").lower(),
+                        "result": (m.get("content") or "")[:200],
+                    })
+            store = getattr(self.learning, "store", None)
+            deltas = await reflect_on_session(
+                messages=self._history,
+                tool_results=tool_results or None,
+                llm=self.llm,
+                store=store,
+            )
+            # 将 delta bullets 合并到 MemoryStore
+            if deltas and store:
+                for d in deltas:
+                    d.setdefault("metadata", {})["source_session"] = session_id
+                store.merge_deltas(deltas, collection="lessons")
+                logger.info(f"[{session_id}] ACE reflect: 合并 {len(deltas)} 条策略")
         except ImportError:
             pass
         except Exception as e:

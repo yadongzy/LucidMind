@@ -74,6 +74,7 @@ tool_adapter = None
 memory_adapter = None
 learning_adapter = None
 reflection_adapter = None
+block_manager = None
 mcp_client = None
 telegram_channel = None
 feishu_channel = None
@@ -93,6 +94,7 @@ def save_active_provider(provider: str):
 def init():
     """D3 修复: 显式初始化所有 Adapter，由 main.py startup 事件调用，不在 import 时执行。"""
     global llm_adapter, tool_adapter, memory_adapter, learning_adapter, reflection_adapter
+    global block_manager
     global mcp_client, telegram_channel, feishu_channel, wecom_channel, wechat_channel, ws_channel
     global provider_adapter_map
 
@@ -154,6 +156,24 @@ def init():
     learning_adapter = MemoryStoreLearningAdapter()
     reflection_adapter = JSONReflectionAdapter()
     IntrospectAdapter._learning_adapter = learning_adapter
+
+    # --- BUG-4 fix: 启动时将 Markdown 记忆文件索引到 MemoryStore ---
+    try:
+        from memory.markdown_store import get_markdown_store
+        _md_store = get_markdown_store()
+        _idx_result = _md_store.index_to_store(learning_adapter.store)
+        if _idx_result.get("indexed", 0) > 0:
+            logger.info(f"Markdown 记忆索引: {_idx_result}")
+    except Exception as e:
+        logger.debug(f"Markdown 索引跳过: {e}")
+
+    # --- BUG-7 fix: 启动文件监听器，.md 变更后自动重索引 ---
+    try:
+        from memory.file_watcher import get_file_watcher
+        _fw = get_file_watcher()
+        _fw.start(learning_adapter.store)
+    except Exception as e:
+        logger.debug(f"文件监听器启动跳过: {e}")
 
     # --- Letta Memory Blocks ---
     block_manager = BlockManager()
