@@ -166,6 +166,15 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, Brain
             if self.memory:
                 await self.memory.save_message(session_id, {"role": "user", "content": user_input})
 
+            # 自动提取用户偏好（关键词匹配，无 LLM 调用，零延迟）
+            try:
+                _user_id = self._current_user_id()
+                _prefs = await self._profile_adapter.extract_preferences(user_input)
+                for k, v in _prefs.items():
+                    self._profile_adapter.update_preference(_user_id, k, v)
+            except Exception:
+                pass
+
             # Token 优化：按快速路径分类决定加载哪些工具
             if _fp.skip_tools:
                 tools = None

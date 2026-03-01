@@ -468,6 +468,91 @@ class TestT7_MultiUserIsolation:
 # T8: 缓存一致性
 # ════════════════════════════════════════════
 
+class TestT9_ExtractPreferences:
+    """验证 extract_preferences 自动提取用户偏好闭环。"""
+
+    @pytest.mark.asyncio
+    async def test_extract_chinese_preference(self, tmp_env):
+        """用户说"用中文回答"时自动提取语言偏好。"""
+        import adapters.memory.user_profile as up_mod
+        orig = up_mod.PROFILES_DIR
+        up_mod.PROFILES_DIR = tmp_env["profiles_dir"]
+        try:
+            from adapters.memory.user_profile import UserProfileAdapter
+            adapter = UserProfileAdapter()
+            prefs = await adapter.extract_preferences("请用中文回答我的问题")
+            assert prefs.get("language") == "zh-CN"
+
+            # 存储后验证 get_context_prompt 能读到
+            for k, v in prefs.items():
+                adapter.update_preference("ext_user", k, v)
+            ctx = adapter.get_context_prompt("ext_user")
+            assert "language=zh-CN" in ctx
+        finally:
+            up_mod.PROFILES_DIR = orig
+
+    @pytest.mark.asyncio
+    async def test_extract_style_preference(self, tmp_env):
+        """用户说"简洁一点"时自动提取风格偏好。"""
+        import adapters.memory.user_profile as up_mod
+        orig = up_mod.PROFILES_DIR
+        up_mod.PROFILES_DIR = tmp_env["profiles_dir"]
+        try:
+            from adapters.memory.user_profile import UserProfileAdapter
+            adapter = UserProfileAdapter()
+            prefs = await adapter.extract_preferences("回答简洁一点，不要太长")
+            assert prefs.get("style") == "concise"
+        finally:
+            up_mod.PROFILES_DIR = orig
+
+    @pytest.mark.asyncio
+    async def test_extract_no_match(self, tmp_env):
+        """普通对话不触发偏好提取。"""
+        import adapters.memory.user_profile as up_mod
+        orig = up_mod.PROFILES_DIR
+        up_mod.PROFILES_DIR = tmp_env["profiles_dir"]
+        try:
+            from adapters.memory.user_profile import UserProfileAdapter
+            adapter = UserProfileAdapter()
+            prefs = await adapter.extract_preferences("今天天气怎么样？")
+            assert prefs == {}
+        finally:
+            up_mod.PROFILES_DIR = orig
+
+    @pytest.mark.asyncio
+    async def test_extract_to_prompt_full_chain(self, tmp_env):
+        """完整链路: 用户输入 → extract → save → get_context_prompt → build_identity_prompt。"""
+        import adapters.memory.user_profile as up_mod
+        orig = up_mod.PROFILES_DIR
+        up_mod.PROFILES_DIR = tmp_env["profiles_dir"]
+        try:
+            from adapters.memory.user_profile import UserProfileAdapter
+            adapter = UserProfileAdapter()
+
+            # 模拟多轮对话提取
+            prefs1 = await adapter.extract_preferences("请用中文回答")
+            for k, v in prefs1.items():
+                adapter.update_preference("chain_user", k, v)
+
+            prefs2 = await adapter.extract_preferences("回答要详细一些")
+            for k, v in prefs2.items():
+                adapter.update_preference("chain_user", k, v)
+
+            # 验证画像累积
+            ctx = adapter.get_context_prompt("chain_user")
+            assert "language=zh-CN" in ctx
+            assert "style=detailed" in ctx
+
+            # 验证注入到 identity prompt
+            mgr = tmp_env["mgr"]
+            mgr.ensure_user_dir("chain_user")
+            prompt = mgr.build_identity_prompt("chain_user", profile_context=ctx)
+            assert "language=zh-CN" in prompt
+            assert "style=detailed" in prompt
+        finally:
+            up_mod.PROFILES_DIR = orig
+
+
 class TestT8_CacheConsistency:
     """验证文件修改后缓存正确失效。"""
 
