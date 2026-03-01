@@ -326,7 +326,16 @@ function isEvergreenMemoryPath(filePath: string): boolean {
 - 持久知识（用户偏好、项目事实、技能经验）无论多久都保持原始检索分数
 - 测试: T12-1~6 共 6 个测试通过
 
-**累计**: 490/490 全量测试通过，新增 16 个测试
+**GAP-3 Markdown 记忆文件系统** — commit `1fd8610`
+- 新增 `memory/markdown_store.py` (~220行): data/memory/*.md 文件管理
+- 读写/追加/删除/搜索 + 路径遍历防护 + 去重
+- `MEMORY.md` 常青记忆文件（对标 OpenClaw `memory/MEMORY.md`）
+- `index_to_store()`: 将 Markdown 内容索引到 SQLite MemoryStore
+- `json_memory.py recall()` 集成 Markdown 搜索（降级安全）
+- `api/memory.py` 新增 7 个 API 端点（files CRUD + search + index）
+- 测试: T13-1~10 共 10 个测试通过
+
+**累计**: 500/500 全量测试通过，新增 26 个测试
 
 ### 补齐状态更新
 
@@ -334,12 +343,14 @@ function isEvergreenMemoryPath(filePath: string): boolean {
 |-----|------|------|
 | GAP-1 Memory Flush | ✅ 完成 | `69571e8` |
 | GAP-2 向量缓存扩容 | ✅ 完成 | `69571e8` |
-| GAP-3 Markdown 记忆 | ⏳ 待做 (P1) | — |
+| GAP-3 Markdown 记忆 | ✅ 完成 | `1fd8610` |
 | GAP-4 多 Provider | ⏳ 待做 (P2) | — |
 | GAP-5 Evergreen 豁免 | ✅ 完成 | `7068280` |
 | GAP-6 查询扩展 | ⏳ 待做 (P2) | — |
 
+**P0+P1 全部完成（4/6 GAP），剩余 P2 为锦上添花。**
+
 ---
 
 *本报告基于 LucidMind commit rebuild/v2.0 和 OpenClaw openclaw-main 源码逐行审查。*
-*最后更新: 2026-03-01 12:16 — P0+P1 实施完成。*
+*最后更新: 2026-03-01 12:30 — P0+P1 全部实施完成。*
