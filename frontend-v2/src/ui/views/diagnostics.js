@@ -16,6 +16,10 @@ let _filterCategory = "";
 let _filterStatus = "";
 let _filterMinutes = 60;
 let _expandedIdx = null;
+let _issuesData = null;
+let _issuesStats = null;
+let _issuesFilter = "";
+let _issuesLoading = false;
 
 async function _refresh() {
   if (_loading) return;
@@ -273,6 +277,7 @@ export function renderDiagnostics(app) {
     { key: "timeline", label: "时间线", icon: "📈" },
     { key: "events", label: "事件列表", icon: "📋" },
     { key: "realtime", label: "实时日志", icon: "📡" },
+    { key: "issues", label: "自愈问题", icon: "🏥" },
   ];
 
   return html`
@@ -312,7 +317,15 @@ export function renderDiagnostics(app) {
             ? (_diagResult.count === 0
               ? html`<span style="color:var(--green,#22c55e);font-weight:600;">✅ 系统诊断通过，未发现问题</span>`
               : html`<div><span style="color:var(--warn,#f59e0b);font-weight:600;">⚠️ 发现 ${_diagResult.count} 个问题：</span>
-                  ${(_diagResult.issues || []).map(iss => html`<div style="margin:4px 0 0 16px;font-size:12px;">• ${iss.description || JSON.stringify(iss)}</div>`)}</div>`)
+                  ${(_diagResult.issues || []).map(iss => {
+                    const desc = iss.desc || iss.description || JSON.stringify(iss);
+                    const sevColor = { minor: 'var(--fg-3,#888)', medium: 'var(--warn,#f59e0b)', severe: '#f97316', fatal: 'var(--danger,#ef4444)' }[iss.severity] || 'var(--fg-3)';
+                    return html`<div style="margin:6px 0 0 0;padding:6px 10px;background:var(--bg-2);border-radius:6px;border-left:3px solid ${sevColor};font-size:12px;display:flex;align-items:center;gap:8px;">
+                      <span style="font-size:10px;padding:1px 6px;border-radius:8px;background:${sevColor}22;color:${sevColor};font-weight:600;">${iss.severity || '?'}</span>
+                      <span style="flex:1;">${desc}</span>
+                      <span style="color:var(--fg-3);font-size:11px;">重试${iss.retries || 0}次</span>
+                    </div>`;
+                  })}</div>`)
             : html`<span style="color:var(--danger,#ef4444);">❌ 诊断失败: ${_diagResult.message || '未知错误'}</span>`}
           <button class="btn btn--sm" style="font-size:10px;margin-left:8px;float:right;" @click=${() => { _diagResult = null; app.requestUpdate(); }}>✕</button>
         </div>
@@ -334,7 +347,126 @@ export function renderDiagnostics(app) {
       ${_activeTab === "timeline" ? _renderTimelineTab() : nothing}
       ${_activeTab === "events" ? _renderEventsTab(app) : nothing}
       ${_activeTab === "realtime" ? _renderRealtimeTab(app) : nothing}
+      ${_activeTab === "issues" ? _renderIssuesTab(app) : nothing}
     </div>
+  `;
+}
+
+async function _refreshIssues() {
+  if (_issuesLoading) return;
+  _issuesLoading = true;
+  try {
+    const [listRes, statsRes] = await Promise.all([
+      fetch(`/api/issues${_issuesFilter ? '?status=' + _issuesFilter : ''}`).then(r => r.ok ? r.json() : { issues: [] }),
+      fetch('/api/issues/stats').then(r => r.ok ? r.json() : { counts: {}, repair_success_rate: 0 }),
+    ]);
+    _issuesData = listRes.issues || [];
+    _issuesStats = statsRes;
+  } catch (e) { console.error('Issues加载失败:', e); }
+  _issuesLoading = false;
+}
+
+function _sevColor(sev) {
+  return { minor: 'var(--fg-3,#888)', medium: 'var(--warn,#f59e0b)', severe: '#f97316', fatal: 'var(--danger,#ef4444)' }[sev] || 'var(--fg-3)';
+}
+
+function _statusLabel(s) {
+  return { open: '待处理', verifying: '验证中', closed: '已关闭' }[s] || s;
+}
+
+function _statusBadgeCls(s) {
+  return { open: 'var(--warn,#f59e0b)', verifying: 'var(--accent,#3b82f6)', closed: 'var(--green,#22c55e)' }[s] || 'var(--fg-3)';
+}
+
+function _renderIssuesTab(app) {
+  if (!_issuesData && !_issuesLoading) {
+    _refreshIssues().then(() => app.requestUpdate());
+    return html`<p class="text-muted" style="padding:24px;text-align:center;">加载自愈问题...</p>`;
+  }
+  if (!_issuesData) return html`<p class="text-muted" style="padding:24px;text-align:center;">加载中...</p>`;
+
+  const stats = _issuesStats || { counts: {}, repair_success_rate: 0, total: 0 };
+  const c = stats.counts || {};
+
+  return html`
+    <!-- 统计卡片 -->
+    <div class="card-grid" style="margin-bottom:16px;">
+      <div class="stat">
+        <div class="stat-label">待处理</div>
+        <div class="stat-value" style="color:${c.open > 0 ? 'var(--warn,#f59e0b)' : 'var(--green,#22c55e)'}">${c.open || 0}</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">验证中</div>
+        <div class="stat-value" style="color:var(--accent,#3b82f6)">${c.verifying || 0}</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">已关闭</div>
+        <div class="stat-value">${c.closed || 0}</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">修复成功率</div>
+        <div class="stat-value" style="color:${stats.repair_success_rate >= 80 ? 'var(--green,#22c55e)' : stats.repair_success_rate >= 50 ? 'var(--warn,#f59e0b)' : 'var(--danger,#ef4444)'}">${stats.repair_success_rate || 0}%</div>
+      </div>
+    </div>
+
+    <!-- 过滤器 -->
+    <div style="display:flex;gap:4px;margin-bottom:12px;align-items:center;">
+      ${['', 'open', 'verifying', 'closed'].map(f => html`
+        <button class="btn ${_issuesFilter === f ? 'btn--primary' : ''}" style="font-size:11px;padding:4px 10px;"
+          @click=${() => { _issuesFilter = f; _issuesData = null; _refreshIssues().then(() => app.requestUpdate()); }}>
+          ${f === '' ? '全部' : _statusLabel(f)}
+        </button>
+      `)}
+      <span class="text-muted" style="margin-left:auto;font-size:11px;">${_issuesData.length} 条</span>
+      <button class="btn btn--sm" style="font-size:11px;" @click=${() => { _issuesData = null; _issuesStats = null; _refreshIssues().then(() => app.requestUpdate()); }}>${icons.refresh}</button>
+    </div>
+
+    <!-- Issue 列表 -->
+    ${_issuesData.length === 0 ? html`<p class="text-muted" style="padding:24px;text-align:center;">暂无问题</p>` : html`
+      <div style="max-height:500px;overflow-y:auto;">
+        ${_issuesData.map((iss, idx) => {
+          const sc = _sevColor(iss.severity);
+          const stc = _statusBadgeCls(iss.status);
+          return html`
+            <div style="padding:10px 12px;background:var(--bg-2);border-radius:8px;margin-bottom:6px;border-left:3px solid ${sc};">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span style="font-size:10px;padding:1px 6px;border-radius:8px;background:${sc}22;color:${sc};font-weight:600;">${iss.severity || '?'}</span>
+                <span style="font-size:13px;font-weight:600;color:var(--fg);flex:1;">${iss.desc || '—'}</span>
+                <span style="font-size:10px;padding:1px 8px;border-radius:8px;background:${stc}22;color:${stc};font-weight:600;">${_statusLabel(iss.status)}</span>
+              </div>
+              <div style="display:flex;gap:12px;font-size:11px;color:var(--fg-3);margin-top:6px;flex-wrap:wrap;align-items:center;">
+                <span>来源: ${iss.source || '?'}</span>
+                <span>发现: ${iss.found || '?'}</span>
+                <span>重试: ${iss.retries || 0}次</span>
+                ${iss.resolution ? html`<span>解决: ${iss.resolution}</span>` : nothing}
+                ${iss.closed_at ? html`<span>关闭: ${iss.closed_at}</span>` : nothing}
+                ${iss.status === 'open' ? html`
+                  <span style="margin-left:auto;display:flex;gap:4px;">
+                    <button class="btn btn--sm btn--primary" style="font-size:10px;padding:2px 8px;"
+                      @click=${async (e) => {
+                        e.stopPropagation();
+                        try {
+                          const r = await fetch('/api/issues/' + iss.id + '/repair', { method: 'POST' }).then(r => r.json());
+                          if (r.status === 'ok') { _issuesData = null; _issuesStats = null; _refreshIssues().then(() => app.requestUpdate()); }
+                          else { alert('修复失败: ' + (r.message || '')); }
+                        } catch(err) { alert('修复请求失败: ' + err.message); }
+                      }}>🔧 修复</button>
+                    <button class="btn btn--sm" style="font-size:10px;padding:2px 8px;"
+                      @click=${async (e) => {
+                        e.stopPropagation();
+                        if (!confirm('确定关闭此问题？')) return;
+                        try {
+                          await fetch('/api/issues/' + iss.id + '/close', { method: 'POST' });
+                          _issuesData = null; _issuesStats = null; _refreshIssues().then(() => app.requestUpdate());
+                        } catch(err) { console.error('关闭失败:', err); }
+                      }}>✕ 关闭</button>
+                  </span>
+                ` : nothing}
+              </div>
+            </div>`;
+        })}
+      </div>
+    `}
   `;
 }
 

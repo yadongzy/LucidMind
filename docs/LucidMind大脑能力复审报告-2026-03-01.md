@@ -315,3 +315,104 @@ Brain
 | 8 | **自愈系统 Phase 1+2** | L1 数据层修复 + L2 Brain 自服务修复完整实施 |
 | 9 | **Summarizer/RecoveryManager 清理** | 仍是死代码，要么激活要么删除 |
 | 10 | **版本 v2.06 归档 + tag** | 当前修复已稳定，应打版本 |
+
+---
+
+## 十一、前端自愈系统分析（2026-03-01 18:20）
+
+### 11.1 数据流断裂诊断
+
+**核心问题：`issue_tracker.py` 是自愈系统的数据中枢，但完全没有 REST API 层，前端无法访问。**
+
+```
+后端闭环 (完整)                              前端可视层 (断裂)
+━━━━━━━━━━━━━━━━━━━━                        ━━━━━━━━━━━━━━━━━━
+SelfCheckEngine.daily_check()
+  │ report_issue() → data/issues.json ──────── ❌ 无 API 端点
+RepairEngine.repair_all()
+  │ mark_verifying() → data/issues.json ────── ❌ 无 API 端点
+issue_tracker.py (131行)
+  │ get_open_issues()  ─────────────────────── ❌ 无 REST API
+  │ get_verifying_issues() ─────────────────── ❌ 无 REST API
+  │ close_issue() ──────────────────────────── ❌ 无 REST API
+diagnostics.py (DiagnosticEvent)
+  │ 性能事件 ───────────────────────────────── ✅ 有 4 个 API
+POST /api/diagnostics/run
+  └─ daily_check() 临时返回 ────────────────── ⚠️ 刷新即消失 + 原始JSON渲染
+```
+
+### 11.2 当前前端 Bug
+
+| Bug | 位置 | 原因 | 修复 |
+|-----|------|------|------|
+| 诊断问题显示为原始 JSON | `diagnostics.js:315` | `iss.description` 字段名不匹配，实际为 `iss.desc` | 改为 `iss.desc \|\| iss.description` + 结构化渲染 |
+| 诊断结果刷新即消失 | `diagnostics.js:14` | `_diagResult` 仅存内存，关闭按钮清空 | 需持久化到 issue API |
+
+### 11.3 前端自愈能力现状
+
+| 页面 | 与自愈相关能力 | 缺失 |
+|------|---------------|------|
+| **系统诊断** (`diagnostics.js` 367行) | 运行诊断按钮 → `daily_check()`；DiagnosticEvent 统计/时间线/事件列表 | ❌ issue 列表、修复按钮、状态流转 |
+| **大脑状态** (`brain.js` 374行) | `boot_diag` 自检快照（LLM/工具/记忆/学习/内存/磁盘） | ❌ 仅启动时快照，不实时更新 |
+| **任务看板** (`scheduler.js` 591行) | 自修复任务以 `source="self_repair"` 出现在队列中 | ❌ 看不到 issue→task 关联 |
+
+### 11.4 优化方案（分级）
+
+| 优先级 | 任务 | 工作量 | 涉及文件 |
+|--------|------|--------|----------|
+| **P0** | 修复 `iss.description` → `iss.desc` + 结构化渲染诊断结果 | ~15行 | `diagnostics.js` |
+| **P1** | 新增 `api/issues.py` — Issue CRUD API（list/repair/close） | ~60行新文件 | `api/issues.py` + `api/main.py` |
+| **P2** | 诊断页新增「🏥 自愈问题」Tab — 结构化 issue 列表 + 状态徽章 + 操作按钮 | ~150行 | `diagnostics.js` |
+| **P3** | 独立「自愈中心」页面（侧边栏新入口） | ~300行新文件 | `views/healing.js` + `app.js` |
+
+### 11.5 需要的按钮
+
+| 按钮 | 状态 | 说明 |
+|------|------|------|
+| 「运行诊断」 | ✅ 已有 | 触发 `SelfCheckEngine.daily_check()` |
+| 「手动修复」 | ❌ 需新增 | 对单条 open issue 触发 `RepairEngine` |
+| 「关闭问题」 | ❌ 需新增 | 手动关闭误报/已自行解决的问题 |
+| 「委托外部修复」 | ⚠️ Phase 3 | 需 MCP external_repair server 或 CLI agent 配置 |
+
+### 11.6 委托外部修复（L3）实现分析
+
+当前 `repair_engine.py:191-292` 已实现 L3 双通道委派：
+
+**通道 1 — MCP 外部修复服务器**（`_try_mcp_repair`）：
+- 检查 `tools.list_tools()` 中是否存在 `mcp_external_repair_*` 前缀的工具
+- 优先调用包含 `repair`/`fix`/`diagnose` 关键词的工具
+- 传入 `{issue, severity, project_path, retries}` 参数
+- 判断返回文本是否包含 `REPAIR_OK` 或 `fixed` 确认修复成功
+- MCP server 名称硬编码为 `_L3_MCP_SERVER = "external_repair"`
+
+**通道 2 — CLI 外部代理**（`_try_cli_repair`）：
+- 检测 `shutil.which("claude")` 是否存在 Claude CLI
+- 调用 `claude --print -p "<repair_prompt>"` 执行修复
+- 超时 300 秒（`_L3_TIMEOUT`）
+- 检查输出是否包含 `REPAIR_OK` 或 `fixed`
+
+**升级条件**：
+- `medium` 问题: retries ≥ 10 → L3
+- `severe` 问题: retries ≥ 10 → L3
+- `fatal` 问题: 直接 → L3
+
+**使用方法**：
+1. MCP 方式：在 `config/mcp_servers.json` 添加 `external_repair` 服务器配置
+2. CLI 方式：安装 `claude` CLI 并确保在 PATH 中（`npm install -g @anthropic-ai/claude-code`）
+
+### 11.7 诚实评估与额外建议
+
+**当前 L3 的不足**：
+1. MCP server 名称硬编码为 `"external_repair"`，应改为可配置
+2. CLI 通道仅支持 `claude`，不支持其他代理（如 Cursor/Aider/OpenHands）
+3. `REPAIR_OK` / `fixed` 关键词判断过于粗糙，可能误判
+4. 无修复进度回调，前端无法显示修复过程
+5. 修复超时 300 秒内无中间状态反馈
+
+**更深层的建议**：
+1. **DiagnosticEvent 与 Issue 概念不应混在同一页面** — 前者是性能监控，后者是问题管理，用户心智模型不同
+2. **issue_tracker 应迁移到 SQLite** — 当前 `data/issues.json` 每次 `_save_issues` 全量写入，高并发下有数据丢失风险
+3. **前端应有 WebSocket 推送修复进度** — 修复是异步过程，轮询不友好
+4. **「运行诊断」应显示历史 issue 列表**（不只是新发现的） — 用户需要全局视图
+5. **概览页应有健康评分摘要** — 将 open issue 数量、成功率、最近修复统计聚合为一个健康分
+6. **L3 外部修复的结果应记录到 issue 的 resolution 字段** — 当前 `resolution` 始终为 null
