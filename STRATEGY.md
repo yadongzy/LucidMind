@@ -93,7 +93,7 @@
 | # | 任务 | 说明 | 状态 |
 |---|------|------|------|
 | E1 | 运行时热加载 | POST /api/plugins/reload | ✅ |
-| E2 | `lucidmind create-plugin <name>` | CLI 模板生成器 | 🔲 |
+| E2 | `lucidmind create-plugin <name>` | CLI 模板生成器（支持 --tools 多工具、ToolPort 类模板、README.md） | ✅ |
 | E3 | 插件开发文档 | docs/plugin-guide.md | ✅ |
 
 #### 1F. 前端完善（2天）✅ 已完成
