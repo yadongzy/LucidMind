@@ -4,6 +4,18 @@
 
 ---
 
+## v3.1.1 (2026-05-03) — GitHub 发布前安全加固
+
+### 修复
+- **移除硬编码 Antigravity API Key**: `api/startup.py` 改为读取 `ANTIGRAVITY_API_KEY` 环境变量
+- **发布忽略规则加固**: `.gitignore` 增加 `.env.*`、数据库、日志、备份、IDE、node_modules 等忽略项
+- **环境变量模板安全化**: `.env.example` 改为空值模板，补充 LLM/Embedding/多通道/MCP/代理/GitHub/安全/视觉配置项
+
+### 安全提示
+- 既往出现在代码中的 API Key 应视为已泄露，发布前必须在服务商后台轮换
+
+---
+
 ## v3.1.0 (2026-03-01) — Phase A/B/C/D 工程深度提升
 
 ### Phase A: 安全修复

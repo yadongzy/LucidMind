@@ -112,7 +112,7 @@ def init():
     _local.provider_name = "local"
     # --- Antigravity 本地代理 (OpenAI 兼容，含 100+ 模型) ---
     _antigravity = DeepSeekAdapter(
-        api_key="sk-9455ba5346a04b5294bbaf2589cf2f2c",
+        api_key=os.getenv("ANTIGRAVITY_API_KEY", ""),
         base_url="http://127.0.0.1:8045/v1",
         model="gemini-3-flash",
     )

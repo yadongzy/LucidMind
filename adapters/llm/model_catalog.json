@@ -116,7 +116,7 @@
       "name": "Antigravity (本地代理)",
       "api_type": "openai",
       "base_url": "http://127.0.0.1:8045/v1",
-      "api_key": "sk-9455ba5346a04b5294bbaf2589cf2f2c",
+      "api_key": "",
       "env_key": "ANTIGRAVITY_API_KEY",
       "models": [
         {"id": "gemini-3-flash", "name": "Gemini 3 Flash", "context_window": 1000000, "reasoning": false, "tool_support": true, "pricing": {"input": 0, "output": 0}},

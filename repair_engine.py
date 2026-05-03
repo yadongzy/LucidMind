@@ -91,7 +91,9 @@ class RepairEngine:
             if "噪音" in desc or "噪声" in desc:
                 return await self._clean_noise_lessons()
             if "SOUL.md" in desc:
-                return True
+                # SOUL.md 行数过多无法自动精简，需人工或L2处理
+                logger.info(f"🔧 SOUL.md问题需人工精简，跳过自动修复")
+                return False
             return False  # 未匹配的 minor issue 不应假报成功
         except Exception:
             return False
