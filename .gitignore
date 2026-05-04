@@ -38,6 +38,11 @@ frontend-react/node_modules/
 _redundant_backup/
 _backup/
 archive/
+tests/_deprecated/
+
+docs/测试日志.md
+docs/测试方案.md
+frontend/未命名.html
 
 .DS_Store
 Thumbs.db

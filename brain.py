@@ -31,7 +31,6 @@ from brain_config import (
     TOOL_INFERENCE_MAP,
 )
 from identity.user_identity import get_user_identity_manager
-from adapters.memory.user_profile import UserProfileAdapter
 from logs import get_logger
 
 logger = get_logger("brain")
@@ -50,6 +49,7 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, Brain
         memory: MemoryPort | None = None,
         learning: LearningPort | None = None,
         reflection: ReflectionPort | None = None,
+        profile_adapter=None,
     ):
         self.llm = llm
         self.stream = stream
@@ -71,7 +71,10 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, Brain
         self._persona_manager = None  # P2a: 多角色系统（延迟初始化）
         self._session_user_map: dict[str, str] = {}  # session_id → user_id
         self._identity_mgr = get_user_identity_manager()
-        self._profile_adapter = UserProfileAdapter()
+        if profile_adapter is None:
+            from adapters.memory.user_profile import UserProfileAdapter
+            profile_adapter = UserProfileAdapter()
+        self._profile_adapter = profile_adapter
         self._session_msg_counter: dict[str, int] = {}  # P1: 消息计数器，用于空闲同步触发
         self._SYNC_EVERY_N_MSGS = 20  # 每 N 条消息触发一次同步
         self._reload_soul_if_changed()

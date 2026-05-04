@@ -34,7 +34,7 @@ class BrainDaemon(DaemonObserveMixin, TaskExecutorMixin):
     IDLE_MAX_WAIT = 30
 
     def __init__(self, brain, interval: int = 60, soul_engine=None, goal_system=None,
-                 teacher_channel=None, ws_channel=None):
+                 teacher_channel=None, ws_channel=None, stream_factory=None):
         self._brain = brain
         self._interval = interval
         self._running = False
@@ -46,6 +46,7 @@ class BrainDaemon(DaemonObserveMixin, TaskExecutorMixin):
         self._teacher = teacher_channel
         self._teach_cycle_count = 0
         self._ws_channel = ws_channel
+        self._stream_factory = stream_factory
         self._was_disconnected = False
         self._paused = False
         self._pending_plan: str | None = None

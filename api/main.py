@@ -36,7 +36,7 @@ from logs import get_logger
 
 logger = get_logger("api")
 
-app = FastAPI(title="LucidMind", version="0.1.0")
+app = FastAPI(title="LucidMind", version="3.1.1")
 for _r in [config_router, upload_router, tasks_router, cron_router, sessions_router, auth_router,
            memory_router,  # ISS-015: must be before data_views to avoid /api/memory/{session_id} shadowing
            data_views.router, brain_init.router, http_chat.router, teacher.router, cascade_inject.router,
@@ -53,9 +53,11 @@ _brain_singleton = None
 def _get_brain(stream=None):
     global _brain_singleton
     if _brain_singleton is None:
+        from adapters.memory.user_profile import UserProfileAdapter
         _brain_singleton = Brain(llm=startup.llm_adapter, stream=stream, tools=startup.tool_adapter,
                                   memory=startup.memory_adapter, learning=startup.learning_adapter,
-                                  reflection=startup.reflection_adapter)
+                                  reflection=startup.reflection_adapter,
+                                  profile_adapter=UserProfileAdapter())
         from identity.personas import get_persona_manager
         _brain_singleton._persona_manager = get_persona_manager()
         # BUG-5 fix: 将 BlockManager 传递给 Brain，用于 blocks 直注 system prompt
@@ -152,14 +154,14 @@ async def _startup():
                 await stream.emit("error", str(e))
 
     set_cron_callback(_cron_execute)
-    for ch in [startup.telegram_channel, startup.feishu_channel, startup.wecom_channel, startup.wechat_channel]:
+    for ch in [startup.telegram_channel, startup.feishu_channel, startup.wecom_channel, startup.wechat_channel, startup.discord_channel]:
         ch.set_brain(b)
         await ch.start(None)
 
     # --- Module init (D3: 移入 startup 事件) ---
     teacher.init(startup.ws_channel, brain_init.teacher)
     mcp_api.init(startup.mcp_client, startup.tool_adapter)
-    channels_api.init(startup.telegram_channel, startup.feishu_channel, startup.wecom_channel, startup.wechat_channel)
+    channels_api.init(startup.telegram_channel, startup.feishu_channel, startup.wecom_channel, startup.wechat_channel, startup.discord_channel)
     from adapters.tools.tool_safety import get_safety_guard
     _safety_guard = get_safety_guard()
     _safety_guard.set_ws_channel(startup.ws_channel)
@@ -173,7 +175,7 @@ async def _startup():
 @app.on_event("shutdown")
 async def _shutdown():
     await startup.mcp_client.shutdown()
-    for ch in [startup.telegram_channel, startup.feishu_channel, startup.wecom_channel, startup.wechat_channel]:
+    for ch in [startup.telegram_channel, startup.feishu_channel, startup.wecom_channel, startup.wechat_channel, startup.discord_channel]:
         await ch.stop()
 
 @app.websocket("/ws")

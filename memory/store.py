@@ -6,10 +6,11 @@
 - 向量相似度搜索（sqlite-vec 可选，无则纯 FTS5）
 - 混合搜索（vector_weight + text_weight）
 - CRUD 操作
+
+排序管线方法见 store_ranking.py, ACE 反馈/合并方法见 store_feedback.py。
 """
 
 import json
-import math
 import sqlite3
 import uuid
 from datetime import datetime, timezone
@@ -17,6 +18,8 @@ from pathlib import Path
 from typing import Any
 
 from memory.types import MemoryResult
+from memory.store_ranking import StoreRankingMixin
+from memory.store_feedback import StoreFeedbackMixin
 from logs import get_logger
 
 logger = get_logger("memory.store")
@@ -29,7 +32,7 @@ except ImportError:
     logger.info("sqlite-vec 未安装，将仅使用 FTS5 文本搜索")
 
 
-class MemoryStore:
+class MemoryStore(StoreRankingMixin, StoreFeedbackMixin):
     """SQLite + FTS5 + 可选向量存储后端。"""
 
     def __init__(self, db_path: Path, embedding_dim: int = 768,
@@ -275,16 +278,8 @@ class MemoryStore:
             logger.warning(f"向量搜索失败: {e}")
             return []
 
-    # ── Multi-Stage Retrieval Pipeline (对标 memory-lancedb-pro) ──
-
-    # 管线参数
-    _RECENCY_HALF_LIFE_DAYS = 14    # 新鲜度加成半衰期
-    _RECENCY_WEIGHT = 0.10          # 新鲜度加成权重上限
-    _TIME_DECAY_HALF_LIFE_DAYS = 60 # 时间衰减半衰期
-    _LENGTH_NORM_ANCHOR = 500       # 长度归一化锚点（字符数）
-    _HARD_MIN_SCORE = 0.20          # 最终硬过滤阈值
-    _MMR_SIMILARITY_THRESHOLD = 0.85 # MMR 去重相似度阈值
-    _EVERGREEN_COLLECTIONS = frozenset({"facts", "skills"})  # 常青集合: 不受时间衰减
+    # ── Multi-Stage Retrieval Pipeline ──
+    # 管线参数 & 排序方法定义在 StoreRankingMixin (store_ranking.py)
 
     def search_hybrid(self, query_text: str, query_embedding: list[float] | None = None,
                       collection: str | None = None,
@@ -348,158 +343,6 @@ class MemoryStore:
         fused = self._apply_mmr_diversity(fused)
 
         return fused[:limit]
-
-    def _fuse_results(self, text_results: list[MemoryResult],
-                      vec_results: list[MemoryResult],
-                      vector_weight: float, text_weight: float) -> list[MemoryResult]:
-        """RRF-style 融合: 向量分数为基底，FTS5 命中给加成。"""
-        vec_map: dict[str, MemoryResult] = {r.id: r for r in vec_results}
-        text_map: dict[str, MemoryResult] = {r.id: r for r in text_results}
-        all_ids = set(vec_map.keys()) | set(text_map.keys())
-
-        fused: list[MemoryResult] = []
-        for mid in all_ids:
-            v = vec_map.get(mid)
-            t = text_map.get(mid)
-            base = v or t
-            assert base is not None
-
-            if v and t:
-                # 向量分数为基底，FTS5 命中给 15% 加成（对标 memory-lancedb-pro）
-                score = min(1.0, v.score + 0.15 * v.score)
-            elif v:
-                score = v.score
-            else:
-                # 纯 FTS5 命中，给底分 0.5 保底（关键词精确匹配不应被埋没）
-                score = max(t.score, 0.5) if t else 0.3
-
-            fused.append(MemoryResult(
-                id=base.id, collection=base.collection, content=base.content,
-                score=score, metadata=base.metadata,
-                created_at=base.created_at, updated_at=base.updated_at,
-            ))
-
-        fused.sort(key=lambda r: r.score, reverse=True)
-        return fused
-
-    def _apply_recency_boost(self, results: list[MemoryResult]) -> list[MemoryResult]:
-        """新鲜度加成: 新记忆获得小幅加分，确保纠正/更新自然排在旧条目前面。
-
-        Formula: boost = exp(-ageDays / halfLife) * weight
-        """
-        if not self._RECENCY_HALF_LIFE_DAYS or not self._RECENCY_WEIGHT:
-            return results
-
-        from datetime import datetime, timezone
-        now = datetime.now(timezone.utc)
-
-        for r in results:
-            age_days = self._calc_age_days(r, now)
-            boost = math.exp(-age_days / self._RECENCY_HALF_LIFE_DAYS) * self._RECENCY_WEIGHT
-            r.score = min(1.0, r.score + boost)
-
-        results.sort(key=lambda r: r.score, reverse=True)
-        return results
-
-    def _apply_importance_weight(self, results: list[MemoryResult]) -> list[MemoryResult]:
-        """按 ACE 反馈权重调整: helpful 多的记忆加权，harmful 多的降权。
-
-        Formula: score *= (0.7 + 0.3 * importance)
-        importance = clamp(0.5 + 0.1 * net_feedback, 0, 1)
-        """
-        for r in results:
-            helpful = r.metadata.get("helpful_count", 0)
-            harmful = r.metadata.get("harmful_count", 0)
-            net = helpful - harmful
-            importance = max(0.0, min(1.0, 0.5 + 0.1 * net))
-            factor = 0.7 + 0.3 * importance
-            r.score = min(1.0, r.score * factor)
-
-        results.sort(key=lambda r: r.score, reverse=True)
-        return results
-
-    def _apply_length_normalization(self, results: list[MemoryResult]) -> list[MemoryResult]:
-        """长度归一化: 防止长条目靠关键词密度霸占搜索结果。
-
-        Formula: score *= 1 / (1 + 0.5 * log2(max(charLen/anchor, 1)))
-        """
-        anchor = self._LENGTH_NORM_ANCHOR
-        if anchor <= 0:
-            return results
-
-        for r in results:
-            char_len = len(r.content)
-            ratio = char_len / anchor
-            log_ratio = math.log2(max(ratio, 1.0))
-            factor = 1.0 / (1.0 + 0.5 * log_ratio)
-            r.score = max(0.0, r.score * factor)
-
-        results.sort(key=lambda r: r.score, reverse=True)
-        return results
-
-    def _apply_time_decay(self, results: list[MemoryResult]) -> list[MemoryResult]:
-        """时间衰减: 乘性惩罚旧条目。不同于 recency_boost（加性奖励新条目）。
-
-        Formula: score *= 0.5 + 0.5 * exp(-ageDays / halfLife)
-        Floor at 0.5x (永远不会惩罚超过一半)
-
-        Evergreen 豁免: facts/skills 集合不受时间衰减（对标 OpenClaw temporal-decay.ts 的
-        isEvergreenMemoryPath）。这些集合存储持久知识，无论多久都应该被检索到。
-        """
-        half_life = self._TIME_DECAY_HALF_LIFE_DAYS
-        if half_life <= 0:
-            return results
-
-        from datetime import datetime, timezone
-        now = datetime.now(timezone.utc)
-
-        for r in results:
-            if r.collection in self._EVERGREEN_COLLECTIONS:
-                continue  # Evergreen: 不衰减
-            age_days = self._calc_age_days(r, now)
-            factor = 0.5 + 0.5 * math.exp(-age_days / half_life)
-            r.score = max(0.0, r.score * factor)
-
-        results.sort(key=lambda r: r.score, reverse=True)
-        return results
-
-    def _apply_mmr_diversity(self, results: list[MemoryResult]) -> list[MemoryResult]:
-        """MMR 多样性去重: 相似度 > threshold 的条目被延后排列。
-
-        使用 bigram Jaccard 文本相似度（不需要向量）。
-        """
-        if len(results) <= 1:
-            return results
-
-        selected: list[MemoryResult] = []
-        deferred: list[MemoryResult] = []
-
-        for candidate in results:
-            too_similar = any(
-                self._text_similarity(candidate.content, s.content) > self._MMR_SIMILARITY_THRESHOLD
-                for s in selected
-            )
-            if too_similar:
-                deferred.append(candidate)
-            else:
-                selected.append(candidate)
-
-        return selected + deferred
-
-    def _calc_age_days(self, r: MemoryResult, now) -> float:
-        """计算记忆条目的年龄（天数）。"""
-        from datetime import datetime, timezone
-        ts_str = r.updated_at or r.created_at
-        if not ts_str:
-            return 30.0  # 默认 30 天
-        try:
-            ts = datetime.fromisoformat(ts_str)
-            if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=timezone.utc)
-            delta = now - ts
-            return max(0.0, delta.total_seconds() / 86400.0)
-        except (ValueError, TypeError):
-            return 30.0
 
     def delete(self, memory_id: str) -> bool:
         """删除一条记忆。"""
@@ -598,279 +441,7 @@ class MemoryStore:
             for row in rows
         ]
 
-    # ── ACE Bullet 反馈机制 (Phase 8.1) ──────────────────────────
-
-    def increment_feedback(self, memory_id: str, feedback_type: str) -> bool:
-        """ACE Bullet: 递增 helpful_count 或 harmful_count 计数器。
-
-        Args:
-            memory_id: 记忆条目 ID
-            feedback_type: "helpful" 或 "harmful"
-        Returns:
-            是否成功更新
-        """
-        if feedback_type not in ("helpful", "harmful"):
-            logger.warning(f"无效的反馈类型: {feedback_type}")
-            return False
-        row = self.db.execute(
-            "SELECT metadata_json FROM memories WHERE id=?", (memory_id,)
-        ).fetchone()
-        if not row:
-            return False
-        meta = json.loads(row["metadata_json"])
-        key = f"{feedback_type}_count"
-        meta[key] = meta.get(key, 0) + 1
-        now = datetime.now(timezone.utc).isoformat()
-        self.db.execute(
-            "UPDATE memories SET metadata_json=?, updated_at=? WHERE id=?",
-            (json.dumps(meta, ensure_ascii=False), now, memory_id)
-        )
-        self.db.commit()
-        return True
-
-    def get_feedback_score(self, memory_id: str) -> float:
-        """ACE Bullet: 计算反馈净分 = helpful - harmful。"""
-        row = self.db.execute(
-            "SELECT metadata_json FROM memories WHERE id=?", (memory_id,)
-        ).fetchone()
-        if not row:
-            return 0.0
-        meta = json.loads(row["metadata_json"])
-        return meta.get("helpful_count", 0) - meta.get("harmful_count", 0)
-
-    # ── ACE Delta 合并 (Phase 8.4) ────────────────────────────────
-
-    def merge_deltas(self, deltas: list[dict], collection: str = "lessons",
-                     dedup_threshold: float = 0.85) -> dict:
-        """ACE Curator: 确定性合并 delta bullets 到记忆库。
-
-        每个 delta: {"content": str, "metadata": dict, "embedding": list|None}
-
-        - 新条目 → 追加
-        - 语义重复（文本相似度 > threshold）→ 更新计数器 + 合并 source_sessions
-        - harmful_count > helpful_count 的条目被降权清理
-
-        Returns:
-            {"appended": int, "merged": int, "pruned": int}
-        """
-        snapshot_before = self.count(collection)
-        appended = 0
-        merged = 0
-        pruned = 0
-
-        for delta in deltas:
-            content = delta.get("content", "").strip()
-            if not content:
-                continue
-            meta = delta.get("metadata", {})
-            embedding = delta.get("embedding")
-
-            # 查找语义重复
-            dup = self._find_semantic_duplicate(content, collection, dedup_threshold)
-            if dup:
-                # 合并到已有条目
-                existing_meta = dup.metadata
-                existing_meta["helpful_count"] = existing_meta.get("helpful_count", 0) + meta.get("helpful_count", 0)
-                existing_meta["harmful_count"] = existing_meta.get("harmful_count", 0) + meta.get("harmful_count", 0)
-                # 合并 source_sessions
-                existing_sessions = set(existing_meta.get("source_sessions", []))
-                new_sessions = meta.get("source_sessions", [])
-                if meta.get("source_session"):
-                    new_sessions.append(meta["source_session"])
-                existing_sessions.update(new_sessions)
-                existing_meta["source_sessions"] = list(existing_sessions)[-20:]  # 保留最近 20 个
-                self.update(dup.id, metadata=existing_meta)
-                merged += 1
-            else:
-                # 新条目追加
-                meta.setdefault("helpful_count", 0)
-                meta.setdefault("harmful_count", 0)
-                meta.setdefault("source_sessions", [])
-                if meta.get("source_session"):
-                    meta["source_sessions"].append(meta["source_session"])
-                self.add(collection, content, embedding=embedding, metadata=meta,
-                         skip_noise_filter=True)
-                appended += 1
-
-        # Prune: 清理 harmful > helpful 的条目
-        pruned = self._prune_harmful(collection)
-
-        # Collapse 检测
-        self._last_merge_snapshot = {
-            "before": snapshot_before,
-            "after": self.count(collection),
-            "appended": appended,
-            "merged": merged,
-            "pruned": pruned,
-        }
-
-        result = {"appended": appended, "merged": merged, "pruned": pruned}
-        logger.info(f"ACE merge_deltas: {result}")
-        return result
-
-    def _find_semantic_duplicate(self, content: str, collection: str,
-                                  threshold: float) -> MemoryResult | None:
-        """在指定集合中查找与 content 语义重复的条目。
-
-        使用文本相似度（Jaccard + 子串匹配）作为轻量判断，无需向量。
-        """
-        existing = self.get_all(collection=collection, limit=500)
-        best_match = None
-        best_score = 0.0
-        for entry in existing:
-            sim = self._text_similarity(content, entry.content)
-            if sim > best_score:
-                best_score = sim
-                best_match = entry
-        if best_score >= threshold:
-            return best_match
-        return None
-
-    @staticmethod
-    def _text_similarity(a: str, b: str) -> float:
-        """轻量文本相似度: 结合 Jaccard 字符 bigram 与长度比。"""
-        if not a or not b:
-            return 0.0
-        # 完全相同
-        if a.strip() == b.strip():
-            return 1.0
-        # Bigram Jaccard
-        def bigrams(s: str) -> set:
-            s = s.lower().strip()
-            return {s[i:i+2] for i in range(len(s) - 1)} if len(s) >= 2 else {s}
-        bg_a = bigrams(a)
-        bg_b = bigrams(b)
-        if not bg_a or not bg_b:
-            return 0.0
-        intersection = len(bg_a & bg_b)
-        union = len(bg_a | bg_b)
-        jaccard = intersection / union if union > 0 else 0.0
-        # 长度惩罚（长度差异大时降权）
-        len_ratio = min(len(a), len(b)) / max(len(a), len(b))
-        return jaccard * 0.7 + len_ratio * 0.3
-
-    def _prune_harmful(self, collection: str) -> int:
-        """清理 harmful_count > helpful_count 的条目。"""
-        rows = self.db.execute(
-            "SELECT id, metadata_json FROM memories WHERE collection=?", (collection,)
-        ).fetchall()
-        pruned = 0
-        for row in rows:
-            meta = json.loads(row["metadata_json"])
-            helpful = meta.get("helpful_count", 0)
-            harmful = meta.get("harmful_count", 0)
-            if harmful > helpful and harmful >= 3:
-                self.delete(row["id"])
-                pruned += 1
-                logger.info(f"ACE prune: {row['id']} (helpful={helpful}, harmful={harmful})")
-        return pruned
-
-    # ── ACE Collapse 检测 (Phase 8.5) ─────────────────────────────
-
-    def check_collapse(self, collection: str | None = None) -> dict:
-        """检测记忆库是否出现 context collapse（信息骤降）。
-
-        Returns:
-            {"collapsed": bool, "before_count": int, "after_count": int, "drop_pct": float}
-        """
-        snapshot = getattr(self, "_last_merge_snapshot", None)
-        if not snapshot:
-            current = self.count(collection)
-            return {"collapsed": False, "before_count": current, "after_count": current, "drop_pct": 0.0}
-
-        before = snapshot.get("before", 0)
-        after = snapshot.get("after", 0)
-        if before == 0:
-            return {"collapsed": False, "before_count": before, "after_count": after, "drop_pct": 0.0}
-        drop_pct = (before - after) / before if after < before else 0.0
-        collapsed = drop_pct > 0.5
-        if collapsed:
-            logger.warning(f"⚠️ Context collapse 检测: {before} → {after} (下降 {drop_pct:.1%})")
-        return {"collapsed": collapsed, "before_count": before, "after_count": after, "drop_pct": drop_pct}
-
-    # ── 自动备份 (P0) ──────────────────────────────────────────────
-
-    def backup_jsonl(self, backup_dir: Path | str | None = None,
-                     max_backups: int = 7) -> Path | None:
-        """将所有记忆导出为 JSONL 备份文件。
-
-        Args:
-            backup_dir: 备份目录，默认为 db_path 同级的 backups/
-            max_backups: 保留最近 N 个备份文件
-
-        Returns:
-            备份文件路径，失败返回 None
-        """
-        backup_dir = Path(backup_dir) if backup_dir else self.db_path.parent / "backups"
-        backup_dir.mkdir(parents=True, exist_ok=True)
-
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        backup_file = backup_dir / f"memory_backup_{timestamp}.jsonl"
-
-        try:
-            rows = self.db.execute(
-                "SELECT id, collection, content, metadata_json, created_at, updated_at FROM memories"
-            ).fetchall()
-
-            with open(backup_file, "w", encoding="utf-8") as f:
-                for row in rows:
-                    record = {
-                        "id": row["id"],
-                        "collection": row["collection"],
-                        "content": row["content"],
-                        "metadata": json.loads(row["metadata_json"]),
-                        "created_at": row["created_at"],
-                        "updated_at": row["updated_at"],
-                    }
-                    f.write(json.dumps(record, ensure_ascii=False) + "\n")
-
-            logger.info(f"备份完成: {backup_file} ({len(rows)} 条记忆)")
-
-            # 清理旧备份
-            existing = sorted(backup_dir.glob("memory_backup_*.jsonl"))
-            if len(existing) > max_backups:
-                for old in existing[:-max_backups]:
-                    old.unlink()
-                    logger.debug(f"清理旧备份: {old.name}")
-
-            return backup_file
-        except Exception as e:
-            logger.error(f"备份失败: {e}")
-            return None
-
-    def backfill_embeddings(self, batch_size: int = 10) -> int:
-        """渐进回填缺失的向量 embedding（每次只处理 batch_size 条，适合 cron 调用）。
-
-        Returns:
-            本次回填的条数
-        """
-        if not self._vec_enabled or not self._embed_fn:
-            return 0
-        try:
-            import struct
-            existing = set(r[0] for r in self.db.execute("SELECT id FROM memory_vectors").fetchall())
-            missing = self.db.execute(
-                "SELECT id, content FROM memories ORDER BY created_at DESC"
-            ).fetchall()
-            filled = 0
-            for row in missing:
-                if row["id"] in existing:
-                    continue
-                vec = self._embed_fn(row["content"][:512])
-                if vec:
-                    blob = struct.pack(f"{len(vec)}f", *vec)
-                    self.db.execute("INSERT INTO memory_vectors (id, embedding) VALUES (?,?)",
-                                   (row["id"], blob))
-                    filled += 1
-                if filled >= batch_size:
-                    break
-            if filled:
-                self.db.commit()
-                logger.info(f"向量回填: {filled} 条 (剩余 {len(missing) - len(existing) - filled})")
-            return filled
-        except Exception as e:
-            logger.warning(f"向量回填失败: {e}")
-            return 0
+    # ── ACE 反馈/合并/备份方法定义在 StoreFeedbackMixin (store_feedback.py) ──
 
     def close(self) -> None:
         """关闭数据库连接。"""

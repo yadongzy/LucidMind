@@ -39,8 +39,10 @@ async def awaken(brain=None) -> dict:
         return {"status": "already_awake"}
     _brain_ref = b
     teacher.set_brain(b)
+    from adapters.stream.broadcast_stream import BroadcastStreamAdapter
     daemon = BrainDaemon(b, interval=60, soul_engine=soul_engine, goal_system=goal_system,
-                         teacher_channel=teacher, ws_channel=_ws_channel_ref)
+                         teacher_channel=teacher, ws_channel=_ws_channel_ref,
+                         stream_factory=BroadcastStreamAdapter)
     await daemon.start()
     goals_ctx = goal_system.get_context_for_brain()
     if goals_ctx:

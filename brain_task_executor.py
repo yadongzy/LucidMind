@@ -118,12 +118,10 @@ class TaskExecutorMixin:
         # 创建广播 stream，让任务执行结果推送到前端对话页面
         task_stream = None
         try:
-            from adapters.stream.broadcast_stream import BroadcastStreamAdapter
-            ws_ch = getattr(self._brain, '_stream', None)
-            # 获取 ws_channel：从 brain daemon 的 _ws_channel 属性
             ws_channel = getattr(self, '_ws_channel', None)
-            if ws_channel:
-                task_stream = BroadcastStreamAdapter(
+            stream_factory = getattr(self, '_stream_factory', None)
+            if ws_channel and stream_factory:
+                task_stream = stream_factory(
                     ws_channel,
                     job_name=content[:60],
                     task_id=tid,

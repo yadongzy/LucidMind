@@ -32,6 +32,7 @@ from adapters.channel.telegram_channel import TelegramChannelAdapter
 from adapters.channel.feishu_channel import FeishuChannelAdapter
 from adapters.channel.wecom_channel import WeComChannelAdapter
 from adapters.channel.wechat_channel import WeChatChannelAdapter
+from adapters.channel.discord_channel import DiscordChannelAdapter
 from skills import discover_skills, set_tool_adapter_ref
 from logs import get_logger
 
@@ -80,6 +81,7 @@ telegram_channel = None
 feishu_channel = None
 wecom_channel = None
 wechat_channel = None
+discord_channel = None
 ws_channel = None
 provider_adapter_map = {}
 _ACTIVE_PROVIDER_PATH = os.path.join(ROOT_DIR, "data", "active_provider.json")
@@ -95,7 +97,7 @@ def init():
     """D3 修复: 显式初始化所有 Adapter，由 main.py startup 事件调用，不在 import 时执行。"""
     global llm_adapter, tool_adapter, memory_adapter, learning_adapter, reflection_adapter
     global block_manager
-    global mcp_client, telegram_channel, feishu_channel, wecom_channel, wechat_channel, ws_channel
+    global mcp_client, telegram_channel, feishu_channel, wecom_channel, wechat_channel, discord_channel, ws_channel
     global provider_adapter_map
 
     auto_build_frontend()
@@ -207,6 +209,7 @@ def init():
     feishu_channel = FeishuChannelAdapter()
     wecom_channel = WeComChannelAdapter()
     wechat_channel = WeChatChannelAdapter()
+    discord_channel = DiscordChannelAdapter()
     ws_channel = WebSocketChannelAdapter()
 
     # --- Token Tracker 阈值回调 ---

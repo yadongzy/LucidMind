@@ -4,12 +4,25 @@
 
 ---
 
-## v3.1.1 (2026-05-03) — GitHub 发布前安全加固
+## v3.1.1 (2026-05-04) — 架构修复 + Discord + 文档
 
-### 修复
+### P0: 安全与清理
 - **移除硬编码 Antigravity API Key**: `api/startup.py` 改为读取 `ANTIGRAVITY_API_KEY` 环境变量
 - **发布忽略规则加固**: `.gitignore` 增加 `.env.*`、数据库、日志、备份、IDE、node_modules 等忽略项
-- **环境变量模板安全化**: `.env.example` 改为空值模板，补充 LLM/Embedding/多通道/MCP/代理/GitHub/安全/视觉配置项
+- **环境变量模板安全化**: `.env.example` 改为空值模板，补充全部配置项
+- **版本号统一**: `pyproject.toml` / `api/main.py` / `cli.py` 统一为 3.1.1
+- **清理废弃文件**: 移除 `frontend/未命名.html`、`docs/测试日志.md`、`tests/_deprecated`
+- **README 重写**: 现代化用户向 README，含 Quick Start、Features、Architecture、Hermes 对比
+
+### P1: 架构修复
+- **六边形架构合规**: `brain.py` 移除直接 `UserProfileAdapter` 导入，改为构造器注入 + 惰性回退
+- **brain_task_executor 解耦**: 移除 `BroadcastStreamAdapter` 直接导入，通过 `stream_factory` 注入
+- **memory/store.py 拆分**: 880→451 行，排序管线拆至 `store_ranking.py`，反馈/合并拆至 `store_feedback.py`
+
+### P2: 能力增强
+- **Discord 通道**: 新增 `adapters/channel/discord_channel.py`，线程绑定会话隔离，消息分片，集成到启动链路
+- **CLI 修正**: 版本号更新至 3.1.1，默认端口改为 8765
+- **用户文档**: 新增 `docs/configuration.md`（全量配置指南）和 `docs/architecture.md`（架构说明）
 
 ### 安全提示
 - 既往出现在代码中的 API Key 应视为已泄露，发布前必须在服务商后台轮换

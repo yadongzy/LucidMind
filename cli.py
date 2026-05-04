@@ -177,7 +177,7 @@ def _cmd_chat(args):
     from adapters.learning.memory_store_adapter import MemoryStoreLearningAdapter
 
     print("=" * 50)
-    print("  LucidMind CLI v1.7")
+    print("  LucidMind CLI v3.1.1")
     print("  透明思维的 AI Agent")
     print("  输入 /quit 退出, /think 切换思考显示")
     print("=" * 50)
@@ -219,7 +219,7 @@ def _cmd_start(args):
     """启动 Web 服务。"""
     import uvicorn
     host = args.host or "0.0.0.0"
-    port = args.port or 8000
+    port = args.port or 8765
     uvicorn.run("api.main:app", host=host, port=port, reload=args.reload)
 
 
@@ -235,7 +235,7 @@ def main():
     # start
     p_start = sub.add_parser("start", help="启动 Web 服务")
     p_start.add_argument("--host", default="0.0.0.0", help="绑定地址 (默认 0.0.0.0)")
-    p_start.add_argument("--port", type=int, default=8000, help="端口 (默认 8000)")
+    p_start.add_argument("--port", type=int, default=8765, help="端口 (默认 8765)")
     p_start.add_argument("--reload", action="store_true", help="开发模式热重载")
 
     # chat

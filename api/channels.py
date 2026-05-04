@@ -16,15 +16,17 @@ _telegram = None
 _feishu = None
 _wecom = None
 _wechat = None
+_discord = None
 
 
-def init(telegram=None, feishu=None, wecom=None, wechat=None):
+def init(telegram=None, feishu=None, wecom=None, wechat=None, discord=None):
     """由 main.py 调用，注入各通道适配器引用。"""
-    global _telegram, _feishu, _wecom, _wechat
+    global _telegram, _feishu, _wecom, _wechat, _discord
     _telegram = telegram
     _feishu = feishu
     _wecom = wecom
     _wechat = wechat
+    _discord = discord
 
 
 @router.get("/status")
@@ -55,13 +57,19 @@ async def channel_status():
             "configured": bool(_wechat._app_id),
             "running": bool(_wechat._app_id),
         })
+    if _discord:
+        channels.append({
+            "name": "discord", "label": "Discord",
+            "configured": bool(_discord._token),
+            "running": _discord._task is not None and not _discord._task.done() if _discord._task else False,
+        })
     return {"channels": channels, "total": len(channels)}
 
 
 @router.post("/{name}/test")
 async def test_channel(name: str):
     """测试通道连接。"""
-    ch_map = {"telegram": _telegram, "feishu": _feishu, "wecom": _wecom, "wechat": _wechat}
+    ch_map = {"telegram": _telegram, "feishu": _feishu, "wecom": _wecom, "wechat": _wechat, "discord": _discord}
     ch = ch_map.get(name)
     if not ch:
         return {"status": "error", "message": f"未知通道: {name}"}
@@ -89,7 +97,7 @@ async def test_channel(name: str):
 @router.post("/{name}/restart")
 async def restart_channel(name: str):
     """重启通道。"""
-    ch_map = {"telegram": _telegram, "feishu": _feishu, "wecom": _wecom, "wechat": _wechat}
+    ch_map = {"telegram": _telegram, "feishu": _feishu, "wecom": _wecom, "wechat": _wechat, "discord": _discord}
     ch = ch_map.get(name)
     if not ch:
         return {"status": "error", "message": f"未知通道: {name}"}
@@ -160,7 +168,7 @@ async def save_channel_config(name: str, request: Request):
         return {"status": "error", "message": f"保存 .env 失败: {e}"}
 
     # 重新初始化通道适配器
-    ch_map = {"telegram": _telegram, "feishu": _feishu, "wecom": _wecom, "wechat": _wechat}
+    ch_map = {"telegram": _telegram, "feishu": _feishu, "wecom": _wecom, "wechat": _wechat, "discord": _discord}
     ch = ch_map.get(name)
     if ch:
         try:
