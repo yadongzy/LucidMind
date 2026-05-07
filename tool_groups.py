@@ -32,15 +32,17 @@ TOOL_GROUPS: dict[str, set[str] | None] = {
         "read_file", "search_files",
     },
     # ── 聊天上下文分组（按 fast_path category 映射）──
-    # 知识问答：只需搜索+阅读工具（省 ~85% 工具 token）
+    # 知识问答：搜索+阅读+Codex
     "knowledge": {
         "web_search", "read_file", "search_files",
         "introspect", "identity_read",
+        "mcp_codex_codex", "mcp_codex_codex-reply", "codex",
     },
-    # 纠正/教学：只需教学+内省工具
+    # 纠正/教学：教学+内省+Codex
     "correction": {
         "teaching", "introspect", "identity_read",
         "read_file",
+        "mcp_codex_codex", "mcp_codex_codex-reply", "codex",
     },
 }
 

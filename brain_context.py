@@ -115,8 +115,16 @@ class BrainContextMixin:
             # Codex 能力声明 — 让 LLM 知道自己确实能调用 Codex
             if self.tools:
                 tool_names = [t['function']['name'] for t in (self.tools.list_tools() or [])]
-                if 'codex' in tool_names:
-                    s.append("重要能力: 你已接入本机 Codex CLI（OpenAI Codex），可通过 codex 工具执行: explain(解释代码)、review(代码审查)、patch(修复代码)、heal(自愈体检)。当用户问你能否调用 Codex 时，回答「可以」并说明用法。")
+                if 'mcp_codex_codex' in tool_names:
+                    s.append(
+                        "## Codex 集成（已启用）\n"
+                        "你已通过 MCP 协议连接本机 OpenAI Codex CLI。当用户请求代码相关任务时，"
+                        "必须使用 mcp_codex_codex 工具调用 Codex。\n"
+                        "用法: mcp_codex_codex(prompt='你的指令') — Codex 会读取项目代码并执行任务。\n"
+                        "用 mcp_codex_codex-reply(thread_id=..., prompt='后续指令') 继续同一对话。\n"
+                        "支持: 代码解释、代码审查、bug修复、重构、测试生成、架构分析等所有编程任务。\n"
+                        "当用户问「你能调用Codex吗」时，回答「可以」并直接演示调用。"
+                    )
         return "\n".join(s)
 
     async def _build_messages(self, skip_lessons: bool = False) -> list[dict]:

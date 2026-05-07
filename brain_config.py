@@ -203,6 +203,7 @@ _fast_path_data = _load_json("fast_path.json", {
         "天气", "weather", "新闻", "news", "股票", "stock",
         "发送", "邮件", "通知", "提醒", "定时", "监控",
         "分析", "http", "链接", "网页", "工具", "url", "打开",
+        "codex", "代码审查", "code review", "修复代码", "解释代码", "自愈",
     ],
     "correction_keywords": [
         "不对", "错了", "应该是", "不是这样", "纠正", "修正",
