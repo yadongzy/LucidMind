@@ -171,3 +171,31 @@ def get_metrics_history(project_id: str) -> list[dict[str, Any]]:
     from reports.metrics import MetricsCollector
     collector = MetricsCollector(_project_root(), project_id)
     return [m.to_dict() for m in collector.read_all()]
+
+
+# ──────────────────────────────────────────────
+# POST /api/project-brain/checkup
+# ──────────────────────────────────────────────
+@router.post("/checkup")
+def run_checkup(project_id: str = "lucidmind") -> dict[str, Any]:
+    """执行项目体检，返回完整报告。"""
+    from checkup.runner import ProjectCheckupRunner
+    runner = ProjectCheckupRunner(_project_root(), project_id)
+    report = runner.run_all()
+    return report.to_dict()
+
+
+# ──────────────────────────────────────────────
+# GET /api/project-brain/checkup/latest
+# ──────────────────────────────────────────────
+@router.get("/checkup/latest")
+def get_latest_checkup(project_id: str = "lucidmind") -> dict[str, Any]:
+    """获取最近一次体检报告。"""
+    import glob
+    report_dir = _project_root() / "data" / "checkup"
+    if not report_dir.exists():
+        raise HTTPException(status_code=404, detail="无体检报告")
+    files = sorted(report_dir.glob("report_*.json"), reverse=True)
+    if not files:
+        raise HTTPException(status_code=404, detail="无体检报告")
+    return json.loads(files[0].read_text("utf-8"))
