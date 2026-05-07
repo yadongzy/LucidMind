@@ -1,7 +1,6 @@
 """Phase D Letta 增量模式测试 — MemoryBlock + BlockManager + MemoryToolAdapter。"""
 
 import asyncio
-import json
 import os
 import sys
 import pytest

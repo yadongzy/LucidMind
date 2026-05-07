@@ -12,7 +12,6 @@ import sqlite3
 import struct
 import numpy as np
 from pathlib import Path
-from typing import Any
 
 from logs import get_logger
 

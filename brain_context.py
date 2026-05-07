@@ -9,7 +9,6 @@
 
 import asyncio
 import datetime
-import json
 import os
 import platform
 import re

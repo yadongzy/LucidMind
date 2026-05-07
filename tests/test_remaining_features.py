@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
 
-import pytest
 
-from skills.codex_cli.runner import CodexCliRunner, CodexCliResult
+from skills.codex_cli.runner import CodexCliRunner
 from reports.metrics import TaskMetrics, MetricsCollector
 
 

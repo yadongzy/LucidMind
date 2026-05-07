@@ -341,7 +341,7 @@ async def ngrok_authtoken(request: Request):
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
         output = stdout.decode("utf-8", errors="replace").strip()
         if proc.returncode == 0:
-            logger.info(f"ngrok authtoken 已配置")
+            logger.info("ngrok authtoken 已配置")
             return {"status": "ok", "message": "authtoken 配置成功"}
         return {"status": "error", "message": output or "配置失败"}
     except Exception as e:

@@ -1,7 +1,6 @@
 """Tests for brain_fast_path — Fast Path 分类器。"""
 
-import pytest
-from brain_fast_path import classify, FastPathResult
+from brain_fast_path import classify
 
 
 class TestFastPathClassify:

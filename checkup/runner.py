@@ -60,17 +60,17 @@ class CheckupReport:
 
     def to_markdown(self) -> str:
         lines = [
-            f"# 项目体检报告",
-            f"",
+            "# 项目体检报告",
+            "",
             f"- **项目**: {self.project_id}",
             f"- **时间**: {self.timestamp}",
             f"- **耗时**: {self.duration_ms:.0f}ms",
             f"- **健康分数**: {self.score}/100",
-            f"",
-            f"## 概览",
-            f"",
-            f"| 状态 | 数量 |",
-            f"|------|------|",
+            "",
+            "## 概览",
+            "",
+            "| 状态 | 数量 |",
+            "|------|------|",
         ]
         for status, count in self.summary.items():
             icon = {"pass": "✅", "warn": "⚠️", "fail": "❌", "skip": "⏭️"}.get(status, "❓")
@@ -81,7 +81,7 @@ class CheckupReport:
         for check in self.checks:
             icon = {"pass": "✅", "warn": "⚠️", "fail": "❌", "skip": "⏭️"}.get(check.status, "❓")
             lines.append(f"### {icon} {check.name}")
-            lines.append(f"")
+            lines.append("")
             lines.append(f"- **状态**: {check.status}")
             lines.append(f"- **信息**: {check.message}")
             if check.details:

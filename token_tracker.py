@@ -8,7 +8,7 @@ import time
 import json
 import threading
 from pathlib import Path
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, asdict
 from collections import defaultdict
 from logs import get_logger
 
@@ -91,7 +91,7 @@ class TokenTracker:
         _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         with open(_CONFIG_PATH, "w", encoding="utf-8") as f:
             json.dump(asdict(self._config), f, ensure_ascii=False, indent=2)
-        logger.info(f"Token 配置已保存")
+        logger.info("Token 配置已保存")
 
     def _load_history(self):
         """加载历史 token 使用数据。"""

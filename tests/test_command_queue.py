@@ -417,7 +417,7 @@ def test_update_task_progress():
 async def test_task_executor_inline_retry_on_soft_failure():
     """软失败（空承诺+工具未执行）触发内联重试。"""
     from unittest.mock import AsyncMock, MagicMock, patch
-    from brain_task_executor import TaskExecutorMixin, MAX_INLINE_RETRIES
+    from brain_task_executor import TaskExecutorMixin
     
     call_count = 0
     
@@ -576,7 +576,7 @@ def test_parse_subtasks_filters_short():
 @pytest.mark.asyncio
 async def test_decompose_task_with_mock_llm():
     """用 Mock LLM 测试完整分解流程。"""
-    from unittest.mock import AsyncMock, MagicMock, patch
+    from unittest.mock import AsyncMock, MagicMock
     from task_decomposer import decompose_task
     from task_dispatcher_utils import load_store, save_store
 
@@ -647,7 +647,6 @@ async def test_cron_lane_exists_and_serial():
 
 def test_subtask_routed_to_subagent_lane():
     """子任务（有 parent_id）应路由到 SUBAGENT lane。"""
-    from brain_task_executor import TaskExecutorMixin
     from command_queue import CommandLane
 
     # 有 parent_id 的任务

@@ -11,11 +11,7 @@
   T8: 缓存一致性 — 写入后缓存失效
 """
 
-import json
-import shutil
-import tempfile
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 

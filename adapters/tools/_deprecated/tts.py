@@ -3,7 +3,6 @@
 使用微软 Edge-TTS（免费），生成 MP3 音频文件。
 新 Adapter，不修改 brain.py（规则 06）。
 """
-import asyncio
 from pathlib import Path
 from typing import Any
 

@@ -17,7 +17,7 @@ from typing import Any
 
 from ports.tool_port import ToolPort
 from adapters.tools.mcp_transport import (
-    StdioTransport, HttpTransport, validate_server_config,
+    StdioTransport, HttpTransport,
 )
 from logs import get_logger
 

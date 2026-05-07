@@ -11,9 +11,7 @@ OpenClaw 以 Markdown 文件为 source of truth:
   4. 用户可直接编辑 Markdown 文件
 """
 
-import os
 import re
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any

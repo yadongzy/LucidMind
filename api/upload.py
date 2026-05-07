@@ -1,8 +1,6 @@
 """文件上传 API — 支持图片、文档、音视频。"""
 
-import os
 import uuid
-import shutil
 from pathlib import Path
 
 from fastapi import APIRouter, UploadFile, File, HTTPException

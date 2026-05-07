@@ -200,7 +200,7 @@ def hybrid_search(
         # 支持 ISO 字符串和 Unix 时间戳
         if isinstance(ts, str):
             try:
-                from datetime import datetime, timezone
+                from datetime import datetime
                 dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
                 ts = dt.timestamp()
             except (ValueError, TypeError):

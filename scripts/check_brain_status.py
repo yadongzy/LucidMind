@@ -7,7 +7,7 @@ d = json.loads(r.read())
 daemon = d.get("daemon", {})
 q = daemon.get("queue", {})
 
-print(f"=== Brain Status ===")
+print("=== Brain Status ===")
 print(f"  awake: {d.get('awake')}")
 print(f"  paused: {daemon.get('paused')}")
 print(f"  thought_count: {daemon.get('thought_count')}")
@@ -22,7 +22,7 @@ for t in thoughts[-3:]:
 print()
 
 teaching = daemon.get("teaching", {})
-print(f"=== Teaching ===")
+print("=== Teaching ===")
 print(f"  inbox_total: {teaching.get('inbox_total')}")
 print(f"  inbox_pending: {teaching.get('inbox_pending')}")
 print(f"  outbox_total: {teaching.get('outbox_total')}")

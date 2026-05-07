@@ -11,11 +11,8 @@
 """
 
 import asyncio
-import json
-import os
 import shutil
 import tempfile
-import time
 import unittest
 from pathlib import Path
 
@@ -191,7 +188,7 @@ class TestE2E_04_MemoryFlush(unittest.TestCase):
             "讨论了 SSL 证书的自动续期方案",
             "用户偏好使用 Let's Encrypt",
         ]
-        content = f"## 会话记录\n\n" + "\n".join(f"- {line}" for line in flush_lines)
+        content = "## 会话记录\n\n" + "\n".join(f"- {line}" for line in flush_lines)
         daily_file.write_text(content, encoding="utf-8")
 
         # 验证文件存在且内容完整
@@ -395,7 +392,7 @@ class TestE2E_08_FullPipeline(unittest.TestCase):
         for i in range(5):
             _run(self.learning.learn({
                 "trigger": "代码审查规范",
-                "lesson": f"代码审查: 每次提交前必须运行 lint 和格式化工具，确保代码风格一致",
+                "lesson": "代码审查: 每次提交前必须运行 lint 和格式化工具，确保代码风格一致",
                 "source": "teaching",
                 "source_session": f"session_{i}",
             }))

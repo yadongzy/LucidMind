@@ -13,10 +13,8 @@ from pathlib import Path
 
 from logs import get_logger
 from issue_tracker import (
-    report_issue, close_issue, get_open_issues, get_verifying_issues,
-    mark_verifying, check_verifying_issues, bump_retry
+    report_issue, get_open_issues, check_verifying_issues
 )
-from repair_engine import RepairEngine
 
 logger = get_logger("engines")
 _DATA = Path(__file__).parent / "data"

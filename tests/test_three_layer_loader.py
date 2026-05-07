@@ -1,13 +1,9 @@
 """Phase B 三层插件加载测试 — Layer 1/2/3 + LazyPluginAdapter + 懒加载 fallback。"""
 
 import asyncio
-import json
 import os
 import sys
-import tempfile
-import shutil
 
-import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 

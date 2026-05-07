@@ -1,6 +1,5 @@
 """CLI Stream Adapter — 将思维流输出到终端。"""
 
-import sys
 from typing import Any
 
 from ports.stream_port import StreamPort

@@ -3,7 +3,6 @@
 使用 Whisper API 或本地 faster-whisper 做语音识别。
 降级方案: 无模型时返回提示信息。
 """
-import os
 import asyncio
 from pathlib import Path
 from typing import Any

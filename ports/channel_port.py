@@ -1,7 +1,7 @@
 """Channel Port — 接收用户输入的接口."""
 
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Awaitable
+from typing import Callable, Awaitable
 
 
 class ChannelPort(ABC):

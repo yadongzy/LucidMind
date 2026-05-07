@@ -6,8 +6,6 @@
 - 不需要 GUI 操作，不需要点 Run 按钮，100% 可靠
 """
 
-import asyncio
-import json
 from typing import Any
 
 from ports.tool_port import ToolPort

@@ -6,7 +6,6 @@ Brain 只认识 Port（接口），不认识 Adapter（实现）。
 
 import asyncio
 import json
-import re
 import time
 from pathlib import Path
 
@@ -26,7 +25,7 @@ from brain_perf import compress_tool_result, dynamic_max_tool_rounds
 from brain_fast_path import classify as _fast_classify
 from brain_config import (
     TOOL_LOOP_TIMEOUT_SEC,
-    MAX_HISTORY_HARD_LIMIT, LLM_MAX_RETRIES, LLM_BASE_DELAY_SEC,
+    LLM_MAX_RETRIES, LLM_BASE_DELAY_SEC,
     LOOP_HINT, FAIL_HINT,
     TOOL_INFERENCE_MAP,
 )

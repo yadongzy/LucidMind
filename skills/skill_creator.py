@@ -139,7 +139,7 @@ async def create_skill_with_llm(
             return {"success": True, "path": str(skill_dir), "tools": [t["name"] for t in tools],
                     "scan": scan, "llm_generated": True}
         else:
-            logger.warning(f"LLM 生成的代码缺少必要函数，回退 stub")
+            logger.warning("LLM 生成的代码缺少必要函数，回退 stub")
     except Exception as e:
         logger.warning(f"LLM skill 创建失败({e})，回退 stub")
 

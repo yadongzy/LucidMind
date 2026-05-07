@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import json
-import textwrap
 from pathlib import Path
 
-import pytest
 from fastapi.testclient import TestClient
 
-from api.project_brain import router, _project_root
+from api.project_brain import router
 
 # ---------------------------------------------------------------------------
 # Fixture: standalone FastAPI app with the project brain router

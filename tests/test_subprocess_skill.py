@@ -5,7 +5,6 @@
     python -m pytest tests/test_subprocess_skill.py -v -s
 """
 
-import asyncio
 import json
 import pathlib
 import shutil
@@ -38,7 +37,7 @@ class TestSubprocessSkillAdapter:
         # 可能因网络问题失败，但不应该因进程问题失败
         assert isinstance(result, dict)
         assert "success" in result or "error" in result
-        print(f"  ✅ 子进程执行完成，结果合法")
+        print("  ✅ 子进程执行完成，结果合法")
 
     @pytest.mark.asyncio
     async def test_execute_unknown_tool(self, weather_adapter):
@@ -46,7 +45,7 @@ class TestSubprocessSkillAdapter:
         result = await weather_adapter.execute("nonexistent_tool", {})
         print(f"  subprocess unknown tool → {result}")
         assert not result.get("success")
-        print(f"  ✅ 未知工具正确返回失败")
+        print("  ✅ 未知工具正确返回失败")
 
     @pytest.mark.asyncio
     async def test_execute_timeout(self):
@@ -60,7 +59,7 @@ class TestSubprocessSkillAdapter:
         result = await adapter.execute("calc", {"expression": "1+1"})
         print(f"  subprocess calc → {result}")
         assert isinstance(result, dict)
-        print(f"  ✅ 正常执行无超时")
+        print("  ✅ 正常执行无超时")
 
     def test_fallback_tool_defs(self, weather_adapter):
         """从 manifest 构建回退工具定义。"""
@@ -91,7 +90,7 @@ class TestSubprocessSkillAdapter:
             assert "error" in result
             # 主进程仍然正常
             assert True, "主进程未受影响"
-            print(f"  ✅ 子进程崩溃已隔离，主进程安全")
+            print("  ✅ 子进程崩溃已隔离，主进程安全")
         finally:
             shutil.rmtree(crash_dir, ignore_errors=True)
 
@@ -128,7 +127,7 @@ class TestTrustLevel:
             manifest = json.loads((skill_dir / "manifest.json").read_text("utf-8"))
             assert manifest.get("trust_level") == "sandboxed", \
                 f"auto-created skill 应为 sandboxed，实际: {manifest.get('trust_level')}"
-            print(f"  ✅ skill_creator 设置 trust_level=sandboxed")
+            print("  ✅ skill_creator 设置 trust_level=sandboxed")
         finally:
             if skill_dir.exists():
                 shutil.rmtree(skill_dir, ignore_errors=True)
@@ -170,7 +169,7 @@ class TestTrustLevel:
                 encoding="utf-8")
 
             # 直接调用 discover_skills（不经过 hot_reload 的 sys.modules 清理）
-            from skills import discover_skills, _registry as raw_registry
+            from skills import discover_skills
             discover_skills()
             # get_registry() 会排除 adapters 字段，所以直接访问 _registry
             from skills import _registry as raw_reg
@@ -182,7 +181,7 @@ class TestTrustLevel:
             assert len(adapters) > 0, "应有至少一个 adapter"
             assert isinstance(adapters[0], SubprocessSkillAdapter), \
                 f"sandboxed skill 应使用 SubprocessSkillAdapter，实际: {type(adapters[0])}"
-            print(f"  ✅ discover_skills 正确使用 SubprocessSkillAdapter")
+            print("  ✅ discover_skills 正确使用 SubprocessSkillAdapter")
         finally:
             if skill_dir.exists():
                 shutil.rmtree(skill_dir, ignore_errors=True)
@@ -206,7 +205,7 @@ class TestDynamicSensitive:
             for t in test_tools:
                 assert guard.classify(t) == "sensitive", \
                     f"{t} 应为 sensitive，实际: {guard.classify(t)}"
-            print(f"  ✅ dynamic_sensitive 正确标记")
+            print("  ✅ dynamic_sensitive 正确标记")
         finally:
             for t in test_tools:
                 guard._dynamic_sensitive.discard(t)
@@ -223,7 +222,7 @@ class TestDynamicSensitive:
             guard.mark_skill_tools_sensitive([tool])
             assert guard.classify(tool) == "safe", \
                 f"用户信任的工具应保持 safe，实际: {guard.classify(tool)}"
-            print(f"  ✅ custom_safe 优先于 dynamic_sensitive")
+            print("  ✅ custom_safe 优先于 dynamic_sensitive")
         finally:
             guard._custom_safe.discard(tool)
             guard._dynamic_sensitive.discard(tool)
@@ -241,7 +240,7 @@ class TestDynamicSensitive:
             cfg = json.loads(_CONFIG_PATH.read_text())
             assert tool in cfg.get("dynamic_sensitive", []), \
                 f"配置文件应包含 {tool}"
-            print(f"  ✅ dynamic_sensitive 已持久化")
+            print("  ✅ dynamic_sensitive 已持久化")
         finally:
             guard._dynamic_sensitive.discard(tool)
             guard._save_config()

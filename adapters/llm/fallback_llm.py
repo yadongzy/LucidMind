@@ -172,7 +172,7 @@ class FallbackLLMAdapter(LLMPort):
                 next_name = getattr(self._all[i + 1], "model", "?")
                 logger.info(f"切换到备用模型: {next_name}")
 
-        raise RuntimeError(f"所有模型均失败: " + " | ".join(errors))
+        raise RuntimeError("所有模型均失败: " + " | ".join(errors))
 
     @staticmethod
     def _slim_tool(tool: dict) -> dict:

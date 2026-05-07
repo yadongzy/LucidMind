@@ -8,7 +8,6 @@ import asyncio
 import functools
 import platform
 import subprocess
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from ports.tool_port import ToolPort

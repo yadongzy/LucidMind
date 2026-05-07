@@ -12,7 +12,6 @@ from brain_config import (
     MAX_TOOL_ROUNDS as _MAX_TOOL_ROUNDS,
     TOOL_RESULT_MAX_CHARS,
     COMPLEXITY_SEARCH_KEYWORDS, COMPLEXITY_MULTI_STEP_KEYWORDS,
-    get_context_window,
 )
 
 

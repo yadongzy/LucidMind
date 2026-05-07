@@ -13,7 +13,6 @@
 
 import asyncio
 import hashlib
-import json
 import os
 import time
 import xml.etree.ElementTree as ET

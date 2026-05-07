@@ -3,7 +3,6 @@
 发送 macOS/Linux 桌面通知。
 """
 
-import asyncio
 import platform
 import subprocess
 from typing import Any

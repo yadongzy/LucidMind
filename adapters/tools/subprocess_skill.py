@@ -139,7 +139,6 @@ class SubprocessSkillAdapter(ToolPort):
             loop = asyncio.get_event_loop()
             if loop.is_running():
                 # 在事件循环中，用线程池同步执行
-                import concurrent.futures
                 future = asyncio.run_coroutine_threadsafe(
                     self._run_subprocess(request, timeout=10), loop)
                 result = future.result(timeout=10)

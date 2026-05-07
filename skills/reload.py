@@ -39,7 +39,6 @@ def hot_reload() -> dict:
     # 如果有 CompositeToolAdapter 引用，更新其 adapters 列表
     if _tool_adapter_ref and hasattr(_tool_adapter_ref, '_adapters'):
         # 保留内建工具（非 skills 的），替换 skills 部分
-        from adapters.tools.composite import CompositeToolAdapter
         if hasattr(_tool_adapter_ref, '_builtin_tools'):
             _tool_adapter_ref._adapters = _tool_adapter_ref._builtin_tools + new_adapters
         else:

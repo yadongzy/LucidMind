@@ -18,7 +18,6 @@ import asyncio
 import functools
 import urllib.request
 import urllib.error
-import json
 import re
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any

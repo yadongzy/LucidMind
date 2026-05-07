@@ -6,11 +6,8 @@
 - 保留最近30天的日记文件
 """
 
-import json
-import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Optional
 
 from logs import get_logger
 

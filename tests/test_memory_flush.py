@@ -12,13 +12,8 @@
   T11-3: Vector Cache — JSON 迁移
 """
 
-import asyncio
 import json
-import shutil
-import sqlite3
 import struct
-import tempfile
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -274,7 +269,7 @@ class TestT11_VectorCacheSqlite:
             for i in range(15):
                 vec = [float(i)] * 4
                 h = f"hash_{i:04d}"
-                blob = struct.pack(f"4f", *vec)
+                blob = struct.pack("4f", *vec)
                 store._cache_db.execute(
                     "INSERT OR REPLACE INTO embedding_cache (hash, embedding, dims, accessed_at) VALUES (?,?,?,?)",
                     (h, blob, 4, time.time() - (15 - i)))

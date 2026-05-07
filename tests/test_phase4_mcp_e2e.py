@@ -1,12 +1,9 @@
 """Phase 4.1 测试: MCP E2E 工作流验证（mock Server 级别）"""
 
 import asyncio
-import json
-import os
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
 
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))

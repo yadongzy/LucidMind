@@ -9,10 +9,8 @@ Brain 可以基于经验修改自己的行为规则：
 """
 import json
 import re
-import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 from logs import get_logger
 

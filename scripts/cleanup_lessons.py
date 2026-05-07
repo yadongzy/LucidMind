@@ -9,7 +9,6 @@
 
 import json
 import re
-from datetime import datetime
 from collections import defaultdict
 
 def load_lessons(filepath="data/lessons.json"):

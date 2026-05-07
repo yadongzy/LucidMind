@@ -153,7 +153,7 @@ class JSONReflectionAdapter(ReflectionPort):
             if last4_hashes[0] == last4_hashes[2] and last4_hashes[1] == last4_hashes[3] and last4_hashes[0] != last4_hashes[1]:
                 result["loop_detected"] = True
                 result["pattern"] = "ping-pong"
-                result["warning"] = f"检测到 ping-pong 循环: 两个工具交替调用"
+                result["warning"] = "检测到 ping-pong 循环: 两个工具交替调用"
                 logger.warning(f"[{session_id}] Ping-pong 循环检测")
 
         calls.append({"tool": tool_name, "hash": call_hash, "time": time.time()})

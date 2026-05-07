@@ -8,7 +8,6 @@ Minsky 的 'thinking about thinking'：
 不修改 brain.py 核心逻辑（规则 06），通过替换 _metacognize 实现。
 """
 import asyncio
-from typing import Any
 from logs import get_logger
 
 logger = get_logger("metacog")
@@ -97,7 +96,7 @@ async def deep_analyze(user_input: str, history: list[dict], llm, quick: dict,
     context_hint = ""
     if history:
         recent = [f"{m['role']}: {(m.get('content') or '')[:80]}" for m in history[-3:]]
-        context_hint = f"\n最近对话:\n" + "\n".join(recent)
+        context_hint = "\n最近对话:\n" + "\n".join(recent)
 
     meta_prompt = f"""你是一个任务分析器。分析用户意图，输出简洁的思考计划。
 用户输入: {user_input[:300]}

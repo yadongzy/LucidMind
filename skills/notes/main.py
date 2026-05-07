@@ -1,6 +1,5 @@
 """笔记插件 — Markdown 笔记的创建、搜索、列表。"""
 
-import json
 import pathlib
 from datetime import datetime
 from typing import Any

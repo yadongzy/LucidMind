@@ -10,7 +10,6 @@
 - 不需要真实 LLM，用 mock 验证代码路径完整性
 """
 
-import asyncio
 import json
 import shutil
 import sys
@@ -84,7 +83,7 @@ class TestEXT4_SearchHub:
         from skills import search_hub
         results = search_hub("analyze_dna_sequence_xyzzy_12345")
         assert len(results) == 0, f"不存在的插件应返回空列表，实际: {results}"
-        print(f"  ✅ search_hub('analyze_dna_sequence_xyzzy_12345') → 0 个结果")
+        print("  ✅ search_hub('analyze_dna_sequence_xyzzy_12345') → 0 个结果")
 
 
 class TestEXT4_InstallFromHub:
@@ -114,7 +113,7 @@ class TestEXT4_InstallFromHub:
             # 验证 manifest 已改为 enabled
             manifest_after = json.loads(manifest_path.read_text("utf-8"))
             assert manifest_after.get("enabled") is True, "manifest 应已启用"
-            print(f"  ✅ weather 插件已从禁用→启用，热加载成功")
+            print("  ✅ weather 插件已从禁用→启用，热加载成功")
         finally:
             # 恢复原始状态
             manifest["enabled"] = was_enabled
@@ -170,7 +169,7 @@ class TestEXT4_OnToolNotFound:
         found_success = any("已安装" in m or "已热加载" in m or "热加载" in m for m in info_msgs)
         assert found_search, f"应有搜索消息，实际: {info_msgs}"
         assert found_success, f"应有成功消息，实际: {info_msgs}"
-        print(f"  ✅ _on_tool_not_found('get_weather') 完整闭环验证通过!")
+        print("  ✅ _on_tool_not_found('get_weather') 完整闭环验证通过!")
 
     @pytest.mark.asyncio
     async def test_tool_call_with_retry_auto_install(self, brain_resilience):
@@ -189,7 +188,7 @@ class TestEXT4_OnToolNotFound:
             "test_session", "get_weather", {"location": "Beijing"})
         print(f"  _tool_call_with_retry('get_weather') → {result}")
         assert result.get("success"), f"重试后应成功，实际: {result}"
-        print(f"  ✅ 完整链路: 未知工具 → 自动安装 → 重试 → 成功!")
+        print("  ✅ 完整链路: 未知工具 → 自动安装 → 重试 → 成功!")
 
 
 # ─────────────────── EXT-5 Tests ───────────────────
@@ -256,7 +255,7 @@ class TestEXT5_AutoCreateSkill:
             assert found_creating, f"应有创建消息，实际: {info_msgs}"
             assert found_success, f"应有成功消息，实际: {info_msgs}"
 
-            print(f"  ✅ _auto_create_skill stub 回退路径验证通过!")
+            print("  ✅ _auto_create_skill stub 回退路径验证通过!")
             TestEXT5_AutoCreateSkill._created_skill_dir = skill_dir
         finally:
             # 清理创建的 skill
@@ -283,13 +282,13 @@ class TestEXT5_AutoCreateSkill:
             print(f"  stream messages: {msgs}")
 
             assert result is True, f"应通过 auto_create 回退成功，实际: {result}"
-            assert skill_dir.exists(), f"应已创建 skill 目录"
+            assert skill_dir.exists(), "应已创建 skill 目录"
 
             info_msgs = [m[1] for m in msgs if m[0] == "info"]
             found_auto_create = any("PluginHub 无匹配" in m or "自动创建" in m for m in info_msgs)
             assert found_auto_create, f"应触发自动创建路径，实际: {info_msgs}"
 
-            print(f"  ✅ 完整回退链路: search_hub 无结果 → _auto_create_skill → stub 成功!")
+            print("  ✅ 完整回退链路: search_hub 无结果 → _auto_create_skill → stub 成功!")
         finally:
             if skill_dir.exists():
                 shutil.rmtree(skill_dir, ignore_errors=True)

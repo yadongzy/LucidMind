@@ -1,7 +1,6 @@
 """P1 增强功能测试: Block直注 + 工具观察 + 两阶段提取"""
 
 import asyncio
-import json
 import shutil
 import sys
 import tempfile

@@ -4,7 +4,6 @@
 新 Adapter，不修改 brain.py（规则 06）。
 """
 
-import os
 from pathlib import Path
 from typing import Any
 

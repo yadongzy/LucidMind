@@ -14,8 +14,7 @@ from typing import Any
 
 from ports.learning_port import LearningPort
 from adapters.learning.memory_curator import (
-    should_add_lesson, classify_tier, curate, track_retrieval_outcome,
-    get_half_life_days, TARGET_LESSONS,
+    should_add_lesson, classify_tier, curate, get_half_life_days,
 )
 from logs import get_logger
 

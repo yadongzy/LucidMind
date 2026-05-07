@@ -6,7 +6,7 @@
 import asyncio
 import json
 import time
-from typing import Callable, Awaitable, Any
+from typing import Callable, Awaitable
 
 from fastapi import WebSocket, WebSocketDisconnect
 from ports.channel_port import ChannelPort

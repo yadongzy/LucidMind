@@ -3,7 +3,6 @@
 调用 DeepSeek-VL 或兼容的多模态 API，将图片 base64 编码后发送。
 新 Adapter，不修改 brain.py（规则 06）。
 """
-import asyncio
 import base64
 import os
 from pathlib import Path
@@ -144,7 +143,7 @@ class VisionAdapter(ToolPort):
             hist = img.histogram()
             brightness = sum(hist[:256]) / max(sum(hist), 1)
             result = f"{basic_info}\n模式: {img.mode}\n宽高比: {w/h:.2f}{dominant}\n亮度分布: {'偏亮' if brightness > 0.5 else '偏暗'}"
-            result += f"\n\n(注: 多模态LLM不可用，仅提供基本图片属性分析。完整内容识别需要多模态模型支持。)"
+            result += "\n\n(注: 多模态LLM不可用，仅提供基本图片属性分析。完整内容识别需要多模态模型支持。)"
             return {"success": True, "result": result, "error": None}
         except Exception as e:
             return {"success": True, "result": f"{basic_info}\n(基本分析失败: {e})", "error": None}

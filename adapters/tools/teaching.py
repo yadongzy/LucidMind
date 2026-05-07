@@ -277,7 +277,7 @@ class TeachingAdapter(ToolPort):
             content=f"我的答案: {answer}",
             urgency="normal",
         )
-        return {"success": True, "result": f"📝 答案已提交，等待老师批改。用 teaching(action='check') 查看结果。"}
+        return {"success": True, "result": "📝 答案已提交，等待老师批改。用 teaching(action='check') 查看结果。"}
 
     async def _review_progress(self) -> dict[str, Any]:
         """回顾学习进度 — 综合 TeacherChannel 和学习计划。"""
@@ -310,5 +310,5 @@ class TeachingAdapter(ToolPort):
         if not plans:
             result += "  - 还没有学习计划，试试 teaching(action='plan', content='...')\n"
 
-        logger.info(f"教学: 进度报告")
+        logger.info("教学: 进度报告")
         return {"success": True, "result": result}

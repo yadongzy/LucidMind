@@ -112,7 +112,7 @@ async def run_all_tests():
     print("\n\n### 测试4: 记忆读取")
     r4 = await send_and_watch("我最喜欢的编程语言是什么？")
     has_python = "python" in r4["reply"].lower() if r4["reply"] else False
-    results["记忆读取"] = f"✅ 通过 (回复含Python)" if has_python else f"⚠️ 回复: {r4['reply'][:100]}"
+    results["记忆读取"] = "✅ 通过 (回复含Python)" if has_python else f"⚠️ 回复: {r4['reply'][:100]}"
     
     # 汇总
     print("\n\n" + "="*60)

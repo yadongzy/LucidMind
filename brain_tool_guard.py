@@ -9,7 +9,6 @@
 
 import json
 import re
-import time
 
 from logs import get_logger
 from brain_perf import compress_tool_result

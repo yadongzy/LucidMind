@@ -274,7 +274,7 @@ def recommend_model() -> dict:
     advice = []
     if vram_gb < 2:
         advice.append(f"GPU显存仅{vram_gb}GB，将使用纯CPU推理（较慢）")
-        advice.append(f"建议使用≤1.7b参数的小模型以保证响应速度")
+        advice.append("建议使用≤1.7b参数的小模型以保证响应速度")
     elif vram_gb < 4:
         advice.append(f"GPU显存{vram_gb}GB，适合运行≤4b参数的模型")
     elif vram_gb < 8:

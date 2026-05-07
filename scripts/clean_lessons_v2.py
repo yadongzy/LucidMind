@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """经验库深度清洗 v2 — 去噪+去重+补trigger+有效性重置"""
-import json, shutil, re
+import json
+import shutil
 from pathlib import Path
 from collections import defaultdict
 
@@ -73,7 +74,7 @@ for l in deduped:
     tiers[l.get("tier", "?")] += 1
     srcs[l.get("source", "?")] += 1
 
-print(f"\n=== 结果 ===")
+print("\n=== 结果 ===")
 print(f"原始: {orig} → 清洗后: {len(deduped)}")
 print(f"删除: {orig - len(deduped)} (噪音{n_noise} + 重复{n_dup})")
 print(f"分层: {dict(tiers)}")

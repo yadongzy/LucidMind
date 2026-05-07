@@ -1,7 +1,6 @@
 """Docker 操作插件 — 容器列表、日志、重启。"""
 
 import subprocess
-import json
 from typing import Any
 
 from ports.tool_port import ToolPort

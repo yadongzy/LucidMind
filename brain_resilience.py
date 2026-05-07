@@ -9,7 +9,6 @@
 import asyncio
 import os
 import platform
-import re
 import time
 
 from logs import get_logger
@@ -209,7 +208,8 @@ class BrainResilienceMixin(BrainCompactMixin):
 
     async def _self_diagnose(self) -> dict:
         """自检：检查所有 Port 状态 + 资源监控。"""
-        import shutil, psutil
+        import shutil
+        import psutil
         r = {
             "llm": False,
             "tools": self.tools is not None,
@@ -248,7 +248,6 @@ class BrainResilienceMixin(BrainCompactMixin):
     async def _escalate_to_teacher(self, problem: str, context: str = "") -> None:
         """向老师(Cascade)求助 — 大脑不会/失败时最大的帮助来源。"""
         try:
-            from teacher_channel import TeacherChannel
             from api.brain_init import teacher
             teacher.send_to_teacher(
                 msg_type="help",

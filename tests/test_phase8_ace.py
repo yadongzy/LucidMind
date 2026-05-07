@@ -494,7 +494,6 @@ class TestACEReflectorWiring(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         self.db_path = self.tmp / "reflector_test.sqlite"
-        from memory.store import MemoryStore
         from adapters.learning.memory_store_adapter import MemoryStoreLearningAdapter
         self.adapter = MemoryStoreLearningAdapter(db_path=self.db_path)
         self.store = self.adapter.store

@@ -61,7 +61,7 @@ async def verify_s6():
     msg1 = f"请记住这个暗号：{SECRET}。暗号非常重要，请确认你记住了。"
     r1 = await send_and_collect(uri, msg1, SESSION_ID)
     print(f"  Response: {r1['response'][:100]}...")
-    print(f"  (连接1 断开)")
+    print("  (连接1 断开)")
 
     step1_ok = SECRET in r1["response"] or "记住" in r1["response"] or "天王" in r1["response"]
     print(f"  Step 1: {'[OK]' if step1_ok else '[WARN]'}")
@@ -70,7 +70,7 @@ async def verify_s6():
     await asyncio.sleep(1)
 
     # === Step 2: 新连接，问暗号 ===
-    print(f"\n[Step 2] 连接2: 询问暗号（新 WebSocket 连接）")
+    print("\n[Step 2] 连接2: 询问暗号（新 WebSocket 连接）")
     msg2 = "你还记得我之前告诉你的暗号是什么吗？请直接说出暗号内容。"
     r2 = await send_and_collect(uri, msg2, SESSION_ID)
     print(f"  Response: {r2['response'][:200]}...")
@@ -79,7 +79,7 @@ async def verify_s6():
     print(f"  Step 2: {'[OK]' if step2_ok else '[FAIL]'}")
 
     # === Summary ===
-    print(f"\n=== S6 Verification Summary ===")
+    print("\n=== S6 Verification Summary ===")
     print(f"Step 1 (tell secret):   {'[OK]' if step1_ok else '[WARN]'}")
     print(f"Step 2 (recall secret): {'[OK]' if step2_ok else '[FAIL]'}")
     print(f"Secret '{SECRET}' in response: {'YES' if step2_ok else 'NO'}")

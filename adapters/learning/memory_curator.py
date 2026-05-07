@@ -20,7 +20,7 @@
 
 import time
 import math
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
 from logs import get_logger
@@ -107,26 +107,26 @@ def should_add_lesson(lesson: dict[str, Any], existing: list[dict[str, Any]]) ->
         logger.debug(f"门控拒绝: 内容过短 trigger={_effective_len(trigger)} lesson={_effective_len(content)}")
         return False
     if "方法有效，可复用" in content and len(content) < 50:
-        logger.debug(f"门控拒绝: 空洞的成功记录")
+        logger.debug("门控拒绝: 空洞的成功记录")
         return False
     # 拒绝工具调用日志（不是经验教训）
     if content.lstrip().startswith("[Tool]") or content.lstrip().startswith("[tool]"):
-        logger.debug(f"门控拒绝: 工具调用日志噪音")
+        logger.debug("门控拒绝: 工具调用日志噪音")
         return False
     # 拒绝 agent 拒绝/无能力声明
     if any(p in content for p in ("我无法访问", "I cannot", "I can't", "I don't have access")):
-        logger.debug(f"门控拒绝: agent拒绝声明")
+        logger.debug("门控拒绝: agent拒绝声明")
         return False
     # 拒绝用户指令型内容
     if _is_command_like(content):
-        logger.debug(f"门控拒绝: 用户指令型内容")
+        logger.debug("门控拒绝: 用户指令型内容")
         return False
     # 检查重复：与现有经验的trigger相似度
     trigger_lower = trigger.lower()
     for ex in existing:
         ex_trigger = ex.get("trigger", "").lower()
         if ex_trigger and trigger_lower and _text_overlap(trigger_lower, ex_trigger) > 0.8:
-            logger.debug(f"门控拒绝: 与现有经验重复 (overlap>0.8)")
+            logger.debug("门控拒绝: 与现有经验重复 (overlap>0.8)")
             return False
     return True
 

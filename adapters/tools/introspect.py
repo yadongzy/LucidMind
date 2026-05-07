@@ -194,7 +194,7 @@ class IntrospectAdapter(ToolPort):
                 contradictions.append(f"  触发: {t}\n  教训A: {trigger_lessons[t]}\n  教训B: {lesson_text}")
             trigger_lessons[t] = lesson_text
 
-        result = f"=== 经验库分析 ===\n"
+        result = "=== 经验库分析 ===\n"
         result += f"总数: {total} 条\n"
         result += f"唯一触发: {unique_triggers} 条\n"
         result += f"重复: {duplicates} 条\n\n"
@@ -228,7 +228,7 @@ class IntrospectAdapter(ToolPort):
             failed = output.count(" FAILED")
             errors = output.count(" ERROR")
 
-            summary = f"=== 自测结果 ===\n"
+            summary = "=== 自测结果 ===\n"
             summary += f"通过: {passed}, 失败: {failed}, 错误: {errors}\n"
             summary += f"退出码: {proc.returncode}\n\n"
             summary += output[-2000:]  # 最后2000字符
@@ -322,7 +322,7 @@ class IntrospectAdapter(ToolPort):
         for kw in _reject_keywords:
             if kw in combined:
                 logger.info(f"自省: 拒绝低质量经验(含'{kw}'): {trigger[:40]}")
-                return {"success": True, "result": f"经验已评估，不需要记录（通用知识，非特定教训）"}
+                return {"success": True, "result": "经验已评估，不需要记录（通用知识，非特定教训）"}
         try:
             adapter = IntrospectAdapter._learning_adapter
             if not adapter:

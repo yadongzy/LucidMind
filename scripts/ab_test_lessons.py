@@ -6,7 +6,6 @@
 
 import requests
 import time
-import json
 
 BASE = "http://127.0.0.1:8765"
 
@@ -97,7 +96,7 @@ def main():
     _row("平均回复长度", w.get("avg_response_len", 0), wo.get("avg_response_len", 0))
 
     # 逐题对比
-    print(f"\n📝 逐题对比:")
+    print("\n📝 逐题对比:")
     for i, (rw, rwo) in enumerate(zip(results_with, results_without)):
         q = rw["question"]
         ew = rw.get("elapsed", 0)
@@ -108,7 +107,7 @@ def main():
         print(f"  Q{i+1}: {q[:30]}")
         print(f"    有经验: {ew:.1f}s, {lw}字  |  无经验: {ewo:.1f}s, {lwo}字  {faster}")
 
-    print(f"\n✅ 测试完成。经验注入已恢复为开启状态。")
+    print("\n✅ 测试完成。经验注入已恢复为开启状态。")
 
 
 if __name__ == "__main__":

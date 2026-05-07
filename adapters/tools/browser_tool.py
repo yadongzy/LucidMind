@@ -4,7 +4,6 @@
 提供：打开网页、截图、提取文本。
 """
 
-import asyncio
 from pathlib import Path
 from typing import Any
 

@@ -24,7 +24,6 @@ async def cascade_inject(req: InjectRequest):
         return {"status": "error", "detail": "消息不能为空"}
 
     try:
-        from teacher_channel import TeacherChannel
         from api.brain_init import teacher
         msg = teacher.send_to_teacher(
             msg_type="question",

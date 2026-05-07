@@ -8,10 +8,8 @@
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
-from string import Template
 
 
 _ROOT = Path(__file__).parent
@@ -70,14 +68,14 @@ def _cmd_create_plugin(args):
     (target / "README.md").write_text(readme, encoding="utf-8")
 
     print(f"\n✅ 插件已创建: {target}")
-    print(f"   manifest.json — 插件元数据")
-    print(f"   main.py       — ToolPort 类 + 工具定义")
-    print(f"   README.md     — 插件文档")
+    print("   manifest.json — 插件元数据")
+    print("   main.py       — ToolPort 类 + 工具定义")
+    print("   README.md     — 插件文档")
     print(f"\n工具列表: {', '.join(tool_names)}")
-    print(f"\n下一步:")
+    print("\n下一步:")
     print(f"  1. 编辑 {target / 'main.py'} 实现你的插件逻辑")
-    print(f"  2. 重启 LucidMind 或调用 POST /api/plugins/reload 热加载")
-    print(f"  3. 查看 docs/plugin-guide.md 了解更多")
+    print("  2. 重启 LucidMind 或调用 POST /api/plugins/reload 热加载")
+    print("  3. 查看 docs/plugin-guide.md 了解更多")
 
 
 def _generate_main_py(name: str, class_name: str, description: str,

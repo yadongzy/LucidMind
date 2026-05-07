@@ -8,7 +8,6 @@ import functools
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 import urllib.request
-import json
 
 from ports.tool_port import ToolPort
 from logs import get_logger

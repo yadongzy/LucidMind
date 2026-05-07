@@ -20,7 +20,6 @@ from fastapi import APIRouter, HTTPException, Query
 from governance.decision_log import GovernanceDecisionLog
 from governance.policy import GovernancePolicy
 from project_state.store import ProjectStateStore
-from reports.task_reporter import TaskReport
 
 router = APIRouter(prefix="/api/project-brain", tags=["project-brain"])
 
@@ -191,7 +190,6 @@ def run_checkup(project_id: str = "lucidmind") -> dict[str, Any]:
 @router.get("/checkup/latest")
 def get_latest_checkup(project_id: str = "lucidmind") -> dict[str, Any]:
     """获取最近一次体检报告。"""
-    import glob
     report_dir = _project_root() / "data" / "checkup"
     if not report_dir.exists():
         raise HTTPException(status_code=404, detail="无体检报告")
@@ -199,3 +197,45 @@ def get_latest_checkup(project_id: str = "lucidmind") -> dict[str, Any]:
     if not files:
         raise HTTPException(status_code=404, detail="无体检报告")
     return json.loads(files[0].read_text("utf-8"))
+
+
+# ──────────────────────────────────────────────
+# POST /api/project-brain/diagnose
+# ──────────────────────────────────────────────
+@router.post("/diagnose")
+def run_diagnosis(project_id: str = "lucidmind") -> dict[str, Any]:
+    """体检 + 诊断（不修复），返回诊断报告含分级。"""
+    from checkup.runner import ProjectCheckupRunner
+    from checkup.diagnosis import diagnose_checkup
+    runner = ProjectCheckupRunner(_project_root(), project_id)
+    checkup = runner.run_all()
+    diagnosis = diagnose_checkup(checkup.to_dict())
+    return {
+        "checkup_score": checkup.score,
+        "diagnosis": diagnosis.to_dict(),
+    }
+
+
+# ──────────────────────────────────────────────
+# POST /api/project-brain/auto-repair
+# ──────────────────────────────────────────────
+@router.post("/auto-repair")
+def run_auto_repair(project_id: str = "lucidmind") -> dict[str, Any]:
+    """完整闭环: 体检 → 诊断 → 自动修复 L0/L1 → 重新验证。"""
+    from checkup.auto_repair import AutoRepairPipeline
+    pipeline = AutoRepairPipeline(_project_root(), project_id)
+    return pipeline.run_full_pipeline()
+
+
+# ──────────────────────────────────────────────
+# GET /api/project-brain/evolution
+# ──────────────────────────────────────────────
+@router.get("/evolution")
+def get_evolution_log(limit: int = 20) -> dict[str, Any]:
+    """获取进化日志。"""
+    from checkup.evolution_log import EvolutionLog
+    log = EvolutionLog()
+    return {
+        "stats": log.get_stats(),
+        "recent": log.get_recent(limit),
+    }

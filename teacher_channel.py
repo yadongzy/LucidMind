@@ -15,7 +15,6 @@
 """
 
 import json
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -182,7 +181,7 @@ class TeacherChannel:
                 if self._brain:
                     try:
                         await self._brain.process("teaching", f"[老师练习] {exercise}")
-                        results.append(f"✅ 练习已执行")
+                        results.append("✅ 练习已执行")
                     except Exception as e:
                         results.append(f"⚠️ 练习执行失败: {e}")
 
@@ -195,7 +194,7 @@ class TeacherChannel:
                         sid = f"teach_{int(_t.time())}"
                         await self._brain.process(sid, f"[老师指令] {action}")
                         self._brain._sessions.pop(sid, None)
-                        results.append(f"✅ 指令已执行")
+                        results.append("✅ 指令已执行")
                     except Exception as e:
                         results.append(f"⚠️ 指令执行失败: {e}")
 

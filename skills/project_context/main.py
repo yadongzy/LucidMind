@@ -107,7 +107,7 @@ class ProjectContextAdapter(ToolPort):
         result.append(f"🔧 技术栈: {', '.join(stack) if stack else '未知'}")
         if key_files_found:
             result.append(f"📌 关键文件: {', '.join(key_files_found)}")
-        result.append(f"\n📂 目录结构:")
+        result.append("\n📂 目录结构:")
         result.extend(tree_lines[:50])
         if len(tree_lines) > 50:
             result.append(f"... 共 {len(tree_lines)} 项")

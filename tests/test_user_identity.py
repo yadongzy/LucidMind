@@ -10,10 +10,7 @@
 7. 多用户隔离
 """
 
-import shutil
-import tempfile
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -255,7 +252,6 @@ class TestProfileIntegration:
         """验证完整链路：UserProfileAdapter 生成的上下文能正确注入身份提示词。"""
         from adapters.memory.user_profile import UserProfileAdapter
         import tempfile
-        import os
 
         with tempfile.TemporaryDirectory() as tmpdir:
             profiles_dir = Path(tmpdir)

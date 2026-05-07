@@ -7,7 +7,6 @@
 """
 import json
 import time
-from typing import Any
 
 from logs import get_logger
 

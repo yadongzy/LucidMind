@@ -1,7 +1,6 @@
 """Phase 1 测试: 三层加载架构 (loader.py + SKILL.md)"""
 
 import json
-import os
 import sys
 import tempfile
 import shutil
@@ -37,7 +36,7 @@ class TestLayer1Scan(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_scan_finds_all_plugins(self):
-        from skills.loader import layer1_scan, _SKILLS_DIR, _meta_registry, PluginMeta
+        from skills.loader import layer1_scan
         import skills.loader as loader
         old_dir = loader._SKILLS_DIR
         loader._SKILLS_DIR = self.tmp
@@ -170,7 +169,6 @@ class TestFindPluginByTool(unittest.TestCase):
 
     def test_find_existing_tool(self):
         from skills.loader import layer1_scan, find_plugin_by_tool
-        import skills.loader as loader
         # 使用真实 skills 目录
         layer1_scan()  # 扫描真实插件
         # weather 插件应该有 get_weather 工具

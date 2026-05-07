@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """清洗 SQLite 经验库 — 去噪+去重+有效性重置"""
-import sys, os
+import sys
+import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from memory.store import MemoryStore
 from pathlib import Path
-import json, re, shutil
+import shutil
 
 DB = Path(__file__).parent.parent / "data" / "memory" / "main.sqlite"
 
@@ -77,7 +78,7 @@ for r in remaining:
         reset += 1
 
 print(f"有效性重置: {reset}条")
-print(f"\n=== 结果 ===")
+print("\n=== 结果 ===")
 final = store.get_all(limit=500)
 print(f"清洗后: {len(final)}条")
 

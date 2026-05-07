@@ -51,7 +51,7 @@ class TestWebSocketChat:
         import websockets
 
         async def _run():
-            uri = f"ws://127.0.0.1:8000/ws"
+            uri = "ws://127.0.0.1:8000/ws"
             async with websockets.connect(uri, ping_interval=None) as ws:
                 await ws.send(json.dumps({"type": "ping"}))
                 raw = await asyncio.wait_for(ws.recv(), timeout=10)
@@ -66,7 +66,7 @@ class TestWebSocketChat:
         import websockets
 
         async def _run():
-            uri = f"ws://127.0.0.1:8000/ws"
+            uri = "ws://127.0.0.1:8000/ws"
             sid = f"e2e_ws_{int(time.time())}"
             async with websockets.connect(uri, ping_interval=None) as ws:
                 await ws.send(json.dumps({

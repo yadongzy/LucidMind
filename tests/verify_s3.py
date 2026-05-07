@@ -2,7 +2,6 @@ import asyncio
 import websockets
 import json
 import sys
-import os
 
 # Force UTF-8 output for Windows console
 sys.stdout.reconfigure(encoding='utf-8')

@@ -40,7 +40,7 @@ class TestMCPWrapper:
         result = generate_mcp_server("nonexistent_skill_xyz")
         assert not result.get("success")
         assert "不存在" in result.get("error", "")
-        print(f"  ✅ 不存在的 skill 正确返回失败")
+        print("  ✅ 不存在的 skill 正确返回失败")
 
     def test_register_mcp_server(self):
         """注册 MCP Server 到 data/mcp_servers.json。"""
@@ -80,7 +80,7 @@ class TestMCPWrapper:
             servers = json.loads(config_path.read_text("utf-8"))
             names = [s["name"] for s in servers]
             assert "skill-calculator" not in names
-            print(f"  ✅ 配置文件已移除 skill-calculator")
+            print("  ✅ 配置文件已移除 skill-calculator")
 
         # 清理
         mcp_script = ROOT / "skills" / "calculator" / "mcp_server.py"
@@ -97,7 +97,7 @@ class TestMCPWrapper:
             servers = json.loads(config_path.read_text("utf-8"))
             count = sum(1 for s in servers if s["name"] == "skill-calculator")
             assert count == 1, f"应只有1个 skill-calculator，实际: {count}"
-            print(f"  ✅ 重复注册去重正确")
+            print("  ✅ 重复注册去重正确")
 
         # 清理
         unregister_mcp_server("calculator")
@@ -114,7 +114,7 @@ class TestMCPWrapper:
         # 尝试编译检查语法
         try:
             compile(content, server_path, "exec")
-            print(f"  ✅ 生成的脚本语法合法")
+            print("  ✅ 生成的脚本语法合法")
         except SyntaxError as e:
             pytest.fail(f"生成的脚本有语法错误: {e}")
         finally:
@@ -144,7 +144,7 @@ class TestMCPWrapperIntegration:
             content = mcp_script.read_text("utf-8")
             assert "MCPServer" in content
             assert skill_name in content
-            print(f"  ✅ skill_creator 自动生成 mcp_server.py")
+            print("  ✅ skill_creator 自动生成 mcp_server.py")
         finally:
             if skill_dir.exists():
                 shutil.rmtree(skill_dir, ignore_errors=True)
@@ -163,7 +163,7 @@ class TestMCPWrapperIntegration:
         assert "tools/list" in content
         assert "tools/call" in content
         assert "2024-11-05" in content  # MCP protocol version
-        print(f"  ✅ MCP Server 脚本内容正确")
+        print("  ✅ MCP Server 脚本内容正确")
         server_path.unlink(missing_ok=True)
 
 

@@ -1,7 +1,6 @@
 """测试 tool_call_parser — XML tool call 解析器。"""
 
 import json
-import pytest
 from tool_call_parser import parse_xml_tool_calls, strip_xml_tool_calls, has_xml_tool_calls
 
 

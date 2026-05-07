@@ -13,7 +13,6 @@ import importlib
 import inspect
 import os
 import pkgutil
-from typing import Any
 
 from ports.tool_port import ToolPort
 from logs import get_logger

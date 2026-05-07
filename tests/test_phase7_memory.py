@@ -1,7 +1,6 @@
 """Phase 7 测试: 记忆架构升级 (MemoryStore + Chunking + Collections + Config)"""
 
 import json
-import os
 import sys
 import tempfile
 import shutil
@@ -217,7 +216,6 @@ class TestMemoryConfig(unittest.TestCase):
 
     def test_config_load_save(self):
         import tempfile
-        from memory.types import MemoryConfig
         from memory import config as cfg_mod
 
         tmp = tempfile.mkdtemp()

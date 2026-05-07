@@ -8,13 +8,7 @@ from typing import Optional
 
 from logs import get_logger
 from task_dispatcher_utils import (
-    load_store as _load_store, save_store as _save_store,
-    load_store, save_store,
     MAX_TASK_QUEUE, _PRIORITY_ORDER,
-    release_stuck_tasks, compute_interval, cleanup_completed,
-    auto_expire, get_queue_status, get_daily_state,
-    set_daily_check_done, is_daily_check_done,
-    set_monthly_check_done, is_monthly_check_done,
 )
 
 logger = get_logger("dispatcher")
@@ -210,7 +204,6 @@ def fail_task(task_id: str, error: str):
 def _notify_escalation(task: dict):
     """上报已耗尽重试的任务给老师/用户（任务逻辑.md §七.1）。"""
     try:
-        from teacher_channel import TeacherChannel
         from api.brain_init import teacher
         teacher.send_to_teacher(
             msg_type="help",

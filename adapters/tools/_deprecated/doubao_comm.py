@@ -5,7 +5,6 @@
 
 import asyncio
 import subprocess
-import time
 from typing import Any
 
 from ports.tool_port import ToolPort

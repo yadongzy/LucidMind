@@ -20,7 +20,6 @@ async def get_reminders():
     """获取待触发的提醒列表。"""
     try:
         from skills.reminder.main import _reminders
-        from datetime import datetime
         pending = [r for r in _reminders if not r.get("fired")]
         return {"reminders": pending, "count": len(pending)}
     except Exception:

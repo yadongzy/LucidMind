@@ -5,8 +5,6 @@
 
 import asyncio
 import functools
-import json
-import os
 from pathlib import Path
 from typing import Any
 
@@ -103,7 +101,6 @@ class DocumentAdapter(ToolPort):
 
     def _create_pptx(self, params: dict) -> str:
         from pptx import Presentation
-        from pptx.util import Inches, Pt
 
         prs = Presentation()
         slides_data = params.get("slides", [])

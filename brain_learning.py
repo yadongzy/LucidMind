@@ -135,7 +135,6 @@ class BrainLearningMixin:
 
         # 向老师求助 — 老师是大脑不会时最大的帮助来源
         try:
-            from teacher_channel import TeacherChannel
             from api.brain_init import teacher
             teacher.send_to_teacher(
                 msg_type="help",

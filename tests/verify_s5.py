@@ -66,7 +66,7 @@ async def verify_s5():
                     break
 
             # Summary
-            print(f"\n=== S5 Verification Summary ===")
+            print("\n=== S5 Verification Summary ===")
             print(f"Thinking:    {'[OK]' if events['thinking'] else '[WARN]'}")
             print(f"Tool Call:   {'[OK]' if events['tool_call'] else '[FAIL]'}")
             print(f"Tool Result: {'[OK]' if events['tool_result'] else '[FAIL]'}")

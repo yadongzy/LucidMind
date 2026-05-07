@@ -72,16 +72,16 @@ async def verify_s4():
 
             if os.path.exists(file_path):
                 disk_content = open(file_path, encoding="utf-8").read()
-                print(f"  File exists: YES")
+                print("  File exists: YES")
                 print(f"  Content: {disk_content!r}")
                 disk_ok = TEST_CONTENT in disk_content
                 print(f"  Content match: {'[OK]' if disk_ok else '[FAIL]'}")
             else:
-                print(f"  File exists: NO [FAIL]")
+                print("  File exists: NO [FAIL]")
                 disk_ok = False
 
             # === Summary ===
-            print(f"\n=== S4 Verification Summary ===")
+            print("\n=== S4 Verification Summary ===")
             print(f"Tool Call:    {'[OK]' if events['tool_call'] else '[FAIL]'}")
             print(f"Tool Result:  {'[OK]' if events['tool_result'] else '[FAIL]'}")
             print(f"Response:     {'[OK]' if events['response'] else '[FAIL]'}")

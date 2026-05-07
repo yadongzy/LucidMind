@@ -25,9 +25,7 @@ API 文档：https://apifox.com/apidoc/shared-69ba62ca-cb7d-437e-85e4-6f3d3df271
 """
 
 import asyncio
-import json
 import os
-import time
 from typing import Callable, Awaitable
 
 from ports.channel_port import ChannelPort
@@ -60,7 +58,7 @@ class WeChatChannelAdapter(ChannelPort):
         # 设置回调地址
         if self._callback_url:
             await self._set_callback()
-        logger.info(f"微信: Channel 已就绪 (GeweChat iPad 协议)")
+        logger.info("微信: Channel 已就绪 (GeweChat iPad 协议)")
 
     async def stop(self) -> None:
         logger.info("微信: Channel 已停止")

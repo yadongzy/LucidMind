@@ -8,23 +8,23 @@ queue_file = Path(__file__).parent.parent / "data" / "task_queue.json"
 store = json.loads(queue_file.read_text("utf-8"))
 tasks = store.get("tasks", [])
 
-print(f"=== 队列深度分析 ===\n")
+print("=== 队列深度分析 ===\n")
 print(f"总任务数: {len(tasks)}")
 
 # 1. 按状态分布
 status_counts = Counter(t["status"] for t in tasks)
-print(f"\n--- 状态分布 ---")
+print("\n--- 状态分布 ---")
 for s, c in status_counts.most_common():
     print(f"  {s}: {c}")
 
 # 2. 按来源分布
 source_counts = Counter(t.get("source", "?") for t in tasks)
-print(f"\n--- 来源分布 ---")
+print("\n--- 来源分布 ---")
 for s, c in source_counts.most_common():
     print(f"  {s}: {c}")
 
 # 3. 按来源+状态交叉分析
-print(f"\n--- 来源×状态 ---")
+print("\n--- 来源×状态 ---")
 cross = Counter((t.get("source", "?"), t["status"]) for t in tasks)
 for (src, st), c in cross.most_common():
     print(f"  {src}/{st}: {c}")
@@ -37,7 +37,7 @@ for s, c in ready_src.most_common():
     print(f"  {s}: {c}")
 
 # 5. 入队速率分析
-print(f"\n--- 入队时间分析 ---")
+print("\n--- 入队时间分析 ---")
 if tasks:
     times = []
     for t in tasks:
@@ -55,7 +55,7 @@ if tasks:
 
 # 6. 出队速率分析（completed任务）
 completed = [t for t in tasks if t["status"] == "completed"]
-print(f"\n--- 出队(完成)速率 ---")
+print("\n--- 出队(完成)速率 ---")
 if completed:
     comp_times = []
     for t in completed:
@@ -72,7 +72,7 @@ if completed:
         print(f"  完成速率: {rate:.1f}个/分钟")
 
 # 7. 每个任务的执行耗时
-print(f"\n--- 任务执行耗时 ---")
+print("\n--- 任务执行耗时 ---")
 durations = []
 for t in completed:
     try:
@@ -92,7 +92,7 @@ else:
     print("  无完整耗时数据")
 
 # 8. 关键问题：入队 vs 出队速率对比
-print(f"\n=== 根因分析 ===")
+print("\n=== 根因分析 ===")
 print(f"  active(ready+running+blocked): {sum(1 for t in tasks if t['status'] in ('ready','running','blocked'))}")
 print(f"  completed: {status_counts.get('completed', 0)}")
 print(f"  escalated: {status_counts.get('escalated', 0)}")
@@ -110,7 +110,7 @@ unique = len(set(teacher_contents))
 print(f"  内容去重: {unique}/{len(teacher_contents)} 唯一")
 
 # 10. 查看ready任务的内容（前10个）
-print(f"\n--- Ready任务内容(前10) ---")
+print("\n--- Ready任务内容(前10) ---")
 for t in ready[:10]:
     age = ""
     try:

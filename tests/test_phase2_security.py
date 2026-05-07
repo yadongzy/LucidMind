@@ -1,9 +1,6 @@
 """Phase 2 安全体系化测试 — 发现安全 + 扫描增强 + MCP 安全验证。"""
 
 import os
-import pathlib
-import stat
-import tempfile
 import pytest
 import sys
 
@@ -76,7 +73,7 @@ def test_large_file_warning(tmp_path):
 
 # ─────────────── 节点 2.2: 安全扫描增强 ───────────────
 
-from skills.skill_scanner import scan_file, scan_skill_directory, PATTERNS, get_scan_history
+from skills.skill_scanner import scan_file, scan_skill_directory
 
 
 def test_scan_file_skips_comments(tmp_path):
@@ -216,7 +213,7 @@ def test_mcp_stdio_no_command():
 
 def test_soul_dedup_exact_match(tmp_path):
     """完全相同的规则应判定为重复。"""
-    from identity.soul_engine import SoulEngine, _SOUL_PATH
+    from identity.soul_engine import SoulEngine
     import identity.soul_engine as se
     old_path = se._SOUL_PATH
     se._SOUL_PATH = tmp_path / "SOUL.md"
