@@ -448,6 +448,61 @@ def list_executors() -> dict[str, Any]:
     return {"executors": r.list_executors()}
 
 
+@router.post("/heal")
+def trigger_heal(trigger: str = "manual") -> dict[str, Any]:
+    """触发一次自愈流程。"""
+    from checkup.self_heal import SelfHealEngine
+    engine = SelfHealEngine(_project_root())
+    result = engine.heal(trigger=trigger)
+    return result.to_dict()
+
+
+@router.get("/heal/check")
+def quick_health_check() -> dict[str, Any]:
+    """快速健康检查（不修复）。"""
+    from checkup.self_heal import SelfHealEngine
+    engine = SelfHealEngine(_project_root())
+    return engine.quick_check()
+
+
+@router.get("/evolution/metrics")
+def get_evolution_metrics(days: int = 30) -> dict[str, Any]:
+    """获取进化效果度量。"""
+    from checkup.evolution_metrics import EvolutionMetrics
+    m = EvolutionMetrics()
+    return m.compute_summary(days).to_dict()
+
+
+@router.get("/evolution/targets")
+def get_evolution_targets() -> dict[str, Any]:
+    """获取进化目标达成情况。"""
+    from checkup.evolution_metrics import EvolutionMetrics
+    m = EvolutionMetrics()
+    return m.get_targets()
+
+
+@router.get("/evolution/log")
+def get_evolution_log(limit: int = 20) -> dict[str, Any]:
+    """获取最近进化日志。"""
+    from checkup.evolution_log import EvolutionLog
+    log = EvolutionLog()
+    return {"beads": log.get_recent(limit), "stats": log.get_stats()}
+
+
+@router.post("/git-hooks/install")
+def install_git_hooks() -> dict[str, Any]:
+    """安装 git hooks。"""
+    from checkup.git_hooks import install_hooks
+    return install_hooks(_project_root())
+
+
+@router.post("/git-hooks/uninstall")
+def uninstall_git_hooks() -> dict[str, Any]:
+    """卸载 git hooks。"""
+    from checkup.git_hooks import uninstall_hooks
+    return uninstall_hooks(_project_root())
+
+
 @router.get("/tools/safety/config")
 def get_tool_safety_config() -> dict[str, Any]:
     """获取工具安全配置摘要。"""

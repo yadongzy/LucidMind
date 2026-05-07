@@ -22,6 +22,7 @@ import { renderCockpit } from "./views/cockpit.js";
 import { renderProject } from "./views/project.js";
 import { renderManagedTasks } from "./views/managed-tasks.js";
 import { renderTools } from "./views/tools.js";
+import { renderEvolution } from "./views/evolution.js";
 import { renderTokens } from "./views/tokens.js";
 import { installTestProbe } from "./test-probe.js";
 
@@ -31,7 +32,7 @@ const TAB_GROUPS = [
   { label: "项目", tabs: ["project", "mtasks", "cockpit"] },
   { label: "大脑", tabs: ["brain", "memory", "tools"] },
   { label: "连接", tabs: ["channels", "mcp"] },
-  { label: "设置", tabs: ["plugins", "profile", "config", "diagnostics", "tokens"] },
+  { label: "设置", tabs: ["plugins", "profile", "config", "diagnostics", "tokens", "evolution"] },
 ];
 
 const TAB_ICONS = {
@@ -45,6 +46,7 @@ const TAB_ICONS = {
   project: "overview",
   mtasks: "tasks",
   tools: "zap",
+  evolution: "debug",
   channels: "chat",
   mcp: "debug",
   plugins: "zap",
@@ -65,6 +67,7 @@ const TAB_TITLES = {
   project: "项目分析",
   mtasks: "任务管理",
   tools: "工具与执行器",
+  evolution: "进化看板",
   channels: "消息通道",
   mcp: "MCP 管理",
   plugins: "插件管理",
@@ -85,6 +88,7 @@ const TAB_SUBS = {
   project: "项目理解 · 规格 · 能力矩阵",
   mtasks: "任务状态机 · 计划 · 报告",
   tools: "工具安全 · 执行器 · 审批历史",
+  evolution: "自愈 · 度量 · Git Hooks · 进化日志",
   channels: "Telegram / 飞书 / 企微 / 微信",
   mcp: "连接外部 MCP Server 获取工具",
   plugins: "安装、启用、管理扩展插件",
@@ -623,6 +627,7 @@ class LucidMindApp extends LitElement {
           ${this.tab === "project" ? renderProject(this) : nothing}
           ${this.tab === "mtasks" ? renderManagedTasks(this) : nothing}
           ${this.tab === "tools" ? renderTools(this) : nothing}
+          ${this.tab === "evolution" ? renderEvolution(this) : nothing}
         </main>
       </div>
 

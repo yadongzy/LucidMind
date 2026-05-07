@@ -262,3 +262,33 @@ export async function fetchToolSafetyConfig() {
 export async function fetchExecutors() {
   return request("/api/project-brain/executors").catch(() => ({ executors: [] }));
 }
+
+// --- Evolution / Self-Heal API ---
+
+export async function triggerHeal(trigger = "manual") {
+  return request(`/api/project-brain/heal?trigger=${trigger}`, { method: "POST" });
+}
+
+export async function fetchHealthCheck() {
+  return request("/api/project-brain/heal/check");
+}
+
+export async function fetchEvolutionMetrics(days = 30) {
+  return request(`/api/project-brain/evolution/metrics?days=${days}`);
+}
+
+export async function fetchEvolutionTargets() {
+  return request("/api/project-brain/evolution/targets");
+}
+
+export async function fetchEvolutionLog(limit = 20) {
+  return request(`/api/project-brain/evolution/log?limit=${limit}`);
+}
+
+export async function installGitHooks() {
+  return request("/api/project-brain/git-hooks/install", { method: "POST" });
+}
+
+export async function uninstallGitHooks() {
+  return request("/api/project-brain/git-hooks/uninstall", { method: "POST" });
+}
