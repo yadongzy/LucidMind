@@ -227,3 +227,44 @@ class DaemonObserveMixin:
                 logger.info(f"🏥 主动告警: {'; '.join(alerts)}")
         except Exception as e:
             logger.debug(f"主动健康检查异常: {e}")
+
+    async def _scheduled_checkup(self):
+        """定时项目体检：体检→诊断→自动修复L0/L1→生成REFLECTION.md。"""
+        try:
+            from checkup.auto_repair import AutoRepairPipeline
+            from checkup.reflection_gen import save_reflection
+            from checkup.evolution_log import EvolutionLog
+            from checkup.user_behavior import UserBehaviorAnalyzer
+
+            pipeline = AutoRepairPipeline(Path(__file__).parent)
+            result = await asyncio.get_event_loop().run_in_executor(
+                None, pipeline.run_full_pipeline
+            )
+
+            score = result.get("recheck_score", result.get("original_score", 0))
+            improved = result.get("improved", False)
+            repairs = result.get("repairs", [])
+
+            # 生成 REFLECTION.md
+            evo = EvolutionLog()
+            analyzer = UserBehaviorAnalyzer()
+            patterns = analyzer.analyze()
+            suggestions = analyzer.generate_suggestions(patterns)
+            save_reflection(
+                checkup_report=result.get("checkup"),
+                evolution_stats=evo.get_stats(),
+                behavior_patterns=[p.to_dict() for p in patterns],
+                suggestions=[s.to_dict() for s in suggestions],
+            )
+
+            status = f"🩺 定时体检: {score}/100"
+            if improved:
+                status += f" (已自动修复 {len(repairs)} 项)"
+            logger.info(status)
+
+            if self._ws_channel:
+                await self._ws_channel.broadcast(json.dumps({
+                    "type": "info", "data": status
+                }))
+        except Exception as e:
+            logger.debug(f"定时体检异常: {e}")

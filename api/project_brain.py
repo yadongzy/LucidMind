@@ -299,3 +299,29 @@ def generate_reflection_report(project_id: str = "lucidmind") -> dict[str, Any]:
     )
     content = path.read_text("utf-8")
     return {"path": str(path), "content": content}
+
+
+# ──────────────────────────────────────────────
+# POST /api/project-brain/repair-plan
+# ──────────────────────────────────────────────
+@router.post("/repair-plan")
+def get_repair_plan(project_id: str = "lucidmind") -> dict[str, Any]:
+    """生成 L2-L3 修复计划 + L4 报告（不执行）。"""
+    from checkup.runner import ProjectCheckupRunner
+    from checkup.diagnosis import diagnose_checkup
+    from checkup.codex_repair import CodexRepairEngine
+
+    runner = ProjectCheckupRunner(_project_root(), project_id)
+    checkup = runner.run_all()
+    diagnosis = diagnose_checkup(checkup.to_dict())
+
+    engine = CodexRepairEngine(_project_root(), project_id)
+    l2_l3_plans = engine.plan_repairs(diagnosis)
+    l4_reports = engine.generate_l4_report(diagnosis)
+
+    return {
+        "checkup_score": checkup.score,
+        "l2_l3_plans": l2_l3_plans,
+        "l4_reports": l4_reports,
+        "total_issues": len(diagnosis.items),
+    }

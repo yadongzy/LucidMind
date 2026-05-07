@@ -113,6 +113,9 @@ class BrainDaemon(DaemonObserveMixin, TaskExecutorMixin):
                     # 每10轮做一次主动健康检查
                     if self._loop_tick % 10 == 0:
                         await self._proactive_health_check()
+                    # 每50轮做一次项目体检（约50分钟一次）
+                    if self._loop_tick % 50 == 0:
+                        await self._scheduled_checkup()
                 if self._user_confirmed and not self._paused:
                     await self._execute_confirmed_plan()
                     self._user_confirmed = False
