@@ -213,3 +213,52 @@ export async function fetchMemoryCandidates(projectId = "lucidmind", taskId = ""
   const q = taskId ? `?task_id=${taskId}` : "";
   return request(`/api/project-brain/projects/${projectId}/memory/candidates${q}`);
 }
+
+// --- Task State Machine API ---
+
+export async function fetchManagedTasks(status = "") {
+  const q = status ? `?status=${status}` : "";
+  return request(`/api/project-brain/tasks${q}`);
+}
+
+export async function fetchManagedTask(taskId) {
+  return request(`/api/project-brain/tasks/${taskId}`);
+}
+
+export async function createManagedTask(title, goal) {
+  return request(`/api/project-brain/tasks?title=${encodeURIComponent(title)}&goal=${encodeURIComponent(goal)}`, { method: "POST" });
+}
+
+export async function transitionTask(taskId, newStatus, reason = "") {
+  return request(`/api/project-brain/tasks/${taskId}/transition?new_status=${newStatus}&reason=${encodeURIComponent(reason)}`, { method: "POST" });
+}
+
+export async function generateTaskPlan(taskId) {
+  return request(`/api/project-brain/tasks/${taskId}/plan`, { method: "POST" });
+}
+
+// --- Project Analysis API ---
+
+export async function runProjectAnalysis(projectId = "lucidmind", incremental = true) {
+  return request(`/api/project-brain/analyze?project_id=${projectId}&incremental=${incremental}`, { method: "POST" });
+}
+
+export async function fetchAnalysisSpecs(projectId = "lucidmind") {
+  return request(`/api/project-brain/analyze/specs?project_id=${projectId}`);
+}
+
+export async function fetchAnalysisSpec(specName, projectId = "lucidmind") {
+  return request(`/api/project-brain/analyze/specs/${specName}?project_id=${projectId}`);
+}
+
+// --- Tool Safety API ---
+
+export async function fetchToolSafetyConfig() {
+  return request("/api/project-brain/tools/safety/config");
+}
+
+// --- Executor API ---
+
+export async function fetchExecutors() {
+  return request("/api/project-brain/executors").catch(() => ({ executors: [] }));
+}

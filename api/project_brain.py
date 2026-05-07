@@ -434,3 +434,29 @@ def get_spec(spec_name: str, project_id: str = "lucidmind") -> dict[str, Any]:
     if not path.exists() or not path.is_file():
         raise HTTPException(status_code=404, detail=f"规格文件 {spec_name} 不存在")
     return {"name": spec_name, "content": path.read_text("utf-8", errors="ignore")}
+
+
+# ──────────────────────────────────────────────
+# Executors & Tool Safety API (Phase 7)
+# ──────────────────────────────────────────────
+
+@router.get("/executors")
+def list_executors() -> dict[str, Any]:
+    """列出已注册的执行器。"""
+    from adapters.executors.router import create_default_router
+    r = create_default_router()
+    return {"executors": r.list_executors()}
+
+
+@router.get("/tools/safety/config")
+def get_tool_safety_config() -> dict[str, Any]:
+    """获取工具安全配置摘要。"""
+    from adapters.tools.tool_safety import ToolSafetyGuard, DANGEROUS_TOOLS, SENSITIVE_TOOLS
+    guard = ToolSafetyGuard()
+    return {
+        "enabled": guard._enabled,
+        "fail_closed": guard._fail_closed,
+        "dangerous_tools": sorted(DANGEROUS_TOOLS | guard._custom_dangerous),
+        "sensitive_tools": sorted(SENSITIVE_TOOLS | guard._dynamic_sensitive),
+        "custom_safe": sorted(guard._custom_safe),
+    }

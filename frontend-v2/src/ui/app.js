@@ -19,13 +19,17 @@ import { renderMcp } from "./views/mcp.js";
 import { renderChannels } from "./views/channels.js";
 import { renderDiagnostics } from "./views/diagnostics.js";
 import { renderCockpit } from "./views/cockpit.js";
+import { renderProject } from "./views/project.js";
+import { renderManagedTasks } from "./views/managed-tasks.js";
+import { renderTools } from "./views/tools.js";
 import { renderTokens } from "./views/tokens.js";
 import { installTestProbe } from "./test-probe.js";
 
 const TAB_GROUPS = [
   { label: "对话", tabs: ["chat"] },
   { label: "控制台", tabs: ["overview", "sessions", "tasks"] },
-  { label: "大脑", tabs: ["brain", "memory", "cockpit"] },
+  { label: "项目", tabs: ["project", "mtasks", "cockpit"] },
+  { label: "大脑", tabs: ["brain", "memory", "tools"] },
   { label: "连接", tabs: ["channels", "mcp"] },
   { label: "设置", tabs: ["plugins", "profile", "config", "diagnostics", "tokens"] },
 ];
@@ -38,6 +42,9 @@ const TAB_ICONS = {
   brain: "brain",
   memory: "memory",
   cockpit: "overview",
+  project: "overview",
+  mtasks: "tasks",
+  tools: "zap",
   channels: "chat",
   mcp: "debug",
   plugins: "zap",
@@ -55,6 +62,9 @@ const TAB_TITLES = {
   brain: "大脑状态",
   memory: "记忆与学习",
   cockpit: "项目驾驶舱",
+  project: "项目分析",
+  mtasks: "任务管理",
+  tools: "工具与执行器",
   channels: "消息通道",
   mcp: "MCP 管理",
   plugins: "插件管理",
@@ -72,6 +82,9 @@ const TAB_SUBS = {
   brain: "目标、思考、行动",
   memory: "对话记忆、经验库、学习进度",
   cockpit: "项目大脑驾驶舱",
+  project: "项目理解 · 规格 · 能力矩阵",
+  mtasks: "任务状态机 · 计划 · 报告",
+  tools: "工具安全 · 执行器 · 审批历史",
   channels: "Telegram / 飞书 / 企微 / 微信",
   mcp: "连接外部 MCP Server 获取工具",
   plugins: "安装、启用、管理扩展插件",
@@ -607,6 +620,9 @@ class LucidMindApp extends LitElement {
           ${this.tab === "diagnostics" ? renderDiagnostics(this) : nothing}
           ${this.tab === "tokens" ? renderTokens(this) : nothing}
           ${this.tab === "cockpit" ? renderCockpit(this) : nothing}
+          ${this.tab === "project" ? renderProject(this) : nothing}
+          ${this.tab === "mtasks" ? renderManagedTasks(this) : nothing}
+          ${this.tab === "tools" ? renderTools(this) : nothing}
         </main>
       </div>
 
