@@ -239,3 +239,63 @@ def get_evolution_log(limit: int = 20) -> dict[str, Any]:
         "stats": log.get_stats(),
         "recent": log.get_recent(limit),
     }
+
+
+# ──────────────────────────────────────────────
+# GET /api/project-brain/behavior
+# ──────────────────────────────────────────────
+@router.get("/behavior")
+def get_behavior_patterns() -> dict[str, Any]:
+    """分析用户行为模式，返回模式 + 建议。"""
+    from checkup.user_behavior import UserBehaviorAnalyzer
+    analyzer = UserBehaviorAnalyzer()
+    patterns = analyzer.analyze()
+    suggestions = analyzer.generate_suggestions(patterns)
+    return {
+        "patterns": [p.to_dict() for p in patterns],
+        "suggestions": [s.to_dict() for s in suggestions],
+    }
+
+
+# ──────────────────────────────────────────────
+# POST /api/project-brain/negotiate
+# ──────────────────────────────────────────────
+@router.post("/negotiate")
+def negotiate(problem: str, context: str = "") -> dict[str, Any]:
+    """创建 Brain-Codex 协商请求，返回 prompt（供 Codex 消费）。"""
+    from checkup.negotiation import NegotiationProtocol
+    proto = NegotiationProtocol()
+    req = proto.create_request(problem, context)
+    return {
+        "request": req.to_dict(),
+        "prompt": req.to_prompt(),
+    }
+
+
+# ──────────────────────────────────────────────
+# POST /api/project-brain/reflection
+# ──────────────────────────────────────────────
+@router.post("/reflection")
+def generate_reflection_report(project_id: str = "lucidmind") -> dict[str, Any]:
+    """生成 REFLECTION.md 并返回内容。"""
+    from checkup.runner import ProjectCheckupRunner
+    from checkup.evolution_log import EvolutionLog
+    from checkup.user_behavior import UserBehaviorAnalyzer
+    from checkup.reflection_gen import save_reflection
+
+    runner = ProjectCheckupRunner(_project_root(), project_id)
+    checkup = runner.run_all()
+
+    evo = EvolutionLog()
+    analyzer = UserBehaviorAnalyzer()
+    patterns = analyzer.analyze()
+    suggestions = analyzer.generate_suggestions(patterns)
+
+    path = save_reflection(
+        checkup_report=checkup.to_dict(),
+        evolution_stats=evo.get_stats(),
+        behavior_patterns=[p.to_dict() for p in patterns],
+        suggestions=[s.to_dict() for s in suggestions],
+    )
+    content = path.read_text("utf-8")
+    return {"path": str(path), "content": content}
