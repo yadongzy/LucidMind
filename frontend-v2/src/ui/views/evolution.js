@@ -44,8 +44,17 @@ async function _triggerHeal(app) {
 async function _installHooks(app) {
   try {
     await api.installGitHooks();
-    alert("Git Hooks 安装成功！");
+    _hooksInstalled = true;
+    app.requestUpdate();
   } catch (e) { alert(`安装失败: ${e.message}`); }
+}
+
+async function _uninstallHooks(app) {
+  try {
+    await api.uninstallGitHooks();
+    _hooksInstalled = false;
+    app.requestUpdate();
+  } catch (e) { alert(`卸载失败: ${e.message}`); }
 }
 
 const OUTCOME_STYLE = {
@@ -156,14 +165,20 @@ export function renderEvolution(app) {
 
       <!-- Git Hooks -->
       <div class="card">
-        <div class="card-title">🪝 Git Hooks</div>
+        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
+          <span>🪝 Git Hooks</span>
+          ${_hooksInstalled ? html`<span style="font-size:11px;color:#22c55e;font-weight:600;">✅ 已安装</span>` : html`<span style="font-size:11px;color:var(--fg-3);">⚪ 未安装</span>`}
+        </div>
         <div style="font-size:13px;color:var(--fg-2);line-height:1.8;margin-top:8px;">
           <div><strong>pre-commit:</strong> 提交前快速体检，分数 &lt;60 阻止提交</div>
           <div><strong>post-merge:</strong> 合并后自动修复引入的问题</div>
         </div>
         <div style="display:flex;gap:8px;margin-top:12px;">
-          <button class="btn btn--primary" style="font-size:12px;padding:6px 16px;" @click=${() => _installHooks(app)}>安装 Hooks</button>
-          <button class="btn" style="font-size:12px;padding:6px 16px;border:1px solid var(--border);color:var(--fg-3);" @click=${() => api.uninstallGitHooks().then(() => alert("已卸载"))}>卸载</button>
+          ${_hooksInstalled ? html`
+            <button class="btn" style="font-size:12px;padding:6px 16px;border:1px solid #ef4444;color:#ef4444;" @click=${() => _uninstallHooks(app)}>卸载 Hooks</button>
+          ` : html`
+            <button class="btn btn--primary" style="font-size:12px;padding:6px 16px;" @click=${() => _installHooks(app)}>安装 Hooks</button>
+          `}
         </div>
       </div>
     </div>
