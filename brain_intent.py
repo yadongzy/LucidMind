@@ -41,6 +41,27 @@ class BrainIntentMixin:
                 "job_type": "cron",
             },
         },
+        # Codex 意图：用 Codex 解释/审查/修复/自愈
+        {
+            "re": r"(?:用\s*)?[Cc]odex\s*(?:解释|explain)\s*(?:一下\s*)?(.+?)$",
+            "tool": "codex",
+            "extract": lambda m: {"action": "explain", "instruction": m.group(1).strip(), "target": "."},
+        },
+        {
+            "re": r"(?:用\s*)?[Cc]odex\s*(?:审查|review)\s*(?:一下\s*)?(.+?)$",
+            "tool": "codex",
+            "extract": lambda m: {"action": "review", "instruction": m.group(1).strip(), "target": "."},
+        },
+        {
+            "re": r"(?:用\s*)?[Cc]odex\s*(?:修复|修改|fix|patch)\s*(?:一下\s*)?(.+?)$",
+            "tool": "codex",
+            "extract": lambda m: {"action": "patch", "instruction": m.group(1).strip(), "target": "."},
+        },
+        {
+            "re": r"(?:用\s*)?[Cc]odex\s*(?:自愈|体检|heal)",
+            "tool": "codex",
+            "extract": lambda m: {"action": "heal", "instruction": "运行自愈体检修复", "target": "."},
+        },
     ]
 
     async def _pre_execute_intent(self, session_id: str, user_input: str, _s=None) -> bool:

@@ -279,6 +279,7 @@ _tool_inference_data = _load_json("tool_inference.json", [
     {"pattern": "下载|拉取", "tool": "download_file"},
     {"pattern": "截图|屏幕", "tool": "screenshot"},
     {"pattern": "翻译", "tool": "translate"},
+    {"pattern": "codex|用codex|代码修复|代码审查|code review|代码解释|自愈|体检修复", "tool": "codex"},
 ])
 
 TOOL_INFERENCE_MAP = [
