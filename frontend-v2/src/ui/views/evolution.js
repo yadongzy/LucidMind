@@ -6,22 +6,24 @@ import { html, nothing } from "lit";
 import * as api from "../api.js";
 
 let _metrics = null, _log = null, _health = null, _targets = null;
-let _loading = false, _healing = false;
+let _loading = false, _healing = false, _hooksInstalled = false;
 
 async function _load(app) {
   if (_loading) return;
   _loading = true;
   try {
-    const [metrics, log, health, targets] = await Promise.all([
+    const [metrics, log, health, targets, hooksStatus] = await Promise.all([
       api.fetchEvolutionMetrics().catch(() => null),
       api.fetchEvolutionLog().catch(() => ({ beads: [], stats: {} })),
       api.fetchHealthCheck().catch(() => null),
       api.fetchEvolutionTargets().catch(() => null),
+      api.fetchGitHooksStatus().catch(() => null),
     ]);
     _metrics = metrics;
     _log = log;
     _health = health;
     _targets = targets;
+    if (hooksStatus) _hooksInstalled = hooksStatus.active;
   } catch (e) { /* ignore */ }
   _loading = false;
   app.requestUpdate();

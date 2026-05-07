@@ -285,6 +285,10 @@ export async function fetchEvolutionLog(limit = 20) {
   return request(`/api/project-brain/evolution/log?limit=${limit}`);
 }
 
+export async function fetchGitHooksStatus() {
+  return request("/api/project-brain/git-hooks/status");
+}
+
 export async function installGitHooks() {
   return request("/api/project-brain/git-hooks/install", { method: "POST" });
 }

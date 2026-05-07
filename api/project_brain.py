@@ -489,6 +489,19 @@ def get_evolution_log(limit: int = 20) -> dict[str, Any]:
     return {"beads": log.get_recent(limit), "stats": log.get_stats()}
 
 
+@router.get("/git-hooks/status")
+def git_hooks_status() -> dict[str, Any]:
+    """检查 git hooks 安装状态。"""
+    from pathlib import Path
+    hooks_dir = _project_root() / ".git" / "hooks"
+    installed = []
+    for name in ("pre-commit", "post-merge"):
+        hook = hooks_dir / name
+        if hook.exists() and "LucidMind" in hook.read_text(errors="ignore"):
+            installed.append(name)
+    return {"installed": installed, "active": len(installed) > 0}
+
+
 @router.post("/git-hooks/install")
 def install_git_hooks() -> dict[str, Any]:
     """安装 git hooks。"""
