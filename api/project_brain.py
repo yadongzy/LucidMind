@@ -387,3 +387,50 @@ def generate_task_plan(task_id: str) -> dict[str, Any]:
     task = lifecycle.generate_plan(task)
     store.save(task)
     return task.to_dict()
+
+
+# ──────────────────────────────────────────────
+# Project Analysis API (Phase 6)
+# ──────────────────────────────────────────────
+
+@router.post("/analyze")
+def analyze_project(project_id: str = "lucidmind", incremental: bool = True) -> dict[str, Any]:
+    """运行 5 阶段项目分析 pipeline。"""
+    from project_state.analyzer import ProjectAnalyzer
+    analyzer = ProjectAnalyzer(_project_root(), project_id)
+    result = analyzer.run_full(incremental=incremental)
+    return {
+        "project_id": result.project_id,
+        "commit": result.commit,
+        "timestamp": result.timestamp,
+        "stages_completed": result.stages_completed,
+        "stats": {
+            "files": result.inventory.get("total_files", 0),
+            "lines": result.inventory.get("total_lines", 0),
+            "classes": result.code_analysis.get("total_classes", 0),
+            "functions": result.code_analysis.get("total_functions", 0),
+            "routes": result.domain.get("route_count", 0),
+            "questions": len(result.questions),
+        },
+    }
+
+
+@router.get("/analyze/specs")
+def list_specs(project_id: str = "lucidmind") -> dict[str, Any]:
+    """列出已生成的规格文件及验证结果。"""
+    from project_state.analyzer import validate_specs
+    specs_dir = _project_root() / "data" / "projects" / project_id / "specs"
+    if not specs_dir.exists():
+        return {"specs": [], "validated": False}
+    results = validate_specs(specs_dir)
+    return {"specs": results, "validated": True}
+
+
+@router.get("/analyze/specs/{spec_name}")
+def get_spec(spec_name: str, project_id: str = "lucidmind") -> dict[str, Any]:
+    """获取单个规格文件内容。"""
+    specs_dir = _project_root() / "data" / "projects" / project_id / "specs"
+    path = specs_dir / spec_name
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=404, detail=f"规格文件 {spec_name} 不存在")
+    return {"name": spec_name, "content": path.read_text("utf-8", errors="ignore")}
