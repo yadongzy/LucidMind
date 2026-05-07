@@ -437,6 +437,33 @@ export function renderChat(app) {
               <div class="chat-group-footer">
                 <span class="chat-sender-name">${group.role === "user" ? "你" : "LucidMind"}</span>
                 ${group.timestamp ? html`<span class="chat-group-timestamp">${new Date(group.timestamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>` : nothing}
+                <div class="chat-group-actions">
+                  <button class="chat-action-btn" title="复制"
+                    @click=${(e) => {
+                      const roles = group.role === 'user' ? ['user'] : ['assistant'];
+                      const text = group.messages
+                        .filter(m => roles.includes(m.role))
+                        .map(m => m.content || '')
+                        .join('\n\n');
+                      const btn = e.currentTarget;
+                      navigator.clipboard.writeText(text).then(() => {
+                        btn.classList.add('chat-action-btn--done');
+                        setTimeout(() => btn.classList.remove('chat-action-btn--done'), 1500);
+                      }).catch(() => {
+                        // fallback: textarea copy
+                        const ta = document.createElement('textarea');
+                        ta.value = text;
+                        ta.style.position = 'fixed';
+                        ta.style.opacity = '0';
+                        document.body.appendChild(ta);
+                        ta.select();
+                        document.execCommand('copy');
+                        document.body.removeChild(ta);
+                        btn.classList.add('chat-action-btn--done');
+                        setTimeout(() => btn.classList.remove('chat-action-btn--done'), 1500);
+                      });
+                    }}></button>
+                </div>
               </div>
             </div>
           </div>

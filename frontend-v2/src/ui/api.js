@@ -183,3 +183,33 @@ export async function uploadFile(file) {
   const res = await fetch(`${BASE}/api/upload`, { method: "POST", body: form });
   return res.json();
 }
+
+// --- Project Brain API ---
+
+export async function fetchProjectState(projectId = "lucidmind") {
+  return request(`/api/project-brain/projects/${projectId}/state`);
+}
+
+export async function fetchProjectReports(projectId = "lucidmind") {
+  return request(`/api/project-brain/projects/${projectId}/reports`);
+}
+
+export async function fetchProjectReport(projectId, taskId) {
+  return request(`/api/project-brain/projects/${projectId}/reports/${taskId}`);
+}
+
+export async function postGovernanceReview(projectId, files = [], actions = []) {
+  const params = new URLSearchParams();
+  files.forEach(f => params.append("files", f));
+  actions.forEach(a => params.append("actions", a));
+  return request(`/api/project-brain/projects/${projectId}/governance/review?${params}`, { method: "POST" });
+}
+
+export async function fetchGovernanceDecisions(projectId = "lucidmind") {
+  return request(`/api/project-brain/projects/${projectId}/governance/decisions`);
+}
+
+export async function fetchMemoryCandidates(projectId = "lucidmind", taskId = "") {
+  const q = taskId ? `?task_id=${taskId}` : "";
+  return request(`/api/project-brain/projects/${projectId}/memory/candidates${q}`);
+}

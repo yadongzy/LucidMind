@@ -1,0 +1,12 @@
+{
+  "additional_protected_patterns": [
+    "deploy/",
+    "infra/",
+    "secrets/"
+  ],
+  "additional_dangerous_actions": [
+    "terraform apply",
+    "docker push",
+    "netlify deploy --prod"
+  ]
+}

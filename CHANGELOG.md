@@ -4,6 +4,105 @@
 
 ---
 
+## v3.1.2 (2026-05-06) — Project Brain Loop v1
+
+### P0: 安全治理前置
+- **ToolSafetyGuard fail-closed**: 无 WebSocket 审批通道时，危险/敏感工具默认拒绝，不再自动放行
+- **审批超时拒绝**: 工具审批超时默认拒绝，不再自动加入安全白名单
+- **安全配置补充**: `security_config.json` 支持 `fail_closed` 开关，默认开启
+
+### P1: 项目状态索引
+- **新增 `project_state/`**: `ProjectStateIndexer` / `ProjectStateStore` / `ProjectState`，生成项目语言、框架、入口、测试命令、运行命令、核心文件和能力状态
+- **统一项目归档路径**: 项目状态使用 `data/projects/<project_id>/project_state.json`
+- **状态保留策略**: 重建索引时保留已有 `recent_decisions`、`known_risks` 和 `last_task_report`
+
+### P2: 任务报告与生命周期证据
+- **新增 `reports/`**: `TaskReportGenerator` 生成 Markdown 任务报告
+- **统一报告路径**: 任务报告使用 `data/projects/<project_id>/reports/<task_id>.md`
+- **新增 `execution/`**: `LifecycleEvidence` / `TaskLifecycle`，支持加载项目状态、收集测试证据、生成报告并回写 `last_task_report`
+
+### P3: 可执行入口
+- **统一回归入口**: 新增 `tests/test_regression.py`，覆盖核心模块导入、Project Brain Loop smoke、ToolSafetyGuard fail-closed 和 MemoryStore import
+- **项目状态脚本**: 新增 `scripts/index_project_state.py`，可生成 `data/projects/<project_id>/project_state.json`
+- **任务报告脚本**: 新增 `scripts/create_task_report.py`，可手动生成项目级 Markdown 任务报告并回写 `last_task_report`
+
+### P4: 生命周期、记忆与 Codex 只读 Skill
+- **生命周期脚本入口**: 新增 `scripts/run_project_task_lifecycle.py`，可生成 lifecycle evidence、任务报告并更新项目状态
+- **项目记忆集成**: 新增 `memory/project_memory.py` 和 `scripts/remember_task_report.py`，将任务报告中的决策、风险、测试证据和摘要写入项目级 SQLite 记忆库
+- **Codex CLI 只读 Skill**: 新增 `skills/codex_cli/manifest.json`、`skills/codex_cli/runner.py` 和 `scripts/codex_readonly.py`，支持 `codex_explain` / `codex_review` 只读调用
+- **Codex 缺失降级**: Codex CLI 不存在时返回明确安装/配置指引，不修改文件
+
+### P5: Governance Log 与顺序角色
+- **治理策略**: 新增 `governance/policy.py`，检测核心保护文件和危险动作，返回审批风险结果
+- **治理决策日志**: 新增 `governance/decision_log.py` 和 `scripts/check_governance.py`，支持项目级 `governance_decisions.jsonl` 追加记录
+- **顺序角色对象**: 新增 `execution/roles.py`，实现 deterministic Planner / Executor / Reviewer / Reporter helper
+- **Reviewer 拒绝机制**: 缺少测试证据或涉及受保护文件时，Reviewer 标记任务为 incomplete/partial
+
+### P6: Governance Review 报告集成
+- **任务报告治理字段**: `TaskReport` 增加 Governance Result、Protected Files、Required Confirmations、Dangerous Actions
+- **Lifecycle 报告写入治理结果**: `TaskLifecycle.write_report()` 支持传入 `GovernanceReview` 并渲染到 Markdown 报告
+- **角色链路脚本化**: `scripts/run_project_task_lifecycle.py` 增加 `--run-roles`，自动运行 Planner -> Executor -> Reviewer -> Reporter
+- **完整生命周期 smoke**: 新增 `tests/test_lifecycle_full_smoke.py`，覆盖安全任务完成和核心文件任务被 Reviewer 拒绝，且两者都生成报告
+
+### P7: 回归入口与 Lifecycle -> Memory 闭环
+- **规则回归入口恢复**: 新增 `tests/test_brain.py`，作为规则要求的轻量 smoke/regression 入口
+- **Lifecycle 自动记忆**: `scripts/run_project_task_lifecycle.py` 新增 `--remember`，报告生成后自动写入 durable project memories
+- **记忆闭环测试**: `tests/test_lifecycle_full_smoke.py` 增加 `--remember` 覆盖，验证项目记忆 SQLite 写入与集合分类
+
+### P8: Governance Policy 配置化
+- **治理配置加载**: 新增 `governance/config.py`，从 `data/governance/policies.json` 读取扩展治理策略
+- **只允许扩展不允许弱化**: `GovernancePolicy` 始终合并内置核心保护与配置扩展，配置无法移除 `brain.py` 等内置保护项
+- **治理策略示例**: 新增 `governance/policies.example.json`，说明 `additional_protected_patterns` 与 `additional_dangerous_actions`
+- **脚本接入配置**: `scripts/check_governance.py` 现在使用项目根目录下的治理配置
+
+### P9: UI/API 数据契约文档
+- **数据契约**: 新增 `docs/project-brain-ui-contract.md`，定义后续 API/UI 所需的 7 种数据对象和 8 个只读 API 端点
+- **对象定义**: ProjectState, TaskReportSummary, TaskReportDetail, GovernanceReview, LifecycleTimeline, MemoryCandidate, CodexReadOnlyResult
+- **API 端点**: 提案 `/api/project-brain/...` 只读路由，含 governance review 和 codex read-only POST
+- **UI 面板**: 推荐首批 6 个 cockpit 面板
+- **接入条件**: 明确规则回归、治理审批、记忆写入等必须通过才能进入 API/UI 集成
+
+### P10: Project Brain 只读 API Router
+- **Router 实现**: 新增 `api/project_brain.py`，实现 6 个只读端点（state / reports / report detail / governance review / governance decisions / memory candidates）
+- **已挂载**: 用户确认后已接入 `api/main.py`，路由前缀 `/api/project-brain/`
+- **API 测试**: 新增 `tests/test_project_brain_api.py`（11 个测试），覆盖正常路径、404、治理审批和记忆查询
+- **完整回归**: **61/61 passed**
+
+### P11: 剩余工作完成 — Phase 4/6/§14/§15
+- **Codex CLI 写入模式**: `skills/codex_cli/runner.py` 新增 `patch()` 和 `fix_tests()`，均带 `approved` 门控；manifest 注册 `codex_patch` + `codex_fix_tests`
+- **Metrics 采集**: 新增 `reports/metrics.py`（TaskMetrics + MetricsCollector），API 新增 `/metrics` 和 `/metrics/history` 端点
+- **前端 Cockpit**: 新增 `frontend-v2/src/ui/views/cockpit.js`，含项目状态、报告浏览器、治理审查、记忆面板、治理决策日志 5 大面板
+- **API 客户端**: `frontend-v2/src/ui/api.js` 新增 6 个 Project Brain API 方法
+- **里程碑 Demo**: `scripts/run_milestone_demo.py` 实现端到端 8 步循环（状态→计划→治理→执行→测试→报告→记忆→指标）
+- **工具安全确认框**: 添加拒绝按钮，双按钮布局符合主流 Agent 标准
+- **Bug Fix**: `skills/loader.py` 修复 dict 格式 manifest 导致的 `unhashable type: 'dict'`
+- **测试**: 新增 `tests/test_remaining_features.py`（9 个测试），覆盖 codex_patch 门控、metrics 采集、metrics API
+- **完整回归**: **70/70 passed**
+- **Demo 验证**: ✅ PASS — 5/5 tests passed, 4 memories stored, report generated, metrics recorded
+
+### 测试结果
+- 定向: **24/24 passed** — `python -m pytest tests/test_project_brain_loop.py tests/test_phase0_safety.py -v`
+- 回归入口: **28/28 passed** — `python -m pytest tests/test_regression.py tests/test_project_brain_loop.py tests/test_phase0_safety.py -v`
+- 下一阶段: **32/32 passed** — `python -m pytest tests/test_project_brain_next_steps.py tests/test_regression.py tests/test_project_brain_loop.py tests/test_phase0_safety.py -v`
+- 治理与角色: **38/38 passed** — `python -m pytest tests/test_governance_and_roles.py tests/test_project_brain_next_steps.py tests/test_regression.py tests/test_project_brain_loop.py tests/test_phase0_safety.py -v`
+- 完整生命周期: **40/40 passed** — `python -m pytest tests/test_lifecycle_full_smoke.py tests/test_governance_and_roles.py tests/test_project_brain_next_steps.py tests/test_regression.py tests/test_project_brain_loop.py tests/test_phase0_safety.py -v`
+- 规则回归入口: **5/5 passed** — `python -m pytest tests/test_brain.py -v`
+- 完整回归: **46/46 passed** — `python -m pytest tests/test_brain.py tests/test_lifecycle_full_smoke.py tests/test_governance_and_roles.py tests/test_project_brain_next_steps.py tests/test_regression.py tests/test_project_brain_loop.py tests/test_phase0_safety.py -v`
+- 治理配置化回归: **50/50 passed** — `python -m pytest tests/test_brain.py tests/test_governance_config.py tests/test_lifecycle_full_smoke.py tests/test_governance_and_roles.py tests/test_project_brain_next_steps.py tests/test_regression.py tests/test_project_brain_loop.py tests/test_phase0_safety.py -v`
+- 脚本验证: `python scripts/index_project_state.py --project-id lucidmind` 已生成 `data/projects/lucidmind/project_state.json`
+- 脚本验证: `python scripts/create_task_report.py ...` 已生成 `data/projects/lucidmind/reports/project-brain-scripts-smoke.md`
+- 脚本验证: `python scripts/run_project_task_lifecycle.py ...` 已生成 `data/projects/lucidmind/reports/lifecycle-script-smoke.md`
+- 脚本验证: `python scripts/remember_task_report.py ...` 已写入 **4** 条项目记忆候选
+- 脚本验证: `python scripts/codex_readonly.py ... --executable definitely-missing-codex-binary` 返回 Codex CLI 缺失指引，未写文件
+- 脚本验证: `python scripts/check_governance.py ... --write-log` 已写入项目级治理决策日志
+- 脚本验证: `python scripts/check_governance.py ... --files "brain.py"` 返回 exit code 2，正确要求核心文件确认
+- 脚本验证: `python scripts/run_project_task_lifecycle.py ... --run-roles` 已生成 `role-safe-report-smoke.md`，Reviewer approved
+- 脚本验证: `python scripts/run_project_task_lifecycle.py ... --files "brain.py" --run-roles` 已生成 `role-core-reject-report-smoke.md`，Reviewer rejected
+- 脚本验证: `python scripts/run_project_task_lifecycle.py ... --run-roles --remember` 已生成 `lifecycle-remember-smoke.md` 并写入 **5** 条项目记忆候选
+- 脚本验证: `python scripts/check_governance.py --root /tmp/lucidmind_governance_config_smoke ...` 正确拦截配置扩展的 `deploy/` 与 `terraform apply`
+
+---
+
 ## v3.1.1 (2026-05-04) — 架构修复 + Discord + 文档
 
 ### P0: 安全与清理

@@ -58,6 +58,7 @@ class ToolSafetyGuard:
 
     def __init__(self):
         self._enabled: bool = True
+        self._fail_closed: bool = True
         self._pending: dict[str, asyncio.Future] = {}  # request_id -> Future
         self._session_approved: dict[str, set[str]] = {}  # session_id -> {tool_names}
         self._ws_channel = None
@@ -76,6 +77,7 @@ class ToolSafetyGuard:
             try:
                 cfg = json.loads(_CONFIG_PATH.read_text())
                 self._enabled = cfg.get("enabled", True)
+                self._fail_closed = cfg.get("fail_closed", True)
                 self._custom_dangerous = set(cfg.get("dangerous_tools", []))
                 self._custom_safe = set(cfg.get("safe_tools", []))
                 self._dynamic_sensitive = set(cfg.get("dynamic_sensitive", []))
@@ -89,6 +91,7 @@ class ToolSafetyGuard:
         _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         cfg = {
             "enabled": self._enabled,
+            "fail_closed": self._fail_closed,
             "dangerous_tools": sorted(self._custom_dangerous),
             "safe_tools": sorted(self._custom_safe),
             "dynamic_sensitive": sorted(self._dynamic_sensitive),
@@ -168,9 +171,11 @@ class ToolSafetyGuard:
         """通过 WebSocket 推送审批请求，等待用户确认。"""
         request_id = f"approve_{int(time.time() * 1000)}_{tool_name}"
 
-        # 如果没有 WebSocket 连接，自动放行（非交互式场景如 Daemon）
+        # 如果没有 WebSocket 连接，默认拒绝危险/敏感操作，避免无 UI 自动放行
         if not self._ws_channel or not self._ws_channel._connections:
-            logger.warning(f"无 WebSocket 连接，自动放行: {tool_name}")
+            logger.warning(f"无 WebSocket 连接，审批失败关闭: {tool_name}")
+            if self._fail_closed:
+                return {"approved": False, "reason": "无 WebSocket 连接，无法完成安全审批"}
             return {"approved": True}
 
         # 创建 Future 等待用户响应
@@ -209,11 +214,9 @@ class ToolSafetyGuard:
                 logger.info(f"用户拒绝工具: {tool_name}")
             return result
         except asyncio.TimeoutError:
-            logger.warning(f"工具审批超时，自动放行: {tool_name}")
-            # 超时自动放行并加入白名单
-            self._custom_safe.add(tool_name)
-            self._custom_dangerous.discard(tool_name)
-            self._save_config()
+            logger.warning(f"工具审批超时，审批失败关闭: {tool_name}")
+            if self._fail_closed:
+                return {"approved": False, "reason": "工具审批超时"}
             return {"approved": True}
         finally:
             self._pending.pop(request_id, None)
@@ -248,6 +251,7 @@ class ToolSafetyGuard:
     def get_config(self) -> dict:
         return {
             "enabled": self._enabled,
+            "fail_closed": self._fail_closed,
             "dangerous_tools": sorted(DANGEROUS_TOOLS | self._custom_dangerous - self._custom_safe),
             "sensitive_tools": sorted((SENSITIVE_TOOLS | self._dynamic_sensitive) - self._custom_safe),
             "custom_dangerous": sorted(self._custom_dangerous),
@@ -256,6 +260,10 @@ class ToolSafetyGuard:
 
     def set_enabled(self, enabled: bool) -> None:
         self._enabled = enabled
+        self._save_config()
+
+    def set_fail_closed(self, fail_closed: bool) -> None:
+        self._fail_closed = fail_closed
         self._save_config()
 
     def add_dangerous(self, tool_name: str) -> None:

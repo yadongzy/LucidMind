@@ -190,6 +190,36 @@ async def switch_model(req: SwitchModelRequest):
     return {"status": "ok", "provider": req.provider, "model": model, "dynamic": True}
 
 
+class ProbeModelsRequest(BaseModel):
+    base_url: str
+    api_key: str | None = None
+
+
+@router.post("/api/models/probe")
+async def probe_remote_models(req: ProbeModelsRequest):
+    """通过后端代理探测远程 OpenAI 兼容 API 的模型列表（避免 CORS）。"""
+    import httpx
+    base = req.base_url.rstrip("/")
+    headers = {}
+    if req.api_key:
+        headers["Authorization"] = f"Bearer {req.api_key}"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(f"{base}/models", headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+            models = [m.get("id", "") for m in (data.get("data") or []) if m.get("id")]
+            return {"status": "ok", "models": models[:50], "total": len(models)}
+    except httpx.ConnectError:
+        raise HTTPException(status_code=502, detail=f"无法连接到 {base} — 请检查地址是否正确")
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail=f"连接 {base} 超时")
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=502, detail=f"远程返回 {e.response.status_code}: {e.response.text[:200]}")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"探测失败: {str(e)[:200]}")
+
+
 class AddProviderRequest(BaseModel):
     id: str
     name: str

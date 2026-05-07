@@ -31,6 +31,7 @@ from api.memory import router as memory_router
 from api.models import router as models_router
 from api.token_api import router as token_router
 from api.identity_api import router as identity_router
+from api.project_brain import router as project_brain_router
 from brain import Brain
 from logs import get_logger
 
@@ -41,7 +42,8 @@ for _r in [config_router, upload_router, tasks_router, cron_router, sessions_rou
            memory_router,  # ISS-015: must be before data_views to avoid /api/memory/{session_id} shadowing
            data_views.router, brain_init.router, http_chat.router, teacher.router, cascade_inject.router,
            plugins_router, mcp_router, channels_router, security_router, personas_router,
-           diagnostics_router, issues_router, models_router, token_router, identity_router]:
+           diagnostics_router, issues_router, models_router, token_router, identity_router,
+           project_brain_router]:
     app.include_router(_r)
 
 app.mount("/static/output", StaticFiles(directory=os.path.join(ROOT_DIR, "data", "output")), name="output")

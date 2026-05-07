@@ -18,13 +18,14 @@ import { renderPlugins } from "./views/plugins.js";
 import { renderMcp } from "./views/mcp.js";
 import { renderChannels } from "./views/channels.js";
 import { renderDiagnostics } from "./views/diagnostics.js";
+import { renderCockpit } from "./views/cockpit.js";
 import { renderTokens } from "./views/tokens.js";
 import { installTestProbe } from "./test-probe.js";
 
 const TAB_GROUPS = [
   { label: "对话", tabs: ["chat"] },
   { label: "控制台", tabs: ["overview", "sessions", "tasks"] },
-  { label: "大脑", tabs: ["brain", "memory"] },
+  { label: "大脑", tabs: ["brain", "memory", "cockpit"] },
   { label: "连接", tabs: ["channels", "mcp"] },
   { label: "设置", tabs: ["plugins", "profile", "config", "diagnostics", "tokens"] },
 ];
@@ -36,6 +37,7 @@ const TAB_ICONS = {
   tasks: "tasks",
   brain: "brain",
   memory: "memory",
+  cockpit: "overview",
   channels: "chat",
   mcp: "debug",
   plugins: "zap",
@@ -52,6 +54,7 @@ const TAB_TITLES = {
   tasks: "任务看板",
   brain: "大脑状态",
   memory: "记忆与学习",
+  cockpit: "项目驾驶舱",
   channels: "消息通道",
   mcp: "MCP 管理",
   plugins: "插件管理",
@@ -68,6 +71,7 @@ const TAB_SUBS = {
   tasks: "异步任务与定时任务",
   brain: "目标、思考、行动",
   memory: "对话记忆、经验库、学习进度",
+  cockpit: "项目大脑驾驶舱",
   channels: "Telegram / 飞书 / 企微 / 微信",
   mcp: "连接外部 MCP Server 获取工具",
   plugins: "安装、启用、管理扩展插件",
@@ -602,6 +606,7 @@ class LucidMindApp extends LitElement {
           ${this.tab === "plugins" ? renderPlugins(this) : nothing}
           ${this.tab === "diagnostics" ? renderDiagnostics(this) : nothing}
           ${this.tab === "tokens" ? renderTokens(this) : nothing}
+          ${this.tab === "cockpit" ? renderCockpit(this) : nothing}
         </main>
       </div>
 
@@ -623,8 +628,9 @@ class LucidMindApp extends LitElement {
                 ${Object.entries(this.pendingApproval.params || {}).map(([k,v]) => html`<div><strong>${k}:</strong> ${v}</div>`)}
               </div>
             </div>
-            <div style="display:flex;gap:10px;justify-content:flex-end;align-items:center;">
-              <span style="font-size:11px;color:var(--fg-3);">允许后自动加入白名单，不再弹窗</span>
+            <div style="font-size:11px;color:var(--fg-3);margin-bottom:12px;">允许后自动加入白名单，不再弹窗</div>
+            <div style="display:flex;gap:10px;justify-content:flex-end;">
+              <button class="btn" style="background:transparent;border:1px solid var(--border);color:var(--fg-3);padding:8px 20px;border-radius:8px;cursor:pointer;font-size:13px;" @click=${() => this._approvalRespond(false)}>拒绝</button>
               <button class="btn btn--primary" @click=${() => this._approvalRespond(true)}>允许执行</button>
             </div>
           </div>

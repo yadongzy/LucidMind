@@ -87,9 +87,13 @@ def layer1_scan() -> dict[str, PluginMeta]:
             plats = manifest.get("platform", [])
             if isinstance(plats, str):
                 plats = [plats]
-            tool_names = manifest.get("tools", [])
-            if isinstance(tool_names, str):
-                tool_names = [tool_names]
+            raw_tools = manifest.get("tools", [])
+            if isinstance(raw_tools, str):
+                raw_tools = [raw_tools]
+            tool_names = [
+                t["name"] if isinstance(t, dict) else t
+                for t in raw_tools
+            ]
 
             meta = PluginMeta(
                 name=name,

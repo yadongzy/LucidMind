@@ -1,0 +1,35 @@
+{
+  "name": "codex_cli",
+  "description": "Read-only Codex CLI integration for repository explanation and review.",
+  "version": "0.1.0",
+  "default_mode": "read_only",
+  "tools": [
+    {
+      "name": "codex_explain",
+      "description": "Ask Codex CLI to explain a repository area without writing files.",
+      "write": false
+    },
+    {
+      "name": "codex_review",
+      "description": "Ask Codex CLI to review a file or diff without writing files.",
+      "write": false
+    },
+    {
+      "name": "codex_patch",
+      "description": "Ask Codex CLI to generate and apply a patch. Requires explicit user approval.",
+      "write": true
+    },
+    {
+      "name": "codex_fix_tests",
+      "description": "Ask Codex CLI to fix failing tests. Requires explicit user approval.",
+      "write": true
+    }
+  ],
+  "safety": {
+    "writes_require_approval": true,
+    "workspace_must_be_inside_project_root": true,
+    "no_auto_push": true,
+    "no_auto_commit": true,
+    "no_delete": true
+  }
+}

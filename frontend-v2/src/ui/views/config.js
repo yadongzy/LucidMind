@@ -298,15 +298,21 @@ export function renderConfig(app) {
             statusEl.textContent = "探测模型...";
             statusEl.style.color = "var(--warn)";
             try {
-              const res = await fetch(baseUrl.replace(/\/+$/, '') + '/models');
+              const apiKey = document.getElementById("proxy-api-key").value.trim();
+              const res = await fetch('/api/models/probe', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ base_url: baseUrl, api_key: apiKey || null }),
+              });
+              if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(err.detail || 'HTTP ' + res.status); }
               const data = await res.json();
-              const models = (data.data || []).map(m => m.id).slice(0, 20);
+              const models = data.models || [];
               statusEl.textContent = models.length + " 个模型可用";
               statusEl.style.color = "var(--ok)";
               const sel = document.getElementById("proxy-model");
               if (models.length > 0 && !sel.value) sel.value = models.find(m => m.includes('gemini') || m.includes('gpt') || m.includes('claude')) || models[0];
             } catch (e) {
-              statusEl.textContent = "探测失败";
+              statusEl.textContent = "探测失败: " + (e.message || e);
               statusEl.style.color = "var(--danger)";
             }
           }}>探测</button>
