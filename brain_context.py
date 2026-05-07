@@ -112,6 +112,11 @@ class BrainContextMixin:
             s.extend([f"记忆: {'ON' if self.memory else 'OFF'} | 学习: {'ON' if self.learning else 'OFF'}",
                 f"环境: {platform.system()} {platform.release()}{win} | 目录: {os.getcwd()}",
                 f"历史: {len(self._history)}条 | 安全: 禁止危险命令; 禁止访问 .env/.git"])
+            # Codex 能力声明 — 让 LLM 知道自己确实能调用 Codex
+            if self.tools:
+                tool_names = [t['function']['name'] for t in (self.tools.list_tools() or [])]
+                if 'codex' in tool_names:
+                    s.append("重要能力: 你已接入本机 Codex CLI（OpenAI Codex），可通过 codex 工具执行: explain(解释代码)、review(代码审查)、patch(修复代码)、heal(自愈体检)。当用户问你能否调用 Codex 时，回答「可以」并说明用法。")
         return "\n".join(s)
 
     async def _build_messages(self, skip_lessons: bool = False) -> list[dict]:
