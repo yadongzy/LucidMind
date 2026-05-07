@@ -8,6 +8,22 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
+# Confidence markers
+CONFIDENCE_CONFIRMED = "🟢 CONFIRMED"   # 命令/文件/测试直接证明
+CONFIDENCE_INFERRED = "🟡 INFERRED"     # 根据代码推断
+CONFIDENCE_GAP = "🔴 GAP"               # 需要用户确认
+
+
+@dataclass
+class ConfidenceItem:
+    """带置信度标注的报告条目。"""
+    text: str
+    confidence: str = CONFIDENCE_CONFIRMED  # CONFIRMED | INFERRED | GAP
+
+    def render(self) -> str:
+        return f"{self.confidence}: {self.text}"
+
+
 @dataclass
 class TaskReport:
     task_id: str
@@ -28,6 +44,7 @@ class TaskReport:
     dangerous_actions: list[str] = field(default_factory=list)
     next_suggested_step: str = ""
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    confidence_items: list[ConfidenceItem] = field(default_factory=list)
 
 
 class TaskReportGenerator:
@@ -45,7 +62,7 @@ class TaskReportGenerator:
         return path
 
     def render(self, report: TaskReport) -> str:
-        return "\n".join([
+        sections = [
             f"# Task Report: {report.title}",
             "",
             f"- **Task ID**: `{report.task_id}`",
@@ -92,11 +109,16 @@ class TaskReportGenerator:
             "",
             self._list(report.decisions_to_remember, "No durable decisions recorded."),
             "",
+            "## Confidence Assessment",
+            "",
+            self._render_confidence(report),
+            "",
             "## Next Suggested Step",
             "",
             report.next_suggested_step or "No next step recorded.",
             "",
-        ])
+        ]
+        return "\n".join(sections)
 
     @staticmethod
     def _list(items: list[str], empty: str) -> str:
@@ -109,6 +131,66 @@ class TaskReportGenerator:
         if not items:
             return "None"
         return ", ".join(f"`{item}`" for item in items)
+
+    @staticmethod
+    def _render_confidence(report: TaskReport) -> str:
+        if not report.confidence_items:
+            # Auto-generate from report content
+            items = []
+            if report.tests_run:
+                items.append(f"{CONFIDENCE_CONFIRMED}: 测试已运行 ({len(report.tests_run)} 条)")
+            if report.files_changed:
+                items.append(f"{CONFIDENCE_CONFIRMED}: 文件已修改 ({len(report.files_changed)} 个)")
+            if report.risks:
+                items.append(f"{CONFIDENCE_GAP}: 存在遗留风险 ({len(report.risks)} 项)")
+            if not report.tests_run and report.actions_taken:
+                items.append(f"{CONFIDENCE_INFERRED}: 执行结果基于代码推断（未运行测试）")
+            return "\n".join(f"- {i}" for i in items) if items else "无置信度评估。"
+        return "\n".join(f"- {item.render()}" for item in report.confidence_items)
+
+    def writeback_to_memory(self, report: TaskReport) -> list[dict]:
+        """将报告中的决策和经验转为记忆条目。"""
+        memories = []
+        # Decisions become facts
+        for d in report.decisions_to_remember:
+            memories.append({
+                "collection": "facts",
+                "content": f"[任务 {report.task_id}] {d}",
+                "metadata": {
+                    "source_type": "task_report",
+                    "source_path": str(self.report_path(report)),
+                    "confidence": "confirmed",
+                    "task_id": report.task_id,
+                },
+            })
+        # Risks become lessons
+        for r in report.risks:
+            memories.append({
+                "collection": "lessons",
+                "content": f"[风险] {r} (任务: {report.title})",
+                "metadata": {
+                    "source_type": "task_report",
+                    "source_path": str(self.report_path(report)),
+                    "confidence": "inferred",
+                    "task_id": report.task_id,
+                },
+            })
+        # Summary as session memory
+        summary = (f"任务『{report.title}』已{report.result}。"
+                   f"修改{len(report.files_changed)}文件，"
+                   f"运行{len(report.tests_run)}测试。"
+                   f"下步: {report.next_suggested_step or '未设定'}")
+        memories.append({
+            "collection": "sessions",
+            "content": summary,
+            "metadata": {
+                "source_type": "task_report",
+                "source_path": str(self.report_path(report)),
+                "confidence": "confirmed",
+                "task_id": report.task_id,
+            },
+        })
+        return memories
 
     @staticmethod
     def _slug(value: str) -> str:

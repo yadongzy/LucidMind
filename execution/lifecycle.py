@@ -196,4 +196,40 @@ class TaskLifecycle:
         if state:
             state.last_task_report = str(path.relative_to(self.root))
             self.state_store.save(state)
+        # Writeback to memory
+        self._writeback_report(report)
         return path
+
+    def _writeback_report(self, report: TaskReport) -> None:
+        """将报告关键信息写回记忆系统。"""
+        try:
+            from memory.store import MemoryStore
+            store = MemoryStore()
+            entries = self.reporter.writeback_to_memory(report)
+            for entry in entries:
+                store.add(
+                    content=entry["content"],
+                    collection=entry["collection"],
+                    metadata=entry["metadata"],
+                )
+            logger.info(f"Report writeback: {len(entries)} memories for task {report.task_id}")
+        except Exception as e:
+            logger.debug(f"Report writeback failed: {e}")
+
+    def generate_plan(self, task: ManagedTask) -> ManagedTask:
+        """为任务生成执行计划（基于项目状态）。"""
+        state = self.load_project_state()
+        task.plan = [
+            f"目标: {task.goal}",
+            f"项目: {state.project_name} ({', '.join(state.frameworks)})",
+            "加载项目状态和规则",
+            "通过已审批工具执行任务",
+            f"验证: {state.test_commands[0] if state.test_commands else '手动验证'}",
+            "生成任务报告并写入记忆",
+        ]
+        task.scope = [f for f in state.core_files[:5]]
+        task.risks = ["修改可能影响现有测试", "需确认不涉及冻结文件"]
+        task.verification_cmd = state.test_commands[0] if state.test_commands else ""
+        task.rollback_strategy = "git stash / git checkout -- <files>"
+        task.transition("planned", "plan generated from project state")
+        return task

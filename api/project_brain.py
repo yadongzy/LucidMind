@@ -373,3 +373,17 @@ def transition_task(task_id: str, new_status: str, reason: str = "") -> dict[str
         raise HTTPException(status_code=400, detail=f"无效状态转换: {task.status} → {new_status}")
     store.save(task)
     return task.to_dict()
+
+
+@router.post("/tasks/{task_id}/plan")
+def generate_task_plan(task_id: str) -> dict[str, Any]:
+    """为任务生成执行计划（基于项目状态），状态流转到 planned。"""
+    from execution.lifecycle import TaskStateStore, TaskLifecycle
+    store = TaskStateStore(_project_root())
+    task = store.load(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail=f"任务 {task_id} 不存在")
+    lifecycle = TaskLifecycle(_project_root(), task.project_id)
+    task = lifecycle.generate_plan(task)
+    store.save(task)
+    return task.to_dict()
