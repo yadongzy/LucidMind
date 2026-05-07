@@ -132,6 +132,21 @@ def _load_daily() -> dict:
 def _save_daily(data: dict):
     _DATA.mkdir(exist_ok=True); _DAILY_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), "utf-8")
 
+
+class RepairEngine:
+    """修复引擎 — 自动/手动修复自检发现的问题。"""
+
+    def __init__(self, brain):
+        self._brain = brain
+
+    async def attempt_repair(self, issue_id: str) -> dict:
+        """尝试修复一个问题。"""
+        from checkup.self_heal import SelfHealEngine
+        engine = SelfHealEngine(Path(__file__).parent)
+        result = engine.heal(trigger=f"issue:{issue_id}")
+        return result.to_dict()
+
+
 class DailyRoutineEngine:
     """每日任务引擎 — 5项必做，完成才进入下一天。"""
 
