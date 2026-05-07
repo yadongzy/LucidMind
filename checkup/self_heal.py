@@ -261,12 +261,79 @@ class SelfHealEngine:
             return True
 
     def _attempt_l2_heal(self, items: list[dict], rollback_point: str) -> dict | None:
-        """尝试 L2 级修复（如果 Codex 可用）。"""
-        try:
-            from checkup.codex_repair import CodexRepairEngine
-            from checkup.diagnosis import DiagnosisReport
-            engine = CodexRepairEngine(self.root)
-            # 目前仅生成计划，不自动执行（需用户确认）
-            return {"attempted": len(items), "succeeded": 0, "files": []}
-        except ImportError:
+        """尝试 L2 级修复 — 通过 Codex CLI 执行智能修复。"""
+        import shutil
+        if not shutil.which("codex"):
+            logger.info("Codex CLI 未安装，跳过 L2 修复")
             return None
+
+        try:
+            from skills.codex_cli.runner import CodexCliRunner
+            codex = CodexCliRunner(self.root)
+        except ImportError:
+            logger.warning("CodexCliRunner 导入失败，跳过 L2 修复")
+            return None
+
+        succeeded = 0
+        files_fixed = []
+        attempted = 0
+
+        for item in items[:3]:  # 每次最多修复 3 个 L2 问题
+            title = item.get("title", "")
+            desc = item.get("description", "")
+            file_path = item.get("file_path", ".")
+            fix_hint = item.get("suggested_fix", desc)
+            severity = item.get("severity_level", 2)
+
+            if severity > 3:
+                continue  # L4+ 不自动修复
+
+            attempted += 1
+            instruction = (
+                f"Fix this issue in the LucidMind project:\n"
+                f"Issue: {title}\n"
+                f"Description: {desc}\n"
+                f"Suggested fix: {fix_hint}\n"
+                f"Target: {file_path}\n"
+                f"Rules: Make minimal changes. Do not modify governance/ or ports/ files. "
+                f"Do not delete existing files."
+            )
+
+            logger.info(f"L2 Codex 修复: {title} → {file_path}")
+
+            try:
+                result = codex.patch(
+                    target=file_path,
+                    instruction=instruction,
+                    approved=True,  # SelfHealEngine 作为自动化流程，自动批准
+                )
+
+                if result.success:
+                    # 验证修复没有破坏测试
+                    if self._run_tests():
+                        succeeded += 1
+                        files_fixed.append(file_path)
+                        logger.info(f"L2 Codex 修复成功: {title}")
+
+                        # 记录进化 bead
+                        bead = self.evo_log.create_bead(
+                            trigger="codex_l2_repair",
+                            diagnosis_id=item.get("id", ""),
+                            severity=f"L{severity}",
+                            action=f"codex_patch: {title}",
+                            executor="codex_cli",
+                        )
+                        bead.outcome = "success"
+                        bead.files_changed = [file_path]
+                        bead.notes = result.stdout[:200] if result.stdout else ""
+                        self.evo_log.record(bead)
+                    else:
+                        # 测试失败，回滚
+                        logger.warning(f"L2 Codex 修复后测试失败: {title}，回滚")
+                        self._git_rollback(rollback_point)
+                else:
+                    logger.info(f"L2 Codex 修复未成功: {title} — {result.error[:100]}")
+            except Exception as e:
+                logger.warning(f"L2 Codex 修复异常: {e}")
+
+        return {"attempted": attempted, "succeeded": succeeded, "files": files_fixed}
