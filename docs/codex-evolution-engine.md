@@ -1,6 +1,6 @@
 # LucidMind × Codex 自我进化引擎设计文档
 
-> 版本: 0.1.0 | 日期: 2026-05-07
+> 版本: 0.2.0 | 日期: 2026-05-07 (Phase 1-3 已完成)
 > 定位: LucidMind 的核心差异化能力 — 不只是对话 AI，而是自我进化的项目智能体
 
 ---
@@ -383,26 +383,31 @@ LucidMind 的**结构化项目记忆**正是核心竞争力。不同于 Ralph Lo
 
 ## 6. 实施路线
 
-### Phase 1: 基础体检 (1-2 周)
+### Phase 1: 基础体检 ✅ (2026-05-07 完成)
 
-- [ ] `ProjectCheckupRunner` — 编排 7 项检查
-- [ ] 体检报告生成（Markdown + JSON）
-- [ ] 驾驶舱"开始体检"按钮
-- [ ] 基本 CLI 入口
+- [x] `ProjectCheckupRunner` — 编排 7 项检查 → `checkup/runner.py`
+- [x] 体检报告生成（Markdown + JSON） → 双格式输出
+- [x] API 端点 `POST /checkup` + `GET /checkup/latest`
+- [x] 基本 CLI 入口 → `python -m checkup --json --save`
+- [x] 首次运行: 67/100 分
 
-### Phase 2: 诊断 + 修复闭环 (2-3 周)
+### Phase 2: 诊断 + 修复闭环 ✅ (2026-05-07 完成)
 
-- [ ] 诊断 API（深入分析单个问题）
-- [ ] 安全分级引擎（L0-L4 自动分级）
-- [ ] Codex patch + 自动测试 + 回滚
-- [ ] 进化日志（Bead 模式）
+- [x] 诊断 API（深入分析单个问题）→ `checkup/diagnosis.py`
+- [x] 安全分级引擎（L0-L4 自动分级）→ 12 类问题码映射
+- [x] 自动修复 L0/L1 + 测试验证 → `checkup/auto_repair.py`
+- [x] Codex patch L2-L3 修复引擎 → `checkup/codex_repair.py`
+- [x] 进化日志（Bead 模式）→ `checkup/evolution_log.py`
+- [x] 首次自动修复: 67→76 分，109 文件修复
 
-### Phase 3: 用户感知 + 主动进化 (3-4 周)
+### Phase 3: 用户感知 + 主动进化 ✅ (2026-05-07 完成)
 
-- [ ] 用户行为感知模块
-- [ ] 改进建议生成 + 用户确认流程
-- [ ] Brain-Codex 协商协议
-- [ ] REFLECTION.md 自动生成
+- [x] 用户行为感知模块 → `checkup/user_behavior.py`
+- [x] 改进建议生成 + 用户确认流程 → `ImprovementSuggestion`
+- [x] Brain-Codex 协商协议 → `checkup/negotiation.py`
+- [x] REFLECTION.md 自动生成 → `checkup/reflection_gen.py`
+- [x] Brain Daemon 集成（每 50 轮自动体检）
+- [x] 35 个单元测试全部通过
 
 ### Phase 4: 多执行器路由 + 自愈 (4-6 周)
 
@@ -413,8 +418,8 @@ LucidMind 的**结构化项目记忆**正是核心竞争力。不同于 Ralph Lo
 
 ### Phase 5: 自治能力 (6-8 周)
 
-- [ ] 定时自动体检 + 自动修复
-- [ ] Token 预算管理
+- [x] 定时自动体检 + 自动修复 ← Phase 2 已实现
+- [x] Token 预算管理 ← §8 记忆优化已实现
 - [ ] 进化效果度量
 - [ ] 用户自定义进化策略
 
