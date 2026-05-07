@@ -325,3 +325,51 @@ def get_repair_plan(project_id: str = "lucidmind") -> dict[str, Any]:
         "l4_reports": l4_reports,
         "total_issues": len(diagnosis.items),
     }
+
+
+# ──────────────────────────────────────────────
+# Task State Machine API
+# ──────────────────────────────────────────────
+
+@router.post("/tasks")
+def create_task(title: str, goal: str, project_id: str = "lucidmind") -> dict[str, Any]:
+    """创建新任务（状态: draft）。"""
+    from execution.lifecycle import TaskStateStore
+    store = TaskStateStore(_project_root())
+    task = store.create(title, goal, project_id)
+    return task.to_dict()
+
+
+@router.get("/tasks")
+def list_tasks(status: str | None = None, limit: int = 20) -> dict[str, Any]:
+    """查询任务列表，可按状态过滤。"""
+    from execution.lifecycle import TaskStateStore
+    store = TaskStateStore(_project_root())
+    tasks = store.list_tasks(status, limit)
+    return {"tasks": [t.to_dict() for t in tasks], "total": len(tasks)}
+
+
+@router.get("/tasks/{task_id}")
+def get_task(task_id: str) -> dict[str, Any]:
+    """获取单个任务详情。"""
+    from execution.lifecycle import TaskStateStore
+    store = TaskStateStore(_project_root())
+    task = store.load(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail=f"任务 {task_id} 不存在")
+    return task.to_dict()
+
+
+@router.post("/tasks/{task_id}/transition")
+def transition_task(task_id: str, new_status: str, reason: str = "") -> dict[str, Any]:
+    """任务状态流转。"""
+    from execution.lifecycle import TaskStateStore
+    store = TaskStateStore(_project_root())
+    task = store.load(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail=f"任务 {task_id} 不存在")
+    ok = task.transition(new_status, reason)
+    if not ok:
+        raise HTTPException(status_code=400, detail=f"无效状态转换: {task.status} → {new_status}")
+    store.save(task)
+    return task.to_dict()

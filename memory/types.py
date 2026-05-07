@@ -14,9 +14,12 @@ class MemoryResult:
     metadata: dict[str, Any] = field(default_factory=dict)
     created_at: str = ""
     updated_at: str = ""
+    source_type: str = ""      # markdown | session | lesson | profile | tool | user_confirmed
+    source_path: str = ""      # 来源文件路径
+    confidence: str = ""       # confirmed | inferred | user_confirmed | stale
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "id": self.id,
             "collection": self.collection,
             "content": self.content,
@@ -25,6 +28,13 @@ class MemoryResult:
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
+        if self.source_type:
+            d["source_type"] = self.source_type
+        if self.source_path:
+            d["source_path"] = self.source_path
+        if self.confidence:
+            d["confidence"] = self.confidence
+        return d
 
 
 @dataclass

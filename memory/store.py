@@ -24,6 +24,15 @@ from logs import get_logger
 
 logger = get_logger("memory.store")
 
+
+def _extract_provenance(meta: dict) -> dict:
+    """Extract source_type, source_path, confidence from metadata."""
+    return {
+        "source_type": meta.get("source_type", ""),
+        "source_path": meta.get("source_path", ""),
+        "confidence": meta.get("confidence", ""),
+    }
+
 _VEC_AVAILABLE = False
 try:
     import sqlite_vec
@@ -180,14 +189,16 @@ class MemoryStore(StoreRankingMixin, StoreFeedbackMixin):
                     "SELECT metadata_json, created_at, updated_at FROM memories WHERE id=?",
                     (row["id"],)
                 ).fetchone()
+                _meta = json.loads(meta_row["metadata_json"]) if meta_row else {}
                 results.append(MemoryResult(
                     id=row["id"],
                     collection=row["collection"],
                     content=row["content"],
                     score=score,
-                    metadata=json.loads(meta_row["metadata_json"]) if meta_row else {},
+                    metadata=_meta,
                     created_at=meta_row["created_at"] if meta_row else "",
                     updated_at=meta_row["updated_at"] if meta_row else "",
+                    **_extract_provenance(_meta),
                 ))
         except Exception as e:
             logger.debug(f"FTS5 搜索异常: {e}")
@@ -222,14 +233,16 @@ class MemoryStore(StoreRankingMixin, StoreFeedbackMixin):
 
         results = []
         for row in self.db.execute(sql, params).fetchall():
+            _meta = json.loads(row["metadata_json"])
             results.append(MemoryResult(
                 id=row["id"],
                 collection=row["collection"],
                 content=row["content"],
                 score=0.5,
-                metadata=json.loads(row["metadata_json"]),
+                metadata=_meta,
                 created_at=row["created_at"],
                 updated_at=row["updated_at"],
+                **_extract_provenance(_meta),
             ))
         return results
 
@@ -262,14 +275,16 @@ class MemoryStore(StoreRankingMixin, StoreFeedbackMixin):
                     continue
                 if collection and mem_row["collection"] != collection:
                     continue
+                _meta = json.loads(mem_row["metadata_json"])
                 results.append(MemoryResult(
                     id=mem_row["id"],
                     collection=mem_row["collection"],
                     content=mem_row["content"],
                     score=score,
-                    metadata=json.loads(mem_row["metadata_json"]),
+                    metadata=_meta,
                     created_at=mem_row["created_at"],
                     updated_at=mem_row["updated_at"],
+                    **_extract_provenance(_meta),
                 ))
                 if len(results) >= limit:
                     break
@@ -437,14 +452,16 @@ class MemoryStore(StoreRankingMixin, StoreFeedbackMixin):
                 "SELECT * FROM memories ORDER BY updated_at DESC LIMIT ? OFFSET ?",
                 (limit, offset)
             ).fetchall()
-        return [
-            MemoryResult(
+        results = []
+        for row in rows:
+            _meta = json.loads(row["metadata_json"])
+            results.append(MemoryResult(
                 id=row["id"], collection=row["collection"], content=row["content"],
-                metadata=json.loads(row["metadata_json"]),
+                metadata=_meta,
                 created_at=row["created_at"], updated_at=row["updated_at"],
-            )
-            for row in rows
-        ]
+                **_extract_provenance(_meta),
+            ))
+        return results
 
     # ── ACE 反馈/合并/备份方法定义在 StoreFeedbackMixin (store_feedback.py) ──
 

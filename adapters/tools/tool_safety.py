@@ -50,6 +50,7 @@ SENSITIVE_TOOLS = {
 # SAFE: 不在 DANGEROUS 和 SENSITIVE 中的工具默认为安全
 
 _CONFIG_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "security_config.json"
+_AUDIT_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "audit" / "tool_approvals.jsonl"
 
 
 class ToolSafetyGuard:
@@ -209,11 +210,14 @@ class ToolSafetyGuard:
                 if level == "sensitive":
                     self._session_approved.setdefault(session_id, set()).add(tool_name)
                 logger.info(f"用户批准工具: {tool_name}")
+                self._audit_log(session_id, tool_name, params, level, "approved")
             else:
                 logger.info(f"用户拒绝工具: {tool_name}")
+                self._audit_log(session_id, tool_name, params, level, "rejected", result.get("reason", ""))
             return result
         except asyncio.TimeoutError:
             logger.warning(f"工具审批超时，审批失败关闭: {tool_name}")
+            self._audit_log(session_id, tool_name, params, level, "timeout")
             if self._fail_closed:
                 return {"approved": False, "reason": "工具审批超时"}
             return {"approved": True}
@@ -288,6 +292,26 @@ class ToolSafetyGuard:
                 self._dynamic_sensitive.add(name)
         self._save_config()
         logger.info(f"新 skill 工具已标记为 SENSITIVE: {tool_names}")
+
+
+    def _audit_log(self, session_id: str, tool_name: str, params: dict,
+                   level: str, decision: str, reason: str = "") -> None:
+        """审批记录落盘到 data/audit/tool_approvals.jsonl。"""
+        try:
+            _AUDIT_PATH.parent.mkdir(parents=True, exist_ok=True)
+            entry = {
+                "time": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                "session_id": session_id,
+                "tool": tool_name,
+                "params_summary": {k: str(v)[:100] for k, v in list(params.items())[:5]},
+                "level": level,
+                "decision": decision,
+                "reason": reason,
+            }
+            with open(_AUDIT_PATH, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        except Exception as e:
+            logger.debug(f"审批记录写入失败: {e}")
 
 
 # 全局单例

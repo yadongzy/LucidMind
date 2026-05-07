@@ -1,14 +1,129 @@
-"""Minimal sequential task lifecycle support."""
+"""Task lifecycle support with state machine.
+
+State machine:
+  draft → planned → approved → running → verifying → done
+                                  ↓          ↓
+                               blocked     failed
+"""
 
 from __future__ import annotations
 
+import json
+import time
+import uuid
+from dataclasses import dataclass, field, asdict
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from execution.evidence import LifecycleEvidence
 from governance.policy import GovernanceReview
 from project_state.indexer import ProjectStateIndexer
 from project_state.store import ProjectStateStore
 from reports.task_reporter import TaskReport, TaskReportGenerator
+from logs import get_logger
+
+logger = get_logger("execution.lifecycle")
+
+# Valid state transitions
+_TRANSITIONS: dict[str, set[str]] = {
+    "draft": {"planned", "failed"},
+    "planned": {"approved", "failed"},
+    "approved": {"running", "failed"},
+    "running": {"verifying", "blocked", "failed"},
+    "blocked": {"running", "failed"},
+    "verifying": {"done", "failed", "running"},
+    "done": set(),
+    "failed": {"draft"},  # allow retry from failed
+}
+
+
+@dataclass
+class ManagedTask:
+    """带状态机的任务。"""
+    id: str
+    title: str
+    goal: str
+    status: str = "draft"          # draft|planned|approved|running|blocked|verifying|done|failed
+    project_id: str = "lucidmind"
+    plan: list[str] = field(default_factory=list)
+    scope: list[str] = field(default_factory=list)
+    risks: list[str] = field(default_factory=list)
+    verification_cmd: str = ""
+    rollback_strategy: str = ""
+    files_changed: list[str] = field(default_factory=list)
+    result: str = ""
+    error: str = ""
+    created_at: str = ""
+    updated_at: str = ""
+    history: list[dict] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    def transition(self, new_status: str, reason: str = "") -> bool:
+        """Attempt state transition. Returns True if valid."""
+        allowed = _TRANSITIONS.get(self.status, set())
+        if new_status not in allowed:
+            logger.warning(f"Task {self.id}: invalid transition {self.status} → {new_status}")
+            return False
+        old = self.status
+        self.status = new_status
+        self.updated_at = datetime.now(timezone.utc).isoformat()
+        self.history.append({
+            "from": old, "to": new_status,
+            "reason": reason, "at": self.updated_at,
+        })
+        logger.info(f"Task {self.id}: {old} → {new_status} ({reason})")
+        return True
+
+
+class TaskStateStore:
+    """Persists managed tasks to data/tasks/."""
+
+    def __init__(self, root: Path):
+        self._dir = root / "data" / "tasks"
+        self._dir.mkdir(parents=True, exist_ok=True)
+
+    def save(self, task: ManagedTask) -> Path:
+        path = self._dir / f"{task.id}.json"
+        path.write_text(json.dumps(task.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+        return path
+
+    def load(self, task_id: str) -> ManagedTask | None:
+        path = self._dir / f"{task_id}.json"
+        if not path.exists():
+            return None
+        try:
+            d = json.loads(path.read_text("utf-8"))
+            return ManagedTask(**{k: v for k, v in d.items() if k in ManagedTask.__dataclass_fields__})
+        except Exception as e:
+            logger.warning(f"Failed to load task {task_id}: {e}")
+            return None
+
+    def list_tasks(self, status: str | None = None, limit: int = 20) -> list[ManagedTask]:
+        tasks = []
+        for f in sorted(self._dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+            t = self.load(f.stem)
+            if t and (status is None or t.status == status):
+                tasks.append(t)
+            if len(tasks) >= limit:
+                break
+        return tasks
+
+    def create(self, title: str, goal: str, project_id: str = "lucidmind") -> ManagedTask:
+        now = datetime.now(timezone.utc).isoformat()
+        task = ManagedTask(
+            id=f"TASK-{uuid.uuid4().hex[:8]}",
+            title=title,
+            goal=goal,
+            project_id=project_id,
+            created_at=now,
+            updated_at=now,
+        )
+        self.save(task)
+        logger.info(f"Created task {task.id}: {title}")
+        return task
 
 
 class TaskLifecycle:
