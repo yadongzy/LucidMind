@@ -9,6 +9,8 @@ from typing import Optional
 from logs import get_logger
 from task_dispatcher_utils import (
     MAX_TASK_QUEUE, _PRIORITY_ORDER,
+    load_store, save_store,
+    load_store as _load_store, save_store as _save_store,
 )
 
 logger = get_logger("dispatcher")

@@ -215,8 +215,17 @@ class Brain(BrainResilienceMixin, BrainLearningMixin, BrainToolGuardMixin, Brain
             _tool_calls_happened = False
             _tool_steps: list[str] = []  # 追踪每个工具步骤用于任务进度更新
             if self.tools:
-                if await self._pre_execute_intent(session_id, user_input, _s):
+                pre_exec_result = await self._pre_execute_intent(session_id, user_input, _s)
+                if pre_exec_result:
                     _tool_calls_happened = True
+                    _tool_steps.append(pre_exec_result.get("tool_name", ""))
+                    messages = await self._build_messages(skip_lessons=_fp.skip_lessons)
+                    response = {"content": pre_exec_result.get("result_text", ""), "tool_calls": []}
+                    content = await self._stream_final_reply(session_id, messages, response, t0, _s)
+                    _result["tool_calls_happened"] = True
+                    _result["tool_steps"] = _tool_steps
+                    _result["reply"] = content
+                    return _result
 
             # P0: 简单对话跳过元认知（省 1 次 LLM 调用，~3-5s）
             metacog = ""

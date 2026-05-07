@@ -298,3 +298,51 @@ class MCPClientAdapter(ToolPort):
         except Exception as e:
             logger.error(f"MCP: {tool_name} 执行异常: {e}")
             return {"success": False, "result": None, "error": str(e)}
+
+
+import re as _re
+import shutil as _shutil
+
+_SAFE_COMMANDS = {"npx", "node", "python3", "python", "uvx", "deno", "bun",
+                  "docker", "podman", "ruby", "java", "go", "cargo"}
+_SHELL_METACHARS = _re.compile(r"[;&|`$(){}!<>]")
+_PROTECTED_ENV_KEYS = {"PATH", "HOME", "USER", "SHELL", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES"}
+
+
+def validate_server_config(config: dict) -> tuple[bool, str]:
+    transport = config.get("transport", "")
+
+    if transport == "stdio":
+        command = config.get("command", "")
+        if not command:
+            return False, "缺少 command 字段"
+
+        cmd_base = pathlib.Path(command).name
+        if cmd_base not in _SAFE_COMMANDS:
+            if not _shutil.which(command):
+                return False, f"命令 '{command}' 不在白名单且未找到"
+
+        args = config.get("args", [])
+        for arg in args:
+            if _SHELL_METACHARS.search(str(arg)):
+                return False, f"参数包含 shell 元字符: {arg}"
+
+        env = config.get("env", {})
+        for key in env:
+            if key in _PROTECTED_ENV_KEYS:
+                return False, f"不允许覆盖受保护环境变量: {key} (PATH 等)"
+
+        return True, ""
+
+    elif transport == "http":
+        url = config.get("url", "")
+        if not url:
+            return False, "缺少 url 字段"
+
+        if not url.startswith(("http://", "https://")):
+            return False, f"不安全的协议: 仅允许 http/https"
+
+        return True, ""
+
+    else:
+        return False, f"未知传输方式: {transport}"

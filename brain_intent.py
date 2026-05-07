@@ -62,10 +62,15 @@ class BrainIntentMixin:
             "tool": "codex",
             "extract": lambda m: {"action": "heal", "instruction": "运行自愈体检修复", "target": "."},
         },
+        {
+            "re": r"(?:可以|能|会).*调用\s*[Cc]odex|[Cc]odex\s*(?:可以|能).*调用",
+            "tool": "__direct_reply__",
+            "extract": lambda m: {"reply": "可以。我已经接入本机 Codex CLI，支持 `Codex 解释 ...`、`Codex 审查 ...`、`Codex 修复 ...`、`Codex 自愈`。"},
+        },
     ]
 
-    async def _pre_execute_intent(self, session_id: str, user_input: str, _s=None) -> bool:
-        """在 LLM 调用前检测明确意图并预执行工具。返回 True 表示已执行。"""
+    async def _pre_execute_intent(self, session_id: str, user_input: str, _s=None):
+        """在 LLM 调用前检测明确意图并预执行工具。"""
         _s = _s or self.stream
         for pat in self._PRE_EXEC_PATTERNS:
             m = re.search(pat["re"], user_input)
@@ -73,6 +78,8 @@ class BrainIntentMixin:
                 continue
             tool_name = pat["tool"]
             params = pat["extract"](m)
+            if tool_name == "__direct_reply__":
+                return {"tool_name": tool_name, "params": params, "result_text": params.get("reply", "")}
             msg = params.get("message", "")
             msg = re.sub(r"^[你我]", "", msg).strip()
             if msg:
@@ -89,8 +96,8 @@ class BrainIntentMixin:
                     "function": {"name": tool_name, "arguments": json.dumps(params, ensure_ascii=False)},
                 }]})
                 self._history.append({"role": "tool", "tool_call_id": f"pre_{tool_name}", "content": result_text})
-                return True
+                return {"tool_name": tool_name, "params": params, "result_text": result_text}
             except Exception as e:
                 logger.error(f"[{session_id}] 预执行: {tool_name} 失败: {e}")
-                return False
-        return False
+                return None
+        return None
