@@ -12,7 +12,7 @@ const marked = new Marked({
       const escaped = text || "";
       const language = lang || "";
       const langLabel = language ? `<span class="code-lang">${language}</span>` : "";
-      const copyBtn = `<button class="code-copy-btn" title="复制代码" onclick="(function(b){var c=b.closest('.code-block').querySelector('code');navigator.clipboard.writeText(c.textContent).then(function(){b.textContent='✓ 已复制';setTimeout(function(){b.textContent='复制'},1500)});})(this)">复制</button>`;
+      const copyBtn = `<button class="code-copy-btn" title="复制代码">复制</button>`;
       return `<div class="code-block">${langLabel}${copyBtn}<pre><code class="lang-${language}">${escapeHtml(escaped)}</code></pre></div>`;
     },
     link({ href, title, text }) {
@@ -47,5 +47,32 @@ export function renderMarkdown(text) {
   if (!text) return "";
   const processed = preprocessLinks(text);
   const raw = marked.parse(processed);
-  return DOMPurify.sanitize(raw, { ADD_TAGS: ["span", "button"], ADD_ATTR: ["class", "target", "rel", "data-path", "onclick", "title"] });
+  return DOMPurify.sanitize(raw, { ADD_TAGS: ["span", "button"], ADD_ATTR: ["class", "target", "rel", "data-path", "title"] });
 }
+
+// 全局事件委托：代码块复制按钮
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest(".code-copy-btn");
+  if (!btn) return;
+  const block = btn.closest(".code-block");
+  if (!block) return;
+  const code = block.querySelector("code");
+  if (!code) return;
+  navigator.clipboard.writeText(code.textContent).then(() => {
+    btn.textContent = "✓ 已复制";
+    btn.classList.add("copied");
+    setTimeout(() => { btn.textContent = "复制"; btn.classList.remove("copied"); }, 1500);
+  }).catch(() => {
+    // fallback for non-HTTPS
+    const ta = document.createElement("textarea");
+    ta.value = code.textContent;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    document.body.removeChild(ta);
+    btn.textContent = "✓ 已复制";
+    setTimeout(() => { btn.textContent = "复制"; }, 1500);
+  });
+});
