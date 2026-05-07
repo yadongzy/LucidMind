@@ -216,6 +216,25 @@ class TaskLifecycle:
         except Exception as e:
             logger.debug(f"Report writeback failed: {e}")
 
+    def merge_executor_result(self, evidence: LifecycleEvidence,
+                             executor_result: "ExecutorResult") -> LifecycleEvidence:
+        """将外部执行器结果合并到 lifecycle evidence 中。"""
+        from ports.executor_port import ExecutorResult  # noqa: F811
+        evidence.actions_taken.append(
+            f"[{executor_result.executor}] run_id={executor_result.run_id} "
+            f"status={executor_result.status} duration={executor_result.duration_ms}ms"
+        )
+        if executor_result.files_changed:
+            evidence.files_changed.extend(executor_result.files_changed)
+        if executor_result.error:
+            evidence.risks.append(f"执行器 {executor_result.executor} 错误: {executor_result.error}")
+        if executor_result.stdout:
+            summary = executor_result.stdout[:300]
+            evidence.decisions.append(f"[{executor_result.executor}输出] {summary}")
+        if not executor_result.success:
+            evidence.result = "partial"
+        return evidence
+
     def generate_plan(self, task: ManagedTask) -> ManagedTask:
         """为任务生成执行计划（基于项目状态）。"""
         state = self.load_project_state()
