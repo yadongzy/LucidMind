@@ -11,7 +11,7 @@ const marked = new Marked({
     code({ text, lang }) {
       const escaped = text || "";
       const language = lang || "";
-      const langLabel = language ? `<span class="code-lang">${language}</span>` : "";
+      const langLabel = "";
       const copyBtn = `<button class="code-copy-btn" title="复制代码">复制</button>`;
       return `<div class="code-block">${langLabel}${copyBtn}<pre><code class="lang-${language}">${escapeHtml(escaped)}</code></pre></div>`;
     },
