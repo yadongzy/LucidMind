@@ -69,23 +69,48 @@ class MemorySyncManager:
 
         count = 0
 
-        # 1. 存储会话摘要
-        summary = await self._summarize_session(messages, llm)
-        if summary:
-            embedding = None
-            if self.embed_fn:
-                try:
-                    embedding = await self.embed_fn(summary) if _is_coroutine(self.embed_fn) else self.embed_fn(summary)
-                except Exception as e:
-                    logger.warning(f"embedding 失败: {e}")
-            self.store.add(
-                collection="sessions",
-                content=summary,
-                embedding=embedding,
-                metadata={"session_id": session_id, "msg_count": len(messages)},
-            )
-            count += 1
-            logger.info(f"会话摘要已存储: {session_id} ({len(summary)} chars)")
+        # 1. 语义压缩: 将对话压缩为精炼记忆条目
+        try:
+            from memory.compressor import compress_batch
+            compressed = compress_batch(messages, chunk_size=10, session_id=session_id)
+            for entry in compressed:
+                embedding = None
+                if self.embed_fn:
+                    try:
+                        content = entry.get("value", "")
+                        embedding = await self.embed_fn(content) if _is_coroutine(self.embed_fn) else self.embed_fn(content)
+                    except Exception:
+                        pass
+                self.store.add(
+                    collection="lessons",
+                    content=entry.get("value", ""),
+                    embedding=embedding,
+                    metadata=entry.get("metadata", {}),
+                )
+                count += 1
+            if compressed:
+                logger.info(f"语义压缩: {len(messages)}条 → {len(compressed)}条记忆 (session={session_id})")
+        except Exception as e:
+            logger.warning(f"语义压缩失败(降级到摘要): {e}")
+
+        # 2. 回退: LLM 摘要存储（压缩失败或无结果时）
+        if count == 0:
+            summary = await self._summarize_session(messages, llm)
+            if summary:
+                embedding = None
+                if self.embed_fn:
+                    try:
+                        embedding = await self.embed_fn(summary) if _is_coroutine(self.embed_fn) else self.embed_fn(summary)
+                    except Exception as e:
+                        logger.warning(f"embedding 失败: {e}")
+                self.store.add(
+                    collection="sessions",
+                    content=summary,
+                    embedding=embedding,
+                    metadata={"session_id": session_id, "msg_count": len(messages)},
+                )
+                count += 1
+                logger.info(f"会话摘要已存储: {session_id} ({len(summary)} chars)")
 
         self._cleanup(session_id)
         return count

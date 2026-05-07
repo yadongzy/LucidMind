@@ -69,6 +69,82 @@ _FORCE_RETRIEVAL_PATTERNS = [
     re.compile(r"(?i)(?:偏好|preference|习惯|喜欢|不喜欢)"),
 ]
 
+# ── 5. 意图感知检索配置 ──────────────────────────────────────────
+
+_INTENT_PATTERNS = {
+    "recall_explicit": [
+        re.compile(r"(?:记得|之前|上次|以前|曾经|回忆|你说过|我们讨论过)"),
+        re.compile(r"(?i)(?:remember|recall|last time|before|earlier|you said)"),
+    ],
+    "coding_task": [
+        re.compile(r"(?:写代码|修改|重构|bug|修复|实现|添加功能|代码)"),
+        re.compile(r"(?i)(?:code|implement|refactor|fix|debug|function|class|module)"),
+        re.compile(r"(?:文件|目录|路径|导入|import|配置)"),
+    ],
+    "preference": [
+        re.compile(r"(?:偏好|喜欢|不喜欢|习惯|风格|设置)"),
+        re.compile(r"(?i)(?:prefer|like|dislike|style|setting|config)"),
+    ],
+    "project_query": [
+        re.compile(r"(?:项目|架构|依赖|模块|组件|结构)"),
+        re.compile(r"(?i)(?:project|architecture|dependency|module|component)"),
+    ],
+}
+
+
+def classify_retrieval_intent(query: str) -> dict:
+    """多级意图分类，返回检索策略。
+
+    Returns:
+        {
+            "intent": str,           # 意图类型
+            "should_retrieve": bool, # 是否需要检索
+            "limit": int,            # 检索条数上限
+            "collections": list,     # 限定的集合列表 (空=全部)
+            "boost_exact": bool,     # 是否加权精确匹配
+        }
+    """
+    if not query or len(query.strip()) < 2:
+        return {"intent": "empty", "should_retrieve": False,
+                "limit": 0, "collections": [], "boost_exact": False}
+
+    text = query.strip()
+
+    # 1. 跳过检索的情况
+    if should_skip_retrieval(text):
+        return {"intent": "greeting", "should_retrieve": False,
+                "limit": 0, "collections": [], "boost_exact": False}
+
+    # 2. 强制检索的情况
+    for pat in _FORCE_RETRIEVAL_PATTERNS:
+        if pat.search(text):
+            return {"intent": "recall_explicit", "should_retrieve": True,
+                    "limit": 6, "collections": [], "boost_exact": True}
+
+    # 3. 意图分类
+    for intent_name, patterns in _INTENT_PATTERNS.items():
+        for pat in patterns:
+            if pat.search(text):
+                if intent_name == "recall_explicit":
+                    return {"intent": intent_name, "should_retrieve": True,
+                            "limit": 6, "collections": [], "boost_exact": True}
+                elif intent_name == "coding_task":
+                    return {"intent": intent_name, "should_retrieve": True,
+                            "limit": 3, "collections": ["facts", "lessons"],
+                            "boost_exact": False}
+                elif intent_name == "preference":
+                    return {"intent": intent_name, "should_retrieve": True,
+                            "limit": 2, "collections": ["preference", "facts"],
+                            "boost_exact": False}
+                elif intent_name == "project_query":
+                    return {"intent": intent_name, "should_retrieve": True,
+                            "limit": 4, "collections": ["facts", "skills"],
+                            "boost_exact": False}
+
+    # 4. 默认: 轻量检索
+    return {"intent": "general", "should_retrieve": True,
+            "limit": 3, "collections": [], "boost_exact": False}
+
 
 def _effective_length(text: str) -> int:
     """计算有效长度: CJK 字符每个算 2 个有效字符。"""

@@ -434,6 +434,129 @@ LucidMind 的**结构化项目记忆**正是核心竞争力。不同于 Ralph Lo
 
 ---
 
+---
+
+## 8. 记忆系统优化 — 落地可执行方案
+
+> "记忆是瓶颈。一个不能记住自己尝试过什么、什么有效、什么失败的 Agent，注定反复做同样的实验。"
+> — Self-Improving AI Agents: The 2026 Guide
+
+### 8.1 现状诊断
+
+LucidMind 当前 4 层记忆架构：
+
+| 层 | 实现 | 存什么 | 上限 | 问题 |
+|---|---|---|---|---|
+| ① 会话历史 | `JSONMemoryAdapter` | 每条消息 | 100条/会话 | token 膨胀 |
+| ② 长期记忆 | `JSONMemoryAdapter` | 知识/教训 | 200条 | 无语义压缩 |
+| ③ Letta Blocks | `BlockManager` | 核心上下文 | 2000字符/块 | OK |
+| ④ SQLite Store | `MemoryStore` | 结构化记忆 | 无限 | 无遗忘机制 |
+
+**核心问题**：
+- 无 token 预算控制 → 每轮消耗 4000-5000 token 的记忆上下文
+- 无语义压缩 → 10 轮对话产生 20 条原始记忆
+- 无主动遗忘 → 过时/冲突记忆持续被检索
+- 无冲突解决 → 矛盾信息共存导致 AI 回答不一致
+
+### 8.2 最优架构：三级分层 + Token Budget
+
+```
+┌─────────────────────────────────────────────┐
+│  Level 0: Working Memory (工作记忆)          │
+│  • 当前会话摘要 ≤ 800 token                  │
+│  • 每轮动态生成，不持久化                     │
+└──────────────────┬──────────────────────────┘
+                   │
+┌──────────────────▼──────────────────────────┐
+│  Level 1: Core Memory (核心记忆)             │
+│  • Letta Blocks ≤ 600 token                 │
+│  • 直注 system prompt                       │
+└──────────────────┬──────────────────────────┘
+                   │ 按需检索
+┌──────────────────▼──────────────────────────┐
+│  Level 2: Archival Memory (归档记忆)         │
+│  • SQLite + FTS5 + Vec                      │
+│  • 检索上限 3-4 条 ≤ 600 token              │
+│  • 主动遗忘 + 冲突解决 + 版本化             │
+└─────────────────────────────────────────────┘
+```
+
+**Token Budget 硬预算**: 每轮记忆注入总计 ≤ 2000 token。
+
+### 8.3 执行方案
+
+#### 方案 A: Token Budget 机制
+
+**文件**: `memory/token_budget.py` (新建)
+
+功能：
+- 定义每轮记忆 token 预算常量
+- 实现 `trim_to_budget()` — 截断检索结果使其不超预算
+- 实现 `estimate_tokens()` — 快速 token 计数（中文×2 + 英文÷4）
+- Brain 调用检索后统一通过 budget 过滤
+
+#### 方案 B: 语义压缩
+
+**文件**: `memory/compressor.py` (新建)
+
+功能：
+- 会话结束时将 N 条对话压缩为 1 条精炼记忆
+- 格式: `"{日期}: {主题} — 问题: {问题}。方案: {方案}。结果: {结果}。"`
+- 压缩比: 10:1 (10条消息 → 1条记忆，≤150字符)
+- 无需 LLM 调用（规则提取 + 模板填充）
+
+#### 方案 C: 主动遗忘 + 冲突解决
+
+**文件**: `memory/forgetting.py` (新建)
+
+功能：
+- `forget_stale()` — 90天未被检索的标记 dormant，180天永久删除
+- `forget_harmful()` — harmful_count ≥ 3 立即删除（已有，增强）
+- `resolve_conflict()` — 检测同主题冲突，标记旧版本 superseded
+- `merge_similar()` — 同主题保留最多 3 条，合并其余
+- 定时任务: 每日运行一次清理
+
+#### 方案 D: 意图感知检索
+
+**文件**: `memory/noise_filter.py` (增强现有)
+
+功能：
+- 多级意图分类: greeting / recall / coding / preference / general
+- 按意图调整检索数量和集合范围
+- coding_task → 只检索 facts + lessons (limit=3)
+- recall_explicit → 检索全部 (limit=6, boost_exact=True)
+- greeting → 不检索
+
+#### 方案 E: 记忆版本化
+
+**文件**: `memory/store_feedback.py` (增强现有)
+
+功能：
+- 新记忆存入时检测同主题旧记忆
+- 旧记忆添加 `superseded_by` + `superseded_at` 元数据
+- 检索时过滤掉被 superseded 的记忆
+- 保留历史链（可追溯决策变化）
+
+### 8.4 衡量标准
+
+| 指标 | 当前值 | 目标值 |
+|------|--------|--------|
+| 每轮记忆 token | ~4000-5000 | ≤ 2000 |
+| 记忆条数增长率 | 每会话 +5-10 条 | 每会话 +1-2 条（压缩后） |
+| 检索精度 | 未量化 | ≥ 80% 相关性 |
+| 过时记忆比例 | 未清理 | < 5% |
+| 冲突记忆数 | 未检测 | 0（自动解决） |
+
+### 8.5 实施顺序
+
+1. **Token Budget** (最紧急) → 立即控制成本和速度
+2. **语义压缩** → 减少记忆膨胀
+3. **主动遗忘** → 防止污染
+4. **意图感知** → 精准检索
+5. **版本化** → 解决冲突
+
+---
+
 ## 参考资料
 
 1. **Self-Improving AI Agents: The 2026 Guide** (o-mega.ai) — HyperAgents, 记忆瓶颈, 安全边界
@@ -441,3 +564,6 @@ LucidMind 的**结构化项目记忆**正是核心竞争力。不同于 Ralph Lo
 3. **What Is a Self-Healing Codebase?** (bugstack.ai) — 5 阶段自愈 pipeline, 最小化修复, 置信度打分
 4. **NIST 2026 Agent Standards** — 自治 AI 系统安全框架
 5. **LucidMind 项目目标与可落地执行方案** — §3.2 必须做什么
+6. **Best AI Agent Memory Systems in 2026** (vectorize.io) — 8 框架对比, 分层存储, 多策略检索
+7. **Mem0 Research** (mem0.ai) — Token-efficient memory, 91.6 LoCoMo
+8. **SimpleMem** (GitHub) — 语义压缩, +47% F1, 30x token 减少

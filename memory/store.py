@@ -342,6 +342,11 @@ class MemoryStore(StoreRankingMixin, StoreFeedbackMixin):
         # Stage 8: MMR Diversity
         fused = self._apply_mmr_diversity(fused)
 
+        # Stage 9: Version Filter — 过滤被 superseded 和 dormant 的记忆
+        fused = [r for r in fused
+                 if not r.metadata.get("superseded_by")
+                 and not r.metadata.get("dormant")]
+
         return fused[:limit]
 
     def delete(self, memory_id: str) -> bool:

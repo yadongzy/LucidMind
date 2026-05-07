@@ -61,13 +61,24 @@ class JSONMemoryAdapter(MemoryPort):
         logger.info(f"保存记忆: key={key}, category={category}")
 
     async def recall(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
-        """混合检索记忆：BM25 + 时间衰减 + MMR 去重 + Markdown 文件搜索。"""
+        """混合检索记忆：BM25 + 时间衰减 + MMR 去重 + Markdown 文件搜索 + Token Budget。"""
         from adapters.memory.retrieval import hybrid_search
+        from memory.noise_filter import classify_retrieval_intent
+        from memory.token_budget import trim_memories_to_budget, MAX_RETRIEVAL_COUNT
+
+        # 意图感知: 根据查询意图调整检索策略
+        intent = classify_retrieval_intent(query)
+        if not intent["should_retrieve"]:
+            logger.info(f"意图跳过检索: query='{query}', intent={intent['intent']}")
+            return []
+
+        effective_limit = min(limit, intent["limit"], MAX_RETRIEVAL_COUNT)
+
         results = hybrid_search(
             query=query,
             items=self._memories,
             text_fields=["key", "value", "category"],
-            limit=limit,
+            limit=effective_limit,
             time_field="timestamp",
             half_life_days=30.0,
             mmr_lambda=0.7,
@@ -75,11 +86,16 @@ class JSONMemoryAdapter(MemoryPort):
         # 清理内部评分字段
         cleaned = [{k: v for k, v in r.items() if not k.startswith("_")} for r in results]
 
+        # 过滤 superseded/dormant 记忆
+        cleaned = [m for m in cleaned
+                   if not (m.get("metadata") or {}).get("superseded_by")
+                   and not (m.get("metadata") or {}).get("dormant")]
+
         # GAP-3: 同时搜索 Markdown 记忆文件
         try:
             from memory.markdown_store import get_markdown_store
             md_store = get_markdown_store()
-            md_results = md_store.search(query, limit=limit)
+            md_results = md_store.search(query, limit=effective_limit)
             for mr in md_results:
                 if mr["score"] >= 0.3:
                     cleaned.append({
@@ -93,8 +109,12 @@ class JSONMemoryAdapter(MemoryPort):
             logger.debug(f"Markdown 记忆搜索失败(降级): {e}")
 
         # 截断到 limit
-        cleaned = cleaned[:limit]
-        logger.info(f"检索记忆: query='{query}', 命中={len(cleaned)}")
+        cleaned = cleaned[:effective_limit]
+
+        # Token Budget: 确保不超预算
+        cleaned = trim_memories_to_budget(cleaned)
+
+        logger.info(f"检索记忆: query='{query}', intent={intent['intent']}, 命中={len(cleaned)}")
         return cleaned
 
     async def get_context(self, session_id: str) -> list[dict[str, Any]]:
