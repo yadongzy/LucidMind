@@ -12,7 +12,8 @@ const marked = new Marked({
       const escaped = text || "";
       const language = lang || "";
       const langLabel = language ? `<span class="code-lang">${language}</span>` : "";
-      return `<div class="code-block">${langLabel}<pre><code class="lang-${language}">${escapeHtml(escaped)}</code></pre></div>`;
+      const copyBtn = `<button class="code-copy-btn" title="复制代码" onclick="(function(b){var c=b.closest('.code-block').querySelector('code');navigator.clipboard.writeText(c.textContent).then(function(){b.textContent='✓ 已复制';setTimeout(function(){b.textContent='复制'},1500)});})(this)">复制</button>`;
+      return `<div class="code-block">${langLabel}${copyBtn}<pre><code class="lang-${language}">${escapeHtml(escaped)}</code></pre></div>`;
     },
     link({ href, title, text }) {
       const cleanHref = (href || "").replace(/[）)]+$/, "");
@@ -46,5 +47,5 @@ export function renderMarkdown(text) {
   if (!text) return "";
   const processed = preprocessLinks(text);
   const raw = marked.parse(processed);
-  return DOMPurify.sanitize(raw, { ADD_TAGS: ["span"], ADD_ATTR: ["class", "target", "rel", "data-path"] });
+  return DOMPurify.sanitize(raw, { ADD_TAGS: ["span", "button"], ADD_ATTR: ["class", "target", "rel", "data-path", "onclick", "title"] });
 }

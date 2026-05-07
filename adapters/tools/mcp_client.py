@@ -263,8 +263,13 @@ class MCPClientAdapter(ToolPort):
             return {"success": False, "result": None, "error": f"MCP工具未注册: {tool_name}"}
         server_name = info["server"]
         transport = self._transports.get(server_name)
+        # B5+: 主动检测 stdio 进程是否还活着
+        if transport and hasattr(transport, 'is_alive') and not transport.is_alive:
+            logger.warning(f"MCP: {server_name} 进程已退出，主动重连")
+            transport = None
+            self._transports.pop(server_name, None)
         if not transport:
-            # B5: 服务器断开，尝试自动重连
+            self._reconnect_count[server_name] = 0  # 重置计数允许新一轮重连
             reconnected = await self._reconnect_server(server_name)
             if reconnected:
                 transport = self._transports.get(server_name)

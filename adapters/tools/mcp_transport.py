@@ -14,10 +14,10 @@ from logs import get_logger
 
 logger = get_logger("mcp.transport")
 
-_MCP_TIMEOUT = 30
+_MCP_TIMEOUT = 60
 
 # Safety by Default: MCP Server 配置安全验证
-_SAFE_COMMANDS = {"npx", "node", "bun", "python", "python3", "uvx", "uv", "deno"}
+_SAFE_COMMANDS = {"npx", "node", "bun", "python", "python3", "uvx", "uv", "deno", "codex"}
 _SHELL_META_CHARS = re.compile(r'[|;&`$(){}\[\]<>]')
 _PROTECTED_ENV_KEYS = {"PATH", "HOME", "USER", "SHELL", "LOGNAME", "LANG", "LC_ALL"}
 
@@ -102,6 +102,10 @@ class StdioTransport:
         except Exception as e:
             logger.warning(f"MCP stdio 启动失败: {self.command} {self.args}: {e}")
             return False
+
+    @property
+    def is_alive(self) -> bool:
+        return self._process is not None and self._process.returncode is None
 
     async def stop(self):
         if self._process and self._process.returncode is None:
