@@ -381,16 +381,16 @@ class ProjectAnalyzer:
         lines = [
             f"# 项目清单 — {self.project_id}",
             f"\n> 生成时间: {r.timestamp}  |  Commit: `{r.commit}`",
-            f"\n## 概览\n",
+            "\n## 概览\n",
             f"- **文件总数**: {inv.get('total_files', 0)}",
             f"- **代码总行数**: {inv.get('total_lines', 0)}",
-            f"\n## 语言分布\n",
+            "\n## 语言分布\n",
             "| 语言 | 行数 |",
             "|------|------|",
         ]
         for lang, count in inv.get("languages", {}).items():
             lines.append(f"| {lang} | {count:,} |")
-        lines.append(f"\n## 目录结构\n")
+        lines.append("\n## 目录结构\n")
         for d, count in inv.get("top_dirs", {}).items():
             lines.append(f"- `{d}/` — {count} 文件")
         return "\n".join(lines) + "\n"
@@ -400,11 +400,11 @@ class ProjectAnalyzer:
         lines = [
             f"# 代码分析 — {self.project_id}",
             f"\n> Commit: `{r.commit}`",
-            f"\n## 统计\n",
+            "\n## 统计\n",
             f"- **模块数**: {len(ca.get('modules', []))}",
             f"- **类总数**: {ca.get('total_classes', 0)}",
             f"- **函数总数**: {ca.get('total_functions', 0)}",
-            f"\n## 最常被引用的模块\n",
+            "\n## 最常被引用的模块\n",
             "| 模块 | 被引用次数 |",
             "|------|-----------|",
         ]
@@ -425,11 +425,11 @@ class ProjectAnalyzer:
         lines.append("|------|------|------|")
         for rt in dom.get("api_routes", []):
             lines.append(f"| {rt['method']} | `{rt['path']}` | `{rt['file']}` |")
-        lines.append(f"\n## 配置文件\n")
+        lines.append("\n## 配置文件\n")
         for cf in dom.get("config_files", []):
             lines.append(f"- `{cf}`")
         if dom.get("hardcoded_secrets"):
-            lines.append(f"\n## ⚠️ 疑似硬编码密钥\n")
+            lines.append("\n## ⚠️ 疑似硬编码密钥\n")
             for h in dom["hardcoded_secrets"]:
                 lines.append(f"- `{h['file']}`: `{h['hint']}`")
         return "\n".join(lines) + "\n"
@@ -438,13 +438,13 @@ class ProjectAnalyzer:
         arch = r.architecture
         lines = [
             f"# 架构 — {self.project_id}",
-            f"\n## 模块职责\n",
+            "\n## 模块职责\n",
             "| 模块 | 职责 |",
             "|------|------|",
         ]
         for mod, role in arch.get("module_roles", {}).items():
             lines.append(f"| `{mod}/` | {role} |")
-        lines.append(f"\n## 架构图\n")
+        lines.append("\n## 架构图\n")
         lines.append("```mermaid")
         lines.append(arch.get("mermaid_diagram", "graph LR\n  A[项目] --> B[待分析]"))
         lines.append("```")

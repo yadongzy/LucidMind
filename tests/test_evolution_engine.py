@@ -1,10 +1,7 @@
 """Tests for Evolution Engine Phase 4: SelfHeal + GitHooks + Metrics."""
-import json
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
 
-import pytest
 
 
 # ─── SelfHealEngine ───
@@ -44,7 +41,7 @@ def test_quick_check():
 # ─── GitHooks ───
 
 def test_git_hooks_import():
-    from checkup.git_hooks import install_hooks, uninstall_hooks, run_pre_commit, run_post_merge
+    from checkup.git_hooks import install_hooks, uninstall_hooks
     assert callable(install_hooks)
     assert callable(uninstall_hooks)
 
@@ -84,7 +81,7 @@ def test_install_hooks_no_git():
 # ─── EvolutionMetrics ───
 
 def test_metrics_import():
-    from checkup.evolution_metrics import EvolutionMetrics, EvolutionMetricsSummary
+    from checkup.evolution_metrics import EvolutionMetrics
     assert EvolutionMetrics is not None
 
 

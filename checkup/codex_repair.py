@@ -17,10 +17,9 @@ from __future__ import annotations
 import subprocess
 import time
 from pathlib import Path
-from typing import Any
 
 from logs import get_logger
-from checkup.diagnosis import DiagnosisItem, DiagnosisReport
+from checkup.diagnosis import DiagnosisReport
 from checkup.evolution_log import EvolutionLog
 from checkup.negotiation import NegotiationProtocol
 

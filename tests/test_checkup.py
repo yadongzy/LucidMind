@@ -3,9 +3,7 @@
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
 
-import pytest
 
 
 # ─── 1. Runner ────────────────────────────────────────

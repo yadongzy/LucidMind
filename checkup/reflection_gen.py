@@ -11,11 +11,8 @@
 
 from __future__ import annotations
 
-import json
-import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 from logs import get_logger
 
@@ -34,11 +31,11 @@ def generate_reflection(
     """生成 REFLECTION.md 内容。"""
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     lines = [
-        f"# REFLECTION.md — LucidMind 自省报告",
-        f"",
+        "# REFLECTION.md — LucidMind 自省报告",
+        "",
         f"> 自动生成于 {now}",
-        f"> 此文件由进化引擎自动更新，反映系统当前状态和改进方向。",
-        f"",
+        "> 此文件由进化引擎自动更新，反映系统当前状态和改进方向。",
+        "",
     ]
 
     # 1. 健康状态

@@ -4,6 +4,47 @@
 
 ---
 
+## v3.2.0 (2026-05-08) — Codex 双通道 + 端到端多模态聊天
+
+### Codex CLI 集成对齐 v0.87
+- **修正 review 子命令误用**: `codex exec review` 在 v0.87 不支持 `-C`/`-o` 且仅审查 git 变更；`review()` 改为通过 `_run_exec` + 审查 prompt 实现任意路径的只读审查
+- **可执行文件解析**: 新增 `resolve_codex_executable()`，处理 GUI/shell PATH 不一致；优先 `CODEX_BIN` / `OPENAI_CODEX_BIN` 环境变量，再尝试 `/opt/homebrew/bin/codex`、`/usr/local/bin/codex`
+- **Runner 健壮性**: timeout 默认从 120s 提升到 300s；timeout 时 `stdout/stderr` bytes 自动归一为 str；临时输出文件清理放入 `try/finally`
+- **`adapters/tools/codex_tool.py`**: 直接调用 `codex` 的工具也复用统一解析器
+- **测试同步**: `tests/test_project_brain_next_steps.py` 校验真实 argv 结构
+
+### Brain 编排：明确 Codex 双通道
+- **System prompt 重写 Codex 段**: 明确「首选本地 CLI 工具（codex_explain/review/patch/fix_tests）」与「备选 MCP 通道（mcp_codex_codex / mcp_codex_codex-reply）」
+- **`tool_groups.py`**: 把 `codex_explain` / `codex_review` / `codex_patch` / `codex_fix_tests` 加入 `knowledge` 与 `correction` 分组，避免轻问答场景被过滤
+- **fast_path 触发词**: 已包含 codex / 解释代码 / review 等
+
+### 端到端多模态聊天（图片 + 文字一起发，能识图）
+- **工具层**: 把 `adapters/tools/_deprecated/vision.py` 移回 `adapters/tools/vision.py`，`discover.py` 自动注册 `analyze_image`；强化工具描述（看到 `[图片: 路径]` 标记必调用）
+- **协议层**: 
+  - WebSocket `chat` 与 HTTP `/api/chat` 接受 `attachments: [{file_id, path, kind, ...}]`
+  - 新增模块级 helper `_compose_with_attachments`，把附件路径合成进 `user_input`：`[图片: /abs/path] (原名: ...)\n\n用户说: <text>`
+  - 新增 `GET /api/uploads/{filename}` 用于安全预览（path-traversal 防护）
+- **UI 层**:
+  - `_uploadFile` 不再自动发送，暂存到 `app.attachments`
+  - 支持**多文件选择**、**多张图片粘贴**、**拖拽上传**
+  - 输入框上方缩略图预览条（可单独移除/清空）
+  - 用户气泡改为渲染 markdown，图片内联预览（CSS 限制 320×320）
+  - DOMPurify 放开 `src` / `alt` 属性
+  - 仅有附件无文字也可发送
+- **E2E 测试**: 新增 `tests/test_multimodal_upload.py`（7/7 通过）— 覆盖合成逻辑、工具发现、绝对路径解析、不存在文件兜底
+
+### 任务调度 API 漂移修复
+- **根因**: `brain_daemon` 以 `td.xxx` 调用门面，但 `get_queue_status` / `release_stuck_tasks` / `compute_interval` / `cleanup_completed` / `auto_expire` / `*_daily_check_done` / `*_monthly_check_done` 实际住在 `task_dispatcher_utils.py`，每轮 daemon 循环抛 `AttributeError`
+- **修法**: `task_dispatcher.py` 统一 re-export 这些工具函数
+
+### 验证
+- `python -m pytest tests/test_multimodal_upload.py -v` → 7 passed
+- `codex_explain('brain.py')` → 36s 真实返回
+- `/api/status` 列出 123 个工具，含 `analyze_image`、`codex_explain` 等四件套与 `mcp_codex_codex(_reply)`
+- 后端重启日志干净，daemon 主循环不再报 AttributeError
+
+---
+
 ## v3.1.2 (2026-05-06) — Project Brain Loop v1
 
 ### P0: 安全治理前置

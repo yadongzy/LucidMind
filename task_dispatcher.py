@@ -9,13 +9,7 @@ from typing import Optional
 from logs import get_logger
 from task_dispatcher_utils import (
     MAX_TASK_QUEUE, _PRIORITY_ORDER,
-    load_store, save_store,
     load_store as _load_store, save_store as _save_store,
-    # 统一从 task_dispatcher 对外暴露（brain_daemon 等模块以 td.xxx 调用）
-    release_stuck_tasks, compute_interval, cleanup_completed, auto_expire,
-    get_queue_status, get_daily_state,
-    set_daily_check_done, is_daily_check_done,
-    set_monthly_check_done, is_monthly_check_done,
 )
 
 logger = get_logger("dispatcher")

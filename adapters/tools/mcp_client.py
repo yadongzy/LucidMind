@@ -345,7 +345,7 @@ def validate_server_config(config: dict) -> tuple[bool, str]:
             return False, "缺少 url 字段"
 
         if not url.startswith(("http://", "https://")):
-            return False, f"不安全的协议: 仅允许 http/https"
+            return False, "不安全的协议: 仅允许 http/https"
 
         return True, ""
 

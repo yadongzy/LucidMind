@@ -15,7 +15,6 @@
 
 from __future__ import annotations
 
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -100,8 +99,8 @@ def run_pre_commit() -> int:
     if score < threshold:
         print(f"\n❌ LucidMind pre-commit: 健康分数 {score}/100 (阈值 {threshold})")
         print(f"   问题数: {issues}")
-        print(f"   运行 'python -m checkup.self_heal' 自动修复")
-        print(f"   或使用 --no-verify 跳过\n")
+        print("   运行 'python -m checkup.self_heal' 自动修复")
+        print("   或使用 --no-verify 跳过\n")
         return 1
 
     icon = "✅" if score >= 80 else "⚠️"

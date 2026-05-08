@@ -37,7 +37,7 @@ from logs import get_logger
 
 logger = get_logger("api")
 
-app = FastAPI(title="LucidMind", version="3.1.1")
+app = FastAPI(title="LucidMind", version="3.2.0")
 for _r in [config_router, upload_router, tasks_router, cron_router, sessions_router, auth_router,
            memory_router,  # ISS-015: must be before data_views to avoid /api/memory/{session_id} shadowing
            data_views.router, brain_init.router, http_chat.router, teacher.router, cascade_inject.router,

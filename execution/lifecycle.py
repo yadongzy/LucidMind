@@ -9,12 +9,10 @@ State machine:
 from __future__ import annotations
 
 import json
-import time
 import uuid
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 from execution.evidence import LifecycleEvidence
 from governance.policy import GovernanceReview
@@ -219,7 +217,6 @@ class TaskLifecycle:
     def merge_executor_result(self, evidence: LifecycleEvidence,
                              executor_result: "ExecutorResult") -> LifecycleEvidence:
         """将外部执行器结果合并到 lifecycle evidence 中。"""
-        from ports.executor_port import ExecutorResult  # noqa: F811
         evidence.actions_taken.append(
             f"[{executor_result.executor}] run_id={executor_result.run_id} "
             f"status={executor_result.status} duration={executor_result.duration_ms}ms"

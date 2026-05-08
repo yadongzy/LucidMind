@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lucidmind"
-version = "3.1.1"
+version = "3.2.0"
 description = "LucidMind — 清明心智，简洁透明可扩展的 AI 认知系统"
 requires-python = ">=3.10"
 license = {text = "MIT"}

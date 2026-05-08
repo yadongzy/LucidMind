@@ -13,10 +13,8 @@
 from __future__ import annotations
 
 import json
-import time
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
-from typing import Any
 
 from logs import get_logger
 
@@ -57,7 +55,7 @@ class NegotiationRequest:
         """转换为发给 Codex 的 prompt。"""
         lines = [
             f"## 协商请求: {self.id}",
-            f"",
+            "",
             f"**问题**: {self.problem}",
         ]
         if self.context:
@@ -65,19 +63,19 @@ class NegotiationRequest:
         if self.constraints:
             lines.append(f"**约束**: {', '.join(self.constraints)}")
         lines.extend([
-            f"",
+            "",
             f"请提供最多 {self.max_proposals} 个方案，每个方案包含:",
-            f"1. 标题和描述",
-            f"2. 方法 (fix_code/refactor/add_feature/config_change)",
-            f"3. 风险评估 (low/medium/high)",
-            f"4. 工作量评估 (trivial/small/medium/large)",
-            f"5. 涉及文件",
-            f"6. 优缺点",
-            f"",
-            f"输出 JSON 格式:",
-            f'```json',
-            f'[{{"id":"A","title":"...","description":"...","approach":"...","estimated_risk":"...","estimated_effort":"...","files_affected":[],"pros":[],"cons":[]}}]',
-            f'```',
+            "1. 标题和描述",
+            "2. 方法 (fix_code/refactor/add_feature/config_change)",
+            "3. 风险评估 (low/medium/high)",
+            "4. 工作量评估 (trivial/small/medium/large)",
+            "5. 涉及文件",
+            "6. 优缺点",
+            "",
+            "输出 JSON 格式:",
+            '```json',
+            '[{"id":"A","title":"...","description":"...","approach":"...","estimated_risk":"...","estimated_effort":"...","files_affected":[],"pros":[],"cons":[]}]',
+            '```',
         ])
         return "\n".join(lines)
 
