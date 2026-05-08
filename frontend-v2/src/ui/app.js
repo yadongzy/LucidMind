@@ -125,6 +125,8 @@ class LucidMindApp extends LitElement {
     heartbeat: { state: true },
     // Queue
     chatQueue: { state: true },
+    // Attachments (staged before send)
+    attachments: { state: true },
     // Security
     pendingApproval: { state: true },
   };
@@ -141,6 +143,7 @@ class LucidMindApp extends LitElement {
     this.navCollapsed = false;
     this.messages = [];
     this.chatDraft = "";
+    this.attachments = [];  // [{file_id, filename, path, size, mime, kind, previewUrl}]
     this.streamingText = "";
     this.isStreaming = false;
     this.currentThinking = null;
@@ -227,7 +230,18 @@ class LucidMindApp extends LitElement {
     });
 
     this.gateway.on("queue_sent", (info) => {
-      this.messages = [...this.messages, { role: "user", content: info.text, timestamp: Date.now() }];
+      const parts = [];
+      if (info.text) parts.push(info.text);
+      if (info.attachments && info.attachments.length) {
+        for (const a of info.attachments) {
+          if (a.kind === "image" || (a.mime || "").startsWith("image/")) {
+            parts.push(`![${a.filename}](/api/uploads/${encodeURIComponent((a.path || "").split("/").pop())})`);
+          } else {
+            parts.push(`📎 ${a.filename}`);
+          }
+        }
+      }
+      this.messages = [...this.messages, { role: "user", content: parts.join("\n\n"), timestamp: Date.now() }];
     });
 
     this.gateway.on("message", (data) => {
@@ -446,12 +460,27 @@ class LucidMindApp extends LitElement {
 
   _sendChat() {
     const text = this.chatDraft.trim();
-    if (!text) return;
+    const attachments = this.attachments || [];
+    if (!text && attachments.length === 0) return;
     const willQueue = this.gateway.isProcessing;
-    this.gateway.sendChat(text, this.currentSession);
+    // Strip UI-only fields (previewUrl) before sending to backend
+    const payload = attachments.map(a => ({
+      file_id: a.file_id, filename: a.filename, path: a.path,
+      size: a.size, mime: a.mime, kind: a.kind,
+    }));
+    this.gateway.sendChat(text, this.currentSession, payload);
+    // Render user bubble locally with attachment summary
+    const attachSummary = attachments.length
+      ? attachments.map(a => `📎 ${a.filename}`).join(" ")
+      : "";
+    const localContent = text + (attachSummary ? (text ? "\n" : "") + attachSummary : "");
+    if (localContent && !willQueue) {
+      // queue_sent event will render it; for non-queued path gateway emits queue_sent too
+    }
     this.chatDraft = "";
+    this.attachments = [];
     this.chatQueue = this.gateway.getQueue();
-    this._log("chat", `user: ${text.substring(0, 30)}${willQueue ? ' [queued]' : ''}`);
+    this._log("chat", `user: ${text.substring(0, 30)}${attachments.length ? ` +${attachments.length}附件` : ""}${willQueue ? ' [queued]' : ''}`);
   }
 
   _switchSession(sid) {
@@ -504,14 +533,37 @@ class LucidMindApp extends LitElement {
   }
 
   async _uploadFile(file) {
+    // Stage the file as an attachment (do NOT auto-send). User must hit Send.
     try {
       const data = await api.uploadFile(file);
-      this.messages = [...this.messages, { role: "user", content: `📎 已上传: ${data.filename} (${(data.size / 1024).toFixed(1)}KB)` }];
-      this.gateway.sendChat(`我上传了文件 ${data.filename}，路径是 ${data.path}，请分析这个文件。`, this.currentSession);
-      this._log("sys", `Upload: ${data.filename}`);
+      if (!data || !data.file_id) {
+        this.messages = [...this.messages, { role: "error", content: `上传失败: ${data?.detail || "无效响应"}` }];
+        return;
+      }
+      // Build local preview URL for images (blob URL, not uploaded again)
+      let previewUrl = null;
+      if ((data.kind === "image" || (data.mime || "").startsWith("image/")) && typeof URL !== "undefined") {
+        try { previewUrl = URL.createObjectURL(file); } catch (_) {}
+      }
+      this.attachments = [...(this.attachments || []), { ...data, previewUrl }];
+      this._log("sys", `Staged: ${data.filename} (${(data.size / 1024).toFixed(1)}KB)`);
     } catch (e) {
       this.messages = [...this.messages, { role: "error", content: `上传失败: ${e.message}` }];
     }
+  }
+
+  _removeAttachment(idx) {
+    const arr = [...(this.attachments || [])];
+    const removed = arr.splice(idx, 1)[0];
+    if (removed?.previewUrl) { try { URL.revokeObjectURL(removed.previewUrl); } catch (_) {} }
+    this.attachments = arr;
+  }
+
+  _clearAttachments() {
+    for (const a of this.attachments || []) {
+      if (a.previewUrl) { try { URL.revokeObjectURL(a.previewUrl); } catch (_) {} }
+    }
+    this.attachments = [];
   }
 
   _setTab(tab) {

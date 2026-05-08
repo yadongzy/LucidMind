@@ -20,6 +20,36 @@ _SERVER_PING_INTERVAL = 30  # 服务端主动 ping 间隔（秒）
 _SERVER_PONG_TIMEOUT = 180  # 服务端无 pong 判死时间（秒）— 需要足够长以覆盖 fallback 模型处理
 
 
+def _compose_with_attachments(text: str, attachments: list) -> str:
+    """把附件列表合成进用户消息，让 LLM 能通过工具识别内容。
+
+    格式:
+      [图片: /abs/path/xxx.png] (filename.png)
+      [文件: /abs/path/doc.pdf] (doc.pdf, document)
+      ...
+      用户说: <text>
+    """
+    lines: list[str] = []
+    for a in attachments:
+        if not isinstance(a, dict):
+            continue
+        path = a.get("path") or ""
+        name = a.get("filename") or ""
+        kind = a.get("kind") or a.get("mime") or ""
+        if not path:
+            continue
+        if kind.startswith("image") or kind == "image":
+            lines.append(f"[图片: {path}] (原名: {name})")
+        else:
+            lines.append(f"[文件: {path}] (原名: {name}, 类型: {kind})")
+    if not lines:
+        return text
+    header = "\n".join(lines)
+    if text:
+        return f"{header}\n\n用户说: {text}"
+    return f"{header}\n\n用户没有文字说明，请使用合适的工具分析上述附件内容。"
+
+
 class WebSocketChannelAdapter(ChannelPort):
     """WebSocket 通道适配器 — 将 WebSocket 消息路由到 Brain。"""
 
@@ -161,6 +191,10 @@ class WebSocketChannelAdapter(ChannelPort):
                     )
                 elif msg_type == "chat":
                     user_input = data.get("message", "").strip()
+                    attachments = data.get("attachments") or []
+                    # 把附件合成进 user_input，让 LLM 能通过工具调用读到内容
+                    if attachments:
+                        user_input = _compose_with_attachments(user_input, attachments)
                     if user_input:
                         raw_sid = data.get("session_id", "default")
                         sid = self._isolate_sid(user_id, raw_sid)

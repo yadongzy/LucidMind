@@ -47,7 +47,7 @@ export function renderMarkdown(text) {
   if (!text) return "";
   const processed = preprocessLinks(text);
   const raw = marked.parse(processed);
-  return DOMPurify.sanitize(raw, { ADD_TAGS: ["span", "button"], ADD_ATTR: ["class", "target", "rel", "data-path", "title"] });
+  return DOMPurify.sanitize(raw, { ADD_TAGS: ["span", "button"], ADD_ATTR: ["class", "target", "rel", "data-path", "title", "src", "alt"] });
 }
 
 // 全局事件委托：代码块复制按钮

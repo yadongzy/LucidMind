@@ -4,6 +4,7 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi.responses import FileResponse
 from logs import get_logger
 
 logger = get_logger("upload")
@@ -74,6 +75,18 @@ async def upload_file(file: UploadFile = File(...)):
         "mime": mime,
         "kind": kind,
     }
+
+
+@router.get("/api/uploads/{filename}")
+async def get_upload(filename: str):
+    """下载/预览已上传的单个文件。"""
+    # Path traversal 防护
+    if "/" in filename or "\\" in filename or filename.startswith("."):
+        raise HTTPException(400, "Invalid filename")
+    p = _UPLOAD_DIR / filename
+    if not p.exists() or not p.is_file():
+        raise HTTPException(404, "File not found")
+    return FileResponse(p)
 
 
 @router.get("/api/uploads")

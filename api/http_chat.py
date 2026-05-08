@@ -23,6 +23,7 @@ def init(brain_factory):
 class ChatRequest(BaseModel):
     message: str
     session_id: str = "http_default"
+    attachments: list[dict] = []
 
 
 class ChatResponse(BaseModel):
@@ -33,14 +34,19 @@ class ChatResponse(BaseModel):
 
 @router.post("", response_model=ChatResponse)
 async def http_chat(req: ChatRequest):
-    """HTTP 对话端点 — 同步返回完整回复。"""
+    """HTTP 对话端点 — 同步返回完整回复。支持 attachments（图片/文件）。"""
     from adapters.stream.collect_stream import CollectStreamAdapter
+    from adapters.channel.websocket_channel import _compose_with_attachments
     if not _brain_factory:
         return ChatResponse(reply="Brain 未初始化", session_id=req.session_id)
 
+    user_input = req.message or ""
+    if req.attachments:
+        user_input = _compose_with_attachments(user_input, req.attachments)
+
     collector = CollectStreamAdapter()
     brain = _brain_factory(collector)
-    await brain.process(req.session_id, req.message)
+    await brain.process(req.session_id, user_input)
 
-    logger.info(f"HTTP 对话: session={req.session_id}, input={req.message[:50]}, reply={len(collector.reply)}字")
+    logger.info(f"HTTP 对话: session={req.session_id}, input={user_input[:80]}, attachments={len(req.attachments)}, reply={len(collector.reply)}字")
     return ChatResponse(reply=collector.reply, session_id=req.session_id, thinking=collector.thinking)

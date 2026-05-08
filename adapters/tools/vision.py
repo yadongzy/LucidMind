@@ -14,6 +14,7 @@ from logs import get_logger
 logger = get_logger("tools.vision")
 
 _UPLOAD_DIR = Path(__file__).parent.parent.parent / "data" / "uploads"
+_VALID_IMG_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp")
 
 
 class VisionAdapter(ToolPort):
@@ -28,12 +29,12 @@ class VisionAdapter(ToolPort):
             "type": "function",
             "function": {
                 "name": "analyze_image",
-                "description": "分析图片内容：识别物体、文字、场景、图表数据等。传入图片文件名或路径。",
+                "description": "识别并分析图片内容（物体、文字OCR、场景、图表、UI截图等）。当用户上传了图片（消息中出现 [图片: 路径] 标记）或问起图里的内容时，必须调用此工具。支持绝对路径、文件名、uploads/ 下相对路径。",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "filename": {"type": "string", "description": "图片文件名或路径"},
-                        "question": {"type": "string", "description": "关于图片的具体问题（可选）"},
+                        "filename": {"type": "string", "description": "图片文件名或绝对路径。优先使用消息中 [图片: ...] 标记里的完整路径。"},
+                        "question": {"type": "string", "description": "关于图片的具体问题；若用户没指定，默认为「详细描述图片内容」。"},
                     },
                     "required": ["filename"],
                 },

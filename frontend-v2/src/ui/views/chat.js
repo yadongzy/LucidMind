@@ -238,7 +238,8 @@ function renderCollapsibleBubble(content, isMarkdown) {
 
 function renderBubble(msg) {
   if (msg.role === "user") {
-    return renderCollapsibleBubble(msg.content, false);
+    // 用户消息渲染 markdown，以便显示上传图片的内联预览
+    return renderCollapsibleBubble(msg.content, true);
   }
   if (msg.role === "assistant") {
     return renderCollapsibleBubble(msg.content, true);
@@ -543,12 +544,43 @@ export function renderChat(app) {
       ` : nothing}
 
       <!-- Compose — 对标 OpenClaw chat-compose -->
-      <div class="chat-compose">
+      <div class="chat-compose ${app._dragOver ? 'chat-compose--drag' : ''}"
+        @dragover=${(e) => { e.preventDefault(); if (!app._dragOver) { app._dragOver = true; app.requestUpdate(); } }}
+        @dragleave=${(e) => { if (e.currentTarget === e.target) { app._dragOver = false; app.requestUpdate(); } }}
+        @drop=${(e) => {
+          e.preventDefault();
+          app._dragOver = false;
+          const files = e.dataTransfer?.files;
+          if (files && files.length) {
+            for (const f of files) app._uploadFile(f);
+          }
+          app.requestUpdate();
+        }}>
+        ${(app.attachments || []).length > 0 ? html`
+          <div class="chat-attachments">
+            ${app.attachments.map((a, i) => html`
+              <div class="chat-attachment">
+                ${a.previewUrl ? html`
+                  <img class="chat-attachment__img" src=${a.previewUrl} alt=${a.filename}/>
+                ` : html`
+                  <div class="chat-attachment__icon">📎</div>
+                `}
+                <div class="chat-attachment__meta">
+                  <div class="chat-attachment__name" title=${a.filename}>${a.filename}</div>
+                  <div class="chat-attachment__size">${(a.size / 1024).toFixed(1)}KB</div>
+                </div>
+                <button class="chat-attachment__remove" title="移除"
+                  @click=${() => app._removeAttachment(i)}>✕</button>
+              </div>
+            `)}
+          </div>
+        ` : nothing}
         <div class="chat-compose__row">
-          <button class="btn btn--icon" title="上传文件"
+          <button class="btn btn--icon" title="上传文件(支持多选)"
             @click=${() => {
               const input = document.createElement("input");
               input.type = "file";
+              input.multiple = true;
               input.onchange = () => {
                 for (const file of input.files) app._uploadFile(file);
               };
@@ -557,7 +589,7 @@ export function renderChat(app) {
             ${icons.upload}
           </button>
           <textarea class="chat-compose__textarea"
-            placeholder="消息... (Enter发送, Shift+Enter换行, / 快捷指令)"
+            placeholder="消息... (Enter发送, Shift+Enter换行, / 快捷指令, 可粘贴/拖拽图片)"
             .value=${app.chatDraft}
             @input=${(e) => { app.chatDraft = e.target.value; app._slashOpen = _getSlashMatches(e.target.value).length > 0; autoResize(e.target); app.requestUpdate(); }}
             @keydown=${(e) => {
@@ -578,13 +610,16 @@ export function renderChat(app) {
             @paste=${(e) => {
               const items = e.clipboardData?.items;
               if (!items) return;
+              const imageFiles = [];
               for (let i = 0; i < items.length; i++) {
                 if (items[i].type.startsWith("image/")) {
-                  e.preventDefault();
-                  const file = items[i].getAsFile();
-                  if (file) app._uploadFile(file);
-                  return;
+                  const f = items[i].getAsFile();
+                  if (f) imageFiles.push(f);
                 }
+              }
+              if (imageFiles.length > 0) {
+                e.preventDefault();
+                for (const f of imageFiles) app._uploadFile(f);
               }
             }}
             rows="1"
@@ -605,7 +640,7 @@ export function renderChat(app) {
             </div>
           ` : nothing}
           <button class="btn btn--compose ${isBusy ? 'btn--danger' : 'btn--primary'}"
-            ?disabled=${!isBusy && (!app.connected || !app.chatDraft.trim())}
+            ?disabled=${!isBusy && (!app.connected || (!app.chatDraft.trim() && (app.attachments || []).length === 0))}
             @click=${isBusy ? () => app._abortChat() : () => app._sendChat()}
             title="${isBusy ? '停止生成' : '发送 (Enter)'}">
             ${isBusy ? icons.stop : icons.send}

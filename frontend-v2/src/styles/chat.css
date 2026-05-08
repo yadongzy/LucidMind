@@ -337,6 +337,96 @@
   margin: 0;
 }
 
+/* 附件预览区 — 位于输入框上方 */
+.chat-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 10px 0 10px;
+}
+
+.chat-attachment {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px 6px 6px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  max-width: 240px;
+  position: relative;
+}
+
+.chat-attachment__img {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.chat-attachment__icon {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-hover);
+  border-radius: 4px;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.chat-attachment__meta {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+}
+
+.chat-attachment__name {
+  color: var(--fg);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-attachment__size {
+  color: var(--muted);
+  font-size: 10px;
+  margin-top: 2px;
+}
+
+.chat-attachment__remove {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  line-height: 1;
+}
+
+.chat-attachment__remove:hover {
+  color: var(--danger, #ef4444);
+}
+
+/* 聊天气泡内嵌图片 */
+.chat-bubble img {
+  max-width: 320px;
+  max-height: 320px;
+  border-radius: 6px;
+  margin: 4px 0;
+  display: block;
+  cursor: zoom-in;
+}
+
+.chat-compose--drag {
+  outline: 2px dashed var(--accent);
+  outline-offset: -4px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
 /* 文件路径链接 */
 .file-link {
   color: var(--accent);

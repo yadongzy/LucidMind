@@ -86,8 +86,10 @@ export class GatewayClient {
     this._processQueue();
   }
 
-  sendChat(text, sessionId) {
-    this.send({ type: "chat", message: text, session_id: sessionId });
+  sendChat(text, sessionId, attachments) {
+    const msg = { type: "chat", message: text, session_id: sessionId };
+    if (attachments && attachments.length > 0) msg.attachments = attachments;
+    this.send(msg);
   }
 
   switchSession(sessionId) {
@@ -109,8 +111,8 @@ export class GatewayClient {
     this.isProcessing = true;
     const msg = this.messageQueue.shift();
     this.ws.send(JSON.stringify(msg));
-    if (msg.type === "chat" && msg.message) {
-      this._emit("queue_sent", { text: msg.message });
+    if (msg.type === "chat" && (msg.message || (msg.attachments && msg.attachments.length))) {
+      this._emit("queue_sent", { text: msg.message, attachments: msg.attachments });
     }
     this._emit("queue_changed");
   }
