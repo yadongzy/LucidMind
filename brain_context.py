@@ -115,16 +115,26 @@ class BrainContextMixin:
             # Codex 能力声明 — 让 LLM 知道自己确实能调用 Codex
             if self.tools:
                 tool_names = [t['function']['name'] for t in (self.tools.list_tools() or [])]
-                if 'mcp_codex_codex' in tool_names:
-                    s.append(
-                        "## Codex 集成（已启用）\n"
-                        "你已通过 MCP 协议连接本机 OpenAI Codex CLI。当用户请求代码相关任务时，"
-                        "必须使用 mcp_codex_codex 工具调用 Codex。\n"
-                        "用法: mcp_codex_codex(prompt='你的指令') — Codex 会读取项目代码并执行任务。\n"
-                        "用 mcp_codex_codex-reply(thread_id=..., prompt='后续指令') 继续同一对话。\n"
-                        "支持: 代码解释、代码审查、bug修复、重构、测试生成、架构分析等所有编程任务。\n"
-                        "当用户问「你能调用Codex吗」时，回答「可以」并直接演示调用。"
-                    )
+                has_mcp = 'mcp_codex_codex' in tool_names
+                has_local = 'codex_explain' in tool_names or 'codex_review' in tool_names
+                if has_mcp or has_local:
+                    lines = ["## Codex 集成（已启用，本机 OpenAI Codex v0.87）"]
+                    if has_local:
+                        lines.append(
+                            "**首选：本地 CLI 工具（更快、更稳）**\n"
+                            "- codex_explain(target, question?) — 解释代码（任意文件/目录），只读\n"
+                            "- codex_review(target, question?) — 审查任意代码，找 bug/风险/规范，只读\n"
+                            "- codex_patch(target, instruction, approved=True) — 修复代码，需用户确认后再传 approved=True\n"
+                            "- codex_fix_tests(test_command, approved=True) — 跑测试并修复失败"
+                        )
+                    if has_mcp:
+                        lines.append(
+                            "**备选：MCP 通道（完整 Codex 会话，可多轮）**\n"
+                            "- mcp_codex_codex(prompt='...') — 启动新 Codex 会话\n"
+                            "- mcp_codex_codex-reply(thread_id=..., prompt='...') — 继续会话"
+                        )
+                    lines.append("当用户问「你能调用Codex吗」时，直接回答「可以」并演示调用。优先选 codex_explain/review/patch；需要长对话或交互式任务才用 mcp_codex_codex。")
+                    s.append("\n".join(lines))
         return "\n".join(s)
 
     async def _build_messages(self, skip_lessons: bool = False) -> list[dict]:

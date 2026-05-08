@@ -1,12 +1,10 @@
 """Codex CLI runner — 通过 `codex exec` 非交互式执行代码任务。
 
-正确使用 OpenAI Codex CLI:
-- codex exec <prompt>                    → 非交互式执行
-- codex exec review <prompt>             → 代码审查
-- codex exec --full-auto <prompt>        → 全自动执行（带沙箱）
-- -C <dir>                               → 指定工作目录
-- --json                                 → JSONL 输出
-- -o <file>                              → 输出最后消息到文件
+统一走 `codex exec`（v0.87+ 验证）:
+- codex exec [-C <dir>] [-s <sandbox>] [-o <file>] <prompt>
+
+不使用 `codex exec review`：该子命令只能审查 git 变更（--uncommitted/--base/--commit），
+不接受 -C/-o，无法审查任意文件，因此 review() 方法也走 _run_exec + 审查 prompt。
 """
 
 from __future__ import annotations
@@ -56,12 +54,16 @@ class CodexCliRunner:
         return self._run_exec("codex_explain", prompt, sandbox="read-only")
 
     def review(self, target: str, question: str = "Review this code for risks and correctness.") -> CodexCliResult:
+        # 注意: `codex exec review` 子命令只支持 git 变更审查（--uncommitted/--base/--commit），
+        # 不接受 -C/-o，且无法审查任意文件。我们改用 `codex exec` + 审查 prompt 实现通用审查。
         prompt = (
-            f"Review the code in '{target}'. "
-            f"Check for: bugs, logic errors, security risks, code style, maintainability. "
-            f"{question}"
+            f"Perform a thorough code review of '{target}'. "
+            f"Read the relevant files (do NOT modify anything). "
+            f"Report: bugs, logic errors, security risks, performance issues, "
+            f"code style problems, maintainability concerns. "
+            f"Additional focus: {question}"
         )
-        return self._run_review("codex_review", prompt)
+        return self._run_exec("codex_review", prompt, sandbox="read-only")
 
     def patch(self, target: str, instruction: str, approved: bool = False) -> CodexCliResult:
         if not approved:
@@ -172,68 +174,6 @@ class CodexCliRunner:
             exit_code=result.returncode,
             duration_ms=duration,
             error="" if success else (result.stderr[:300] or "Codex CLI returned non-zero exit code."),
-        )
-
-    def _run_review(self, tool: str, prompt: str) -> CodexCliResult:
-        """使用 `codex exec review` 执行代码审查。"""
-        start = time.perf_counter()
-        binary = shutil.which(self.executable)
-        if not binary:
-            return CodexCliResult(
-                success=False, tool=tool, prompt=prompt,
-                error="Codex CLI not found.",
-                duration_ms=self._duration(start),
-            )
-
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as tmp:
-            output_file = tmp.name
-
-        cmd = [
-            binary, "exec", "review",
-            "-C", str(self.project_root),
-            "-o", output_file,
-            prompt,
-        ]
-
-        logger.info(f"Codex review: {prompt[:80]}...")
-
-        try:
-            result = subprocess.run(
-                cmd,
-                cwd=self.project_root,
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=self.timeout_seconds,
-            )
-        except subprocess.TimeoutExpired:
-            return CodexCliResult(
-                success=False, tool=tool, prompt=prompt,
-                error=f"Codex review timed out after {self.timeout_seconds}s.",
-                duration_ms=self._duration(start),
-            )
-
-        output_content = ""
-        try:
-            output_content = Path(output_file).read_text("utf-8").strip()
-        except (OSError, UnicodeDecodeError):
-            pass
-        finally:
-            try:
-                Path(output_file).unlink()
-            except OSError:
-                pass
-
-        full_output = output_content or result.stdout
-        return CodexCliResult(
-            success=result.returncode == 0,
-            tool=tool,
-            prompt=prompt,
-            stdout=full_output,
-            stderr=result.stderr,
-            exit_code=result.returncode,
-            duration_ms=self._duration(start),
-            error="" if result.returncode == 0 else (result.stderr[:300] or "Review failed."),
         )
 
     @staticmethod
