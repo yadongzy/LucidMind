@@ -77,5 +77,9 @@ def test_codex_cli_read_only_command_construction(tmp_path):
     result = runner.review("reports/task_reporter.py", "Review report rendering.")
     payload = json.loads(result.stdout)
     assert result.success is True
-    assert "Read-only review request" in payload["argv"][0]
-    assert "Do not modify files" in payload["argv"][0]
+    assert payload["argv"][0] == "exec"
+    sandbox_index = payload["argv"].index("-s")
+    assert payload["argv"][sandbox_index + 1] == "read-only"
+    prompt = payload["argv"][-1]
+    assert "Read-only review request" in prompt
+    assert "Do not modify files" in prompt

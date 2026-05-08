@@ -9,12 +9,12 @@
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 from typing import Any
 
 from ports.tool_port import ToolPort
 from logs import get_logger
+from skills.codex_cli.runner import CodexCliRunner, resolve_codex_executable
 
 logger = get_logger("tools.codex")
 
@@ -25,9 +25,10 @@ class CodexToolAdapter(ToolPort):
     """Codex 工具适配器 — 让 LLM 能直接调用 Codex CLI。"""
 
     def __init__(self):
-        self._codex_available = bool(shutil.which("codex"))
+        self._codex_path = resolve_codex_executable()
+        self._codex_available = bool(self._codex_path)
         if self._codex_available:
-            logger.info("✅ Codex CLI 已检测到，Codex 工具已启用")
+            logger.info(f"✅ Codex CLI 已检测到，Codex 工具已启用: {self._codex_path}")
         else:
             logger.warning("⚠️ Codex CLI 未安装，Codex 工具将降级为只读模式")
 
@@ -122,8 +123,7 @@ class CodexToolAdapter(ToolPort):
             )
 
         try:
-            from skills.codex_cli.runner import CodexCliRunner
-            codex = CodexCliRunner(_ROOT)
+            codex = CodexCliRunner(_ROOT, executable=self._codex_path or "codex")
 
             if action == "explain":
                 result = codex.explain(target, instruction)

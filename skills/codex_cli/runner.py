@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -20,6 +21,35 @@ from pathlib import Path
 from logs import get_logger
 
 logger = get_logger("codex.runner")
+
+
+def resolve_codex_executable(executable: str = "codex") -> str | None:
+    """Resolve the Codex CLI binary across shell and GUI-launched environments."""
+    if executable and executable != "codex":
+        path = Path(executable).expanduser()
+        if path.exists() and os.access(path, os.X_OK):
+            return str(path)
+        return shutil.which(executable)
+
+    candidates: list[str] = []
+    for value in (
+        os.getenv("CODEX_BIN"),
+        os.getenv("OPENAI_CODEX_BIN"),
+        executable,
+        "/opt/homebrew/bin/codex",
+        "/usr/local/bin/codex",
+    ):
+        if value and value not in candidates:
+            candidates.append(value)
+
+    for candidate in candidates:
+        path = Path(candidate).expanduser()
+        if path.exists() and os.access(path, os.X_OK):
+            return str(path)
+        resolved = shutil.which(str(path))
+        if resolved:
+            return resolved
+    return None
 
 
 @dataclass
@@ -39,11 +69,17 @@ class CodexCliResult:
 
 class CodexCliRunner:
     def __init__(self, project_root: str | Path, executable: str = "codex",
-                 timeout_seconds: int = 120, model: str | None = None):
+                 timeout_seconds: int = 300, model: str | None = None):
         self.project_root = Path(project_root).resolve()
         self.executable = executable
         self.timeout_seconds = timeout_seconds
         self.model = model  # None = use codex default
+
+    @staticmethod
+    def _normalize_output(value: object) -> str:
+        if isinstance(value, bytes):
+            return value.decode("utf-8", errors="replace")
+        return value or ""
 
     def explain(self, target: str, question: str = "Explain this repository area.") -> CodexCliResult:
         prompt = (
@@ -57,8 +93,8 @@ class CodexCliRunner:
         # 注意: `codex exec review` 子命令只支持 git 变更审查（--uncommitted/--base/--commit），
         # 不接受 -C/-o，且无法审查任意文件。我们改用 `codex exec` + 审查 prompt 实现通用审查。
         prompt = (
-            f"Perform a thorough code review of '{target}'. "
-            f"Read the relevant files (do NOT modify anything). "
+            f"Read-only review request for '{target}'. "
+            f"Do not modify files. Read the relevant files and "
             f"Report: bugs, logic errors, security risks, performance issues, "
             f"code style problems, maintainability concerns. "
             f"Additional focus: {question}"
@@ -97,7 +133,7 @@ class CodexCliRunner:
     def _run_exec(self, tool: str, prompt: str, sandbox: str = "read-only") -> CodexCliResult:
         """使用 `codex exec` 非交互式执行。"""
         start = time.perf_counter()
-        binary = shutil.which(self.executable)
+        binary = resolve_codex_executable(self.executable)
         if not binary:
             return CodexCliResult(
                 success=False, tool=tool, prompt=prompt,
@@ -123,58 +159,64 @@ class CodexCliRunner:
         logger.info(f"Codex exec [{tool}] sandbox={sandbox}: {prompt[:80]}...")
 
         try:
-            result = subprocess.run(
-                cmd,
-                cwd=self.project_root,
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=self.timeout_seconds,
-            )
-        except subprocess.TimeoutExpired as exc:
-            logger.warning(f"Codex timed out after {self.timeout_seconds}s")
-            return CodexCliResult(
-                success=False, tool=tool, prompt=prompt,
-                stdout=exc.stdout or "", stderr=exc.stderr or "",
-                error=f"Codex CLI timed out after {self.timeout_seconds}s.",
-                duration_ms=self._duration(start),
-            )
+            timeout_result: CodexCliResult | None = None
+            try:
+                result = subprocess.run(
+                    cmd,
+                    cwd=self.project_root,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=self.timeout_seconds,
+                )
+            except subprocess.TimeoutExpired as exc:
+                logger.warning(f"Codex timed out after {self.timeout_seconds}s")
+                timeout_result = CodexCliResult(
+                    success=False, tool=tool, prompt=prompt,
+                    stdout=self._normalize_output(exc.stdout),
+                    stderr=self._normalize_output(exc.stderr),
+                    error=f"Codex CLI timed out after {self.timeout_seconds}s.",
+                    duration_ms=self._duration(start),
+                )
 
-        # 读取输出文件（codex -o 写入最终消息）
-        output_content = ""
-        try:
-            output_content = Path(output_file).read_text("utf-8").strip()
-        except (OSError, UnicodeDecodeError):
-            pass
+            if timeout_result:
+                return timeout_result
+
+            # 读取输出文件（codex -o 写入最终消息）
+            output_content = ""
+            try:
+                output_content = Path(output_file).read_text("utf-8").strip()
+            except (OSError, UnicodeDecodeError):
+                pass
+
+            # 合并 stdout + output file
+            full_output = result.stdout
+            if output_content:
+                full_output = output_content if not full_output else f"{full_output}\n\n{output_content}"
+
+            duration = self._duration(start)
+            success = result.returncode == 0
+
+            if success:
+                logger.info(f"Codex [{tool}] 成功 ({duration:.0f}ms)")
+            else:
+                logger.warning(f"Codex [{tool}] 失败 (exit={result.returncode}): {result.stderr[:200]}")
+
+            return CodexCliResult(
+                success=success,
+                tool=tool,
+                prompt=prompt,
+                stdout=full_output,
+                stderr=result.stderr,
+                exit_code=result.returncode,
+                duration_ms=duration,
+                error="" if success else (result.stderr[:300] or "Codex CLI returned non-zero exit code."),
+            )
         finally:
             try:
                 Path(output_file).unlink()
             except OSError:
                 pass
-
-        # 合并 stdout + output file
-        full_output = result.stdout
-        if output_content:
-            full_output = output_content if not full_output else f"{full_output}\n\n{output_content}"
-
-        duration = self._duration(start)
-        success = result.returncode == 0
-
-        if success:
-            logger.info(f"Codex [{tool}] 成功 ({duration:.0f}ms)")
-        else:
-            logger.warning(f"Codex [{tool}] 失败 (exit={result.returncode}): {result.stderr[:200]}")
-
-        return CodexCliResult(
-            success=success,
-            tool=tool,
-            prompt=prompt,
-            stdout=full_output,
-            stderr=result.stderr,
-            exit_code=result.returncode,
-            duration_ms=duration,
-            error="" if success else (result.stderr[:300] or "Codex CLI returned non-zero exit code."),
-        )
 
     @staticmethod
     def _duration(start: float) -> float:
