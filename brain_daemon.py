@@ -21,6 +21,11 @@ from brain_daemon_observe import DaemonObserveMixin
 from issue_tracker import report_issue, get_open_issues
 import task_dispatcher as td
 from command_queue import get_command_queue, CommandLane
+from brain_config import (
+    ORPHAN_RECOVERY_ENABLED,
+    SAFE_PIPELINE_ENABLED,
+    SAFE_PIPELINE_SHADOW,
+)
 
 logger = get_logger("daemon")
 
@@ -58,9 +63,17 @@ class BrainDaemon(DaemonObserveMixin, TaskExecutorMixin):
         self._learn_engine = LearningEngine(brain, teacher_channel, soul_engine=soul_engine)
         self._loop_tick: int = 0
         self._idle_rounds: int = 0
+        self._safe_pipeline_enabled = SAFE_PIPELINE_ENABLED
+        self._safe_pipeline_shadow = SAFE_PIPELINE_SHADOW
+        self._orphan_recovery_enabled = ORPHAN_RECOVERY_ENABLED
+        self._orphan_findings: list[dict] = []
 
     async def start(self):
         if self._running: return
+        # 启动扫描默认只报告。只有显式开关开启时才修改孤儿任务状态。
+        self._orphan_findings = td.recover_orphaned_tasks(
+            enable_recovery=self._orphan_recovery_enabled
+        )
         self._running = True
         self._brain._awake = True
         self._task = asyncio.create_task(self._think_loop())
@@ -94,18 +107,21 @@ class BrainDaemon(DaemonObserveMixin, TaskExecutorMixin):
                     await asyncio.sleep(10)
                     continue
                 # === Observe（观察）===
-                td.release_stuck_tasks()
+                # 新恢复控制面启用后由孤儿恢复策略负责租约过期任务；旧逻辑保留作回滚路径。
+                if not self._safe_pipeline_enabled:
+                    td.release_stuck_tasks()
                 await asyncio.wait_for(self._observe(), timeout=self.OBSERVE_TIMEOUT)
                 # === Orient + Decide + Act（每轮最多3个任务，防积压）===
                 tasks_done = 0
-                for _ in range(3):
-                    task = td.dequeue()
-                    if not task:
-                        break
-                    self._idle_rounds = 0
-                    self._learn_engine.reset_idle()
-                    await self._execute_task(task)
-                    tasks_done += 1
+                if not self._paused:
+                    for _ in range(3):
+                        task = td.dequeue()
+                        if not task:
+                            break
+                        self._idle_rounds = 0
+                        self._learn_engine.reset_idle()
+                        await self._execute_task(task)
+                        tasks_done += 1
                 if tasks_done == 0:
                     # 无任务时执行后台引擎
                     self._idle_rounds += 1
@@ -197,6 +213,12 @@ class BrainDaemon(DaemonObserveMixin, TaskExecutorMixin):
         cq = get_command_queue()
         return {"running": self._running, "awake": self._brain._awake,
             "paused": self._paused, "pending_plan": self._pending_plan,
+            "safe_control": {
+                "pipeline_enabled": self._safe_pipeline_enabled,
+                "shadow": self._safe_pipeline_shadow,
+                "orphan_recovery_enabled": self._orphan_recovery_enabled,
+                "orphan_findings": list(self._orphan_findings),
+            },
             "interval": self._interval,
             "auto_ask": getattr(self._teacher, '_auto_ask_enabled', True) if self._teacher else True,
             "last_think": self._last_think_time, "disconnected": self._was_disconnected,

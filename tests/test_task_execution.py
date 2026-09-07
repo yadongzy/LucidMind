@@ -9,6 +9,37 @@ from task_execution import (
 from task_model import FailureReason
 
 
+def test_safe_control_flags_are_fail_closed_by_default():
+    import os
+    import subprocess
+    import sys
+
+    env = os.environ.copy()
+    for name in (
+        "LUCIDMIND_SAFE_PIPELINE_ENABLED",
+        "LUCIDMIND_SAFE_PIPELINE_SHADOW",
+        "LUCIDMIND_ORPHAN_RECOVERY_ENABLED",
+    ):
+        env.pop(name, None)
+    probe = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import brain_config as c; "
+                "assert not c.SAFE_PIPELINE_ENABLED; "
+                "assert not c.SAFE_PIPELINE_SHADOW; "
+                "assert not c.ORPHAN_RECOVERY_ENABLED"
+            ),
+        ],
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert probe.returncode == 0, probe.stderr
+
+
 def test_retry_policy_applies_bounded_exponential_backoff_and_jitter():
     policy = RetryPolicy(base_delay_s=2, max_delay_s=5, jitter_ratio=0.25)
     assert policy.delay(1, random_value=0.5) == 2

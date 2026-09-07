@@ -8,6 +8,7 @@
 """
 
 import json
+import os
 import re
 from pathlib import Path
 
@@ -65,6 +66,11 @@ CORRECTION_PROMOTE_MIN = 2
 # — 资源监控 —
 MEM_ALERT_PERCENT = 90
 DISK_ALERT_GB = 1
+
+# — 安全重构控制面（默认关闭，环境变量仅在进程启动时读取）—
+SAFE_PIPELINE_ENABLED = os.getenv("LUCIDMIND_SAFE_PIPELINE_ENABLED", "0") == "1"
+SAFE_PIPELINE_SHADOW = os.getenv("LUCIDMIND_SAFE_PIPELINE_SHADOW", "0") == "1"
+ORPHAN_RECOVERY_ENABLED = os.getenv("LUCIDMIND_ORPHAN_RECOVERY_ENABLED", "0") == "1"
 
 # — 伪流式 —
 PSEUDO_STREAM_CHUNK_SIZE = 8

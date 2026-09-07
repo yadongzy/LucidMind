@@ -95,7 +95,7 @@ async def api_sleep():
 
 @router.post("/pause")
 async def api_pause():
-    """暂停大脑任务驱动（自检和教学继续）。"""
+    """暂停新任务领取；在途任务继续到达安全点。"""
     if daemon:
         daemon._paused = True
         logger.info("⏸ 大脑任务已暂停")
@@ -107,6 +107,7 @@ async def api_resume():
     """恢复大脑任务驱动。"""
     if daemon:
         daemon._paused = False
+        daemon.wake()
         logger.info("▶ 大脑任务已恢复")
     return {"status": "ok", "paused": False}
 
