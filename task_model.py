@@ -47,8 +47,8 @@ TERMINAL_STATUSES = frozenset(
 
 _TRANSITIONS = {
     TaskStatus.READY: frozenset(
-        {TaskStatus.RUNNING, TaskStatus.FAILED, TaskStatus.ESCALATED,
-         TaskStatus.MEMO, TaskStatus.CANCELLED}
+        {TaskStatus.RUNNING, TaskStatus.BLOCKED, TaskStatus.COMPLETED, TaskStatus.FAILED,
+         TaskStatus.ESCALATED, TaskStatus.MEMO, TaskStatus.CANCELLED}
     ),
     TaskStatus.RUNNING: frozenset(
         {TaskStatus.READY, TaskStatus.BLOCKED, TaskStatus.COMPLETED,
@@ -56,7 +56,7 @@ _TRANSITIONS = {
     ),
     TaskStatus.BLOCKED: frozenset(
         {TaskStatus.READY, TaskStatus.COMPLETED, TaskStatus.FAILED,
-         TaskStatus.ESCALATED, TaskStatus.CANCELLED}
+         TaskStatus.ESCALATED, TaskStatus.MEMO, TaskStatus.CANCELLED}
     ),
     TaskStatus.MEMO: frozenset({TaskStatus.READY, TaskStatus.CANCELLED}),
     TaskStatus.COMPLETED: frozenset(),

@@ -42,10 +42,13 @@ def test_parse_status_rejects_unknown_value():
     ("source", "target"),
     [
         ("ready", "running"),
+        ("ready", "blocked"),
+        ("ready", "completed"),
         ("running", "blocked"),
         ("running", "completed"),
         ("running", "ready"),
         ("blocked", "ready"),
+        ("blocked", "memo"),
         ("memo", "ready"),
     ],
 )

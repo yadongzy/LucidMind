@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Optional
 
 from logs import get_logger
+from task_model import TaskStatus, transition
 from task_dispatcher_utils import (
     load_store as _load_store, save_store as _save_store,
     load_store, save_store,
@@ -154,7 +155,7 @@ def dequeue() -> Optional[dict]:
     ))
 
     chosen = ready[0]
-    chosen["status"] = "running"
+    transition(chosen, TaskStatus.RUNNING)
     chosen["running_at"] = datetime.now().isoformat()
     _save_store(store)
     logger.info(f"🎯 出队: {chosen['id']} priority={chosen['priority']} content={chosen['content'][:40]}")
@@ -171,7 +172,7 @@ def update_task_progress(task_id: str, progress: str):
     for t in store["tasks"]:
         if t["id"] == task_id:
             t["progress"] = progress[:200]
-            t["status"] = "running"
+            transition(t, TaskStatus.RUNNING)
             if not t.get("running_at"):
                 t["running_at"] = datetime.now().isoformat()
             _save_store(store)
@@ -185,7 +186,7 @@ def complete_task(task_id: str):
     store = _load_store()
     for t in store["tasks"]:
         if t["id"] == task_id:
-            t["status"] = "completed"
+            transition(t, TaskStatus.COMPLETED)
             t["completed_at"] = datetime.now().isoformat()
             t["running_at"] = None
             logger.info(f"✅ 完成: {task_id}")
@@ -206,7 +207,7 @@ def fail_task(task_id: str, error: str):
             t["last_error"] = error[:200]
             t["running_at"] = None
             if t["retries"] >= t.get("max_retries", 3):
-                t["status"] = "escalated"
+                transition(t, TaskStatus.ESCALATED)
                 logger.warning(f"🆘 上报: {task_id} retries={t['retries']} error={error[:60]}")
                 _notify_escalation(t)
                 _notify("task_escalated", t)
@@ -214,7 +215,7 @@ def fail_task(task_id: str, error: str):
                 if t.get("parent_id"):
                     _resume_parent(store, t["parent_id"])
             else:
-                t["status"] = "ready"
+                transition(t, TaskStatus.READY)
                 logger.info(f"🔄 重试: {task_id} retries={t['retries']} error={error[:60]}")
                 _notify("task_retried", t)
             break
@@ -242,7 +243,7 @@ def block_task(task_id: str, reason: str):
     store = _load_store()
     for t in store["tasks"]:
         if t["id"] == task_id:
-            t["status"] = "blocked"
+            transition(t, TaskStatus.BLOCKED)
             t["running_at"] = None
             t["last_error"] = reason[:200]
             logger.info(f"🚫 阻塞: {task_id} reason={reason[:60]}")
@@ -259,7 +260,7 @@ def _resume_parent(store: dict, parent_id: str):
         # 无子任务，直接恢复
         for t in store["tasks"]:
             if t["id"] == parent_id and t["status"] == "blocked":
-                t["status"] = "ready"
+                transition(t, TaskStatus.READY)
                 t["running_at"] = None
                 logger.info(f"♻️ 恢复父任务: {parent_id}")
         return
@@ -284,11 +285,16 @@ def _resume_parent(store: dict, parent_id: str):
         if t["id"] == parent_id and t["status"] == "blocked":
             if failed:
                 # 有子任务失败 — 父任务标记失败
-                t["status"] = "failed" if len(failed) == len(siblings) else "ready"
+                transition(
+                    t,
+                    TaskStatus.FAILED
+                    if len(failed) == len(siblings)
+                    else TaskStatus.READY,
+                )
                 t["last_error"] = summary[:200]
             else:
                 # 全部成功 — 父任务标记完成
-                t["status"] = "completed"
+                transition(t, TaskStatus.COMPLETED)
                 t["completed_at"] = datetime.now().isoformat()
             t["running_at"] = None
             t["progress"] = summary[:200]
@@ -304,7 +310,7 @@ def _overflow_to_memo(store: dict):
     memo = store.setdefault("memo", [])
     while len(active) > MAX_TASK_QUEUE - 5:
         overflow = active.pop(0)
-        overflow["status"] = "memo"
+        transition(overflow, TaskStatus.MEMO)
         memo.append(overflow)
         tasks.remove(overflow)
         logger.info(f"📦 溢出到备忘录: {overflow['id']} priority={overflow['priority']}")

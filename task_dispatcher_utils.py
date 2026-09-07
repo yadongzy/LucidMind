@@ -8,6 +8,7 @@ from datetime import datetime, date
 from pathlib import Path
 
 from logs import get_logger
+from task_model import TaskStatus, transition
 
 logger = get_logger("dispatcher")
 
@@ -71,10 +72,10 @@ def release_stuck_tasks() -> int:
             t["running_at"] = None
             t["last_error"] = f"超时{elapsed:.0f}s，强制释放"
             if t["retries"] >= t.get("max_retries", 3):
-                t["status"] = "escalated"
+                transition(t, TaskStatus.ESCALATED)
                 logger.warning(f"⏰ 超时上报: {t['id']} elapsed={elapsed:.0f}s")
             else:
-                t["status"] = "ready"
+                transition(t, TaskStatus.READY)
                 logger.info(f"⏰ 超时释放: {t['id']} elapsed={elapsed:.0f}s")
             released += 1
     if released > 0:
@@ -122,23 +123,23 @@ def auto_expire() -> list[str]:
         except (ValueError, TypeError):
             continue
         if t["status"] == "ready" and t.get("retries", 0) >= t.get("max_retries", 3):
-            t["status"] = "failed"
+            transition(t, TaskStatus.FAILED)
             t["last_error"] = f"智能淘汰: 重试{t['retries']}次均失败"
             report.append(f"🗑️ 淘汰重复失败: {t['content'][:30]}")
             continue
         if t["status"] == "ready" and t.get("source") == "teacher" and age_hours > 12:
-            t["status"] = "completed"; t["completed_at"] = now.isoformat()
+            transition(t, TaskStatus.COMPLETED); t["completed_at"] = now.isoformat()
             t["last_error"] = "智能淘汰: 超12小时未处理的教学消息"
             report.append(f"⏰ 淘汰过时教学: {t['content'][:30]}")
             continue
         if t["priority"] == "P0" and age_hours > 24 and t["status"] == "ready":
-            t["status"] = "escalated"; t["last_error"] = "P0超24小时未完成，自动上报"
+            transition(t, TaskStatus.ESCALATED); t["last_error"] = "P0超24小时未完成，自动上报"
             report.append(f"🆘 P0超时上报: {t['content'][:30]}")
         elif t["priority"] == "P3" and age_days > 7 and t["status"] == "ready":
             t["last_error"] = "P3超7天未处理，待自检"
             report.append(f"⏳ P3超7天: {t['content'][:30]}")
         elif age_days > 30 and t["status"] == "ready":
-            t["status"] = "memo"; store.setdefault("memo", []).append(t)
+            transition(t, TaskStatus.MEMO); store.setdefault("memo", []).append(t)
             report.append(f"📦 闲置30天归档: {t['content'][:30]}")
     store["tasks"] = [t for t in store["tasks"] if t["status"] != "memo"]
     if now.day == 1:

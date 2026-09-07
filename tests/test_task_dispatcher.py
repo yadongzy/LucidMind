@@ -51,6 +51,20 @@ def test_complete_clears_running_timestamp():
     saved = stored_task(task["id"])
     assert saved["status"] == "completed"
     assert saved["running_at"] is None
+    assert saved["version"] == 2
+
+
+def test_progress_uses_idempotent_central_transition():
+    import task_dispatcher as dispatcher
+
+    task = dispatcher.enqueue("任务", priority="P1")
+    dispatcher.update_task_progress(task["id"], "处理中")
+    first = stored_task(task["id"])
+    assert first["status"] == "running"
+    assert first["version"] == 1
+    dispatcher.update_task_progress(task["id"], "仍在处理")
+    second = stored_task(task["id"])
+    assert second["version"] == 1
 
 
 def test_failure_retries_before_escalation(monkeypatch):
