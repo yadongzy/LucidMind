@@ -6,11 +6,12 @@
 从 brain_engines.py 抽出，降低文件行数（规则03）。
 """
 
-import json
 import time
 from datetime import datetime
 from pathlib import Path
 
+import json
+from atomic_persistence import atomic_write_json
 from logs import get_logger
 
 logger = get_logger("issues")
@@ -27,8 +28,7 @@ def _load_issues() -> list[dict]:
 
 
 def _save_issues(issues: list[dict]):
-    _DATA.mkdir(exist_ok=True)
-    _ISSUES_FILE.write_text(json.dumps(issues, ensure_ascii=False, indent=2), "utf-8")
+    atomic_write_json(_ISSUES_FILE, issues)
 
 
 def report_issue(desc: str, severity: str = "medium", source: str = "self_check") -> dict:
