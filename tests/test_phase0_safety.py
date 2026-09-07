@@ -43,6 +43,11 @@ class _MockSafetyGuard:
         return {"approved": False, "reason": self._reason}
 
 
+class _FailingSafetyGuard:
+    async def check(self, session_id, tool_name, params):
+        raise RuntimeError("guard unavailable")
+
+
 @pytest.fixture
 def composite_with_guard():
     from adapters.tools.composite import CompositeToolAdapter
@@ -92,6 +97,17 @@ def test_composite_without_guard_works(composite_no_guard):
     result = asyncio.get_event_loop().run_until_complete(
         adapter.execute("safe_tool", {}))
     assert result["success"] is True
+
+
+def test_composite_safety_guard_fails_closed():
+    from adapters.tools.composite import CompositeToolAdapter
+    adapter = CompositeToolAdapter([_MockDangerousAdapter()])
+    adapter.set_safety_guard(_FailingSafetyGuard())
+    result = asyncio.get_event_loop().run_until_complete(
+        adapter.execute("run_shell", {"command": "ls"}, session_id="test"))
+    assert result["success"] is False
+    assert result["blocked"] is True
+    assert "安全审批异常" in result["error"]
 
 
 def test_composite_unknown_tool_returns_error(composite_no_guard):

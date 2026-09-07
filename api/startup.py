@@ -23,6 +23,7 @@ from adapters.tools.discover import discover_tool_adapters
 from adapters.memory.json_memory import JSONMemoryAdapter
 from adapters.learning.memory_store_adapter import MemoryStoreLearningAdapter
 from adapters.tools.observed_tool import ObservedToolAdapter
+from adapters.tools.tool_safety import get_safety_guard
 from adapters.tools.memory_tool import MemoryToolAdapter
 from memory.letta_blocks import BlockManager
 from adapters.reflection.json_reflection import JSONReflectionAdapter
@@ -171,6 +172,9 @@ def init():
     wecom_channel = WeComChannelAdapter()
     wechat_channel = WeChatChannelAdapter()
     ws_channel = WebSocketChannelAdapter()
+    safety_guard = get_safety_guard()
+    safety_guard.set_ws_channel(ws_channel)
+    tool_adapter._inner.set_safety_guard(safety_guard)
 
     # --- Token Tracker 阈值回调 ---
     try:

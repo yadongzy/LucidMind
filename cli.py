@@ -119,6 +119,7 @@ def _cmd_chat(args):
     from adapters.tools.web_search import WebSearchAdapter
     from adapters.tools.search_files import SearchFilesAdapter
     from adapters.tools.composite import CompositeToolAdapter
+    from adapters.tools.tool_safety import get_safety_guard
     from adapters.memory.json_memory import JSONMemoryAdapter
     from adapters.learning.memory_store_adapter import MemoryStoreLearningAdapter
 
@@ -133,6 +134,7 @@ def _cmd_chat(args):
     tools = CompositeToolAdapter([
         ShellAdapter(), FileAdapter(), WebSearchAdapter(), SearchFilesAdapter(),
     ])
+    tools.set_safety_guard(get_safety_guard())
     memory = JSONMemoryAdapter()
     learning = MemoryStoreLearningAdapter()
 

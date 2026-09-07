@@ -80,7 +80,10 @@ class CompositeToolAdapter(ToolPort):
                     self._record_diagnostic(tool_name, "blocked", (_time.time() - _t0) * 1000, reason, session_id=session_id)
                     return {"success": False, "result": None, "error": f"安全审批未通过: {reason}", "blocked": True}
             except Exception as e:
-                logger.error(f"安全审批异常(放行): {tool_name} — {e}")
+                reason = f"安全审批异常: {e}"
+                logger.error(f"安全审批异常(拒绝): {tool_name} — {e}")
+                self._record_diagnostic(tool_name, "blocked", (_time.time() - _t0) * 1000, reason, session_id=session_id)
+                return {"success": False, "result": None, "error": reason, "blocked": True}
         result = await adapter.execute(tool_name, params)
         duration = (_time.time() - _t0) * 1000
         status = "success" if result.get("success") else "failure"
