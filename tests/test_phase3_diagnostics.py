@@ -1,5 +1,6 @@
 """Phase 3 诊断系统测试 — DiagnosticEvent + Collector + API。"""
 
+import json
 import os
 import sys
 import time
@@ -118,6 +119,28 @@ def test_collector_persistence(tmp_path):
     content = jsonl_files[0].read_text()
     assert "persist" in content
     diag._DATA_DIR = old_dir
+
+
+def test_collector_repairs_incomplete_jsonl_tail_before_append(tmp_path):
+    import diagnostics as diag
+
+    old_dir = diag._DATA_DIR
+    diag._DATA_DIR = tmp_path
+    day = time.strftime("%Y-%m-%d", time.localtime())
+    path = tmp_path / f"diagnostics_{day}.jsonl"
+    path.write_bytes(b'{"category": "existing"}\n{"category":')
+    try:
+        collector = DiagnosticCollector()
+        collector.record(DiagnosticEvent(
+            timestamp=time.time(), category="new", action="persist",
+            status="success", duration_ms=1, input_summary="",
+            output_summary="",
+        ))
+        collector._file.close()
+        records = [json.loads(line) for line in path.read_text().splitlines()]
+        assert [record["category"] for record in records] == ["existing", "new"]
+    finally:
+        diag._DATA_DIR = old_dir
 
 
 # ─────────────── 节点 3.3: 诊断 API ───────────────

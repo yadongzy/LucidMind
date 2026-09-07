@@ -12,6 +12,7 @@ from contextvars import ContextVar, Token
 from dataclasses import dataclass, field, asdict
 from typing import Any
 
+from atomic_persistence import repair_jsonl_tail
 from logs import get_logger
 
 logger = get_logger("diagnostics")
@@ -86,6 +87,7 @@ class DiagnosticCollector:
                     pass
             self._current_day = day
             path = _DATA_DIR / f"diagnostics_{day}.jsonl"
+            repair_jsonl_tail(path)
             self._file = open(path, "a", encoding="utf-8")
         if self._file:
             self._file.write(json.dumps(event.to_dict(), ensure_ascii=False) + "\n")
