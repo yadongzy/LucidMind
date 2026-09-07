@@ -3,8 +3,10 @@
 import asyncio
 import json
 import os
+import time
+import uuid
 
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, Request, WebSocket
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
@@ -37,6 +39,34 @@ from task_observability import build_readiness
 logger = get_logger("api")
 
 app = FastAPI(title="LucidMind", version="0.1.0")
+
+
+@app.middleware("http")
+async def correlate_http_request(request: Request, call_next):
+    """Propagate one request ID through diagnostics and the HTTP response."""
+    from diagnostics import record_event, reset_correlation_id, set_correlation_id
+
+    request_id = request.headers.get("X-Request-ID") or f"request:{uuid.uuid4().hex}"
+    token = set_correlation_id(request_id)
+    started = time.time()
+    status = "failure"
+    response = None
+    try:
+        response = await call_next(request)
+        status = "success" if response.status_code < 500 else "failure"
+        return response
+    finally:
+        record_event(
+            "api_request", request.method.lower(), status,
+            (time.time() - started) * 1000,
+            input_summary=request.url.path,
+            output_summary=str(response.status_code) if response else "exception",
+            metadata={"method": request.method, "path": request.url.path},
+            level="warning" if status != "success" else "info",
+        )
+        if response is not None:
+            response.headers["X-Request-ID"] = request_id
+        reset_correlation_id(token)
 # 认证：auth 路由公开（登录/注册），其余路由挂 require_auth（bootstrap 模式：
 # 从未注册过密码用户时放行，注册后强制 JWT）
 from api.auth import require_auth
