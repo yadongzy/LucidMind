@@ -8,6 +8,7 @@ import json
 import pathlib
 import threading
 import time
+from contextvars import ContextVar, Token
 from dataclasses import dataclass, field, asdict
 from typing import Any
 
@@ -17,6 +18,21 @@ logger = get_logger("diagnostics")
 
 _DATA_DIR = pathlib.Path(__file__).parent / "data"
 _MAX_MEMORY_EVENTS = 1000
+_correlation_id: ContextVar[str] = ContextVar("diagnostic_correlation_id", default="")
+
+
+def set_correlation_id(value: str) -> Token:
+    """Bind a correlation ID to the current async execution context."""
+    return _correlation_id.set(value)
+
+
+def reset_correlation_id(token: Token) -> None:
+    """Restore the previous correlation ID for the current context."""
+    _correlation_id.reset(token)
+
+
+def get_correlation_id() -> str:
+    return _correlation_id.get()
 
 
 @dataclass
@@ -142,6 +158,10 @@ def record_event(category: str, action: str, status: str, duration_ms: float,
                  error: str | None = None, metadata: dict | None = None,
                  level: str = "info") -> None:
     """便捷函数 — 记录一个诊断事件。"""
+    event_metadata = dict(metadata or {})
+    correlation_id = get_correlation_id()
+    if correlation_id and not event_metadata.get("correlation_id"):
+        event_metadata["correlation_id"] = correlation_id
     event = DiagnosticEvent(
         timestamp=time.time(),
         category=category,
@@ -151,7 +171,7 @@ def record_event(category: str, action: str, status: str, duration_ms: float,
         input_summary=input_summary[:200],
         output_summary=output_summary[:200],
         error=error,
-        metadata=metadata or {},
+        metadata=event_metadata,
         level=level,
     )
     get_collector().record(event)

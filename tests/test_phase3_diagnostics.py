@@ -7,7 +7,10 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from diagnostics import DiagnosticEvent, DiagnosticCollector, get_collector, record_event
+from diagnostics import (
+    DiagnosticEvent, DiagnosticCollector, get_collector, record_event,
+    reset_correlation_id, set_correlation_id,
+)
 
 
 # ─────────────── 节点 3.1: DiagnosticEvent 核心 ───────────────
@@ -77,6 +80,29 @@ def test_record_event_convenience():
     record_event("test_cat", "test_act", "success", 1.0, input_summary="hello")
     results = get_collector().query(category="test_cat")
     assert any(r["action"] == "test_act" for r in results)
+
+
+def test_record_event_inherits_context_correlation_id():
+    token = set_correlation_id("task:abc123")
+    try:
+        record_event("test_correlation", "execute", "success", 1.0)
+    finally:
+        reset_correlation_id(token)
+    event = get_collector().query(category="test_correlation")[-1]
+    assert event["metadata"]["correlation_id"] == "task:abc123"
+
+
+def test_explicit_correlation_id_takes_precedence():
+    token = set_correlation_id("task:context")
+    try:
+        record_event(
+            "test_explicit_correlation", "execute", "success", 1.0,
+            metadata={"correlation_id": "request:explicit"},
+        )
+    finally:
+        reset_correlation_id(token)
+    event = get_collector().query(category="test_explicit_correlation")[-1]
+    assert event["metadata"]["correlation_id"] == "request:explicit"
 
 
 def test_collector_persistence(tmp_path):

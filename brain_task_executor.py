@@ -165,6 +165,8 @@ class TaskExecutorMixin:
         - 上限保护：MAX_INLINE_RETRIES 次后放弃
         """
         tid = task["id"]
+        from diagnostics import reset_correlation_id, set_correlation_id
+        correlation_token = set_correlation_id(f"task:{tid}")
         content = task["content"]
         task_type = task.get("type", "task")
         timeout_s = plan.timeout_s
@@ -313,6 +315,7 @@ class TaskExecutorMixin:
                 self._brain.reset_tools_override(tools_token)
             if llm_token is not None:
                 self._brain.reset_llm_override(llm_token)
+            reset_correlation_id(correlation_token)
 
     def _handle_task_failure(self, task: dict, error: str):
         """任务失败处理：判断是否触发任务驱动学习。"""
