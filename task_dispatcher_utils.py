@@ -3,10 +3,10 @@
 包含: 存储层、动态间隔、卡住检测、清理、淘汰、每日状态、队列状态。
 """
 import json
-import os
 from datetime import datetime, date
 from pathlib import Path
 
+from atomic_persistence import atomic_write_json
 from logs import get_logger
 from task_model import TaskStatus, transition
 
@@ -21,19 +21,6 @@ _PRIORITY_ORDER = {
     "P0": 0, "P1": 1, "P2": 2, "P3": 3,
     "L0": 4, "L1": 5, "L2": 6, "L3": 7,
 }
-
-
-def _atomic_save(path: Path, data: dict):
-    """原子写入JSON文件。"""
-    _DATA.mkdir(exist_ok=True)
-    tmp = path.parent / f"{path.name}.{os.getpid()}.tmp"
-    try:
-        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        os.replace(str(tmp), str(path))
-    except Exception:
-        if tmp.exists():
-            tmp.unlink(missing_ok=True)
-        raise
 
 
 def load_store() -> dict:
@@ -51,7 +38,7 @@ def load_store() -> dict:
 
 def save_store(store: dict):
     """保存任务队列文件（原子写入）。"""
-    _atomic_save(_QUEUE_FILE, store)
+    atomic_write_json(_QUEUE_FILE, store)
 
 
 def release_stuck_tasks() -> int:
