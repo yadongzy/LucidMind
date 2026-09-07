@@ -67,6 +67,7 @@ class BrainDaemon(DaemonObserveMixin, TaskExecutorMixin):
         self._safe_pipeline_shadow = SAFE_PIPELINE_SHADOW
         self._orphan_recovery_enabled = ORPHAN_RECOVERY_ENABLED
         self._orphan_findings: list[dict] = []
+        self._pipeline_shadow_reports: list[dict] = []
 
     async def start(self):
         if self._running: return
@@ -218,6 +219,7 @@ class BrainDaemon(DaemonObserveMixin, TaskExecutorMixin):
                 "shadow": self._safe_pipeline_shadow,
                 "orphan_recovery_enabled": self._orphan_recovery_enabled,
                 "orphan_findings": list(self._orphan_findings),
+                "shadow_reports": list(self._pipeline_shadow_reports[-10:]),
             },
             "interval": self._interval,
             "auto_ask": getattr(self._teacher, '_auto_ask_enabled', True) if self._teacher else True,

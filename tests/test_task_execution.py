@@ -1,10 +1,11 @@
 import pytest
 
 from task_execution import (
-    ExecutionControl,
+    ExecutionControl, ExecutionPlan,
     RetryPolicy,
     TaskCancelled,
     classify_failure,
+    compare_execution_plans,
 )
 from task_model import FailureReason
 
@@ -82,3 +83,12 @@ def test_cooperative_cancellation_is_observed_only_at_safe_point():
 )
 def test_failure_classification(error, reason):
     assert classify_failure(error) is reason
+
+
+def test_shadow_plan_comparison_is_pure_and_structured():
+    plan = ExecutionPlan("t1", 120, 4, "task", False).to_dict()
+    assert compare_execution_plans(plan, dict(plan)) == {}
+    changed = dict(plan, timeout_s=30)
+    assert compare_execution_plans(plan, changed) == {
+        "timeout_s": {"legacy": 120, "safe": 30}
+    }

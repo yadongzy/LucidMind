@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Optional
 
 from logs import get_logger
-from task_model import Checkpoint, FailureReason, TaskStatus, transition
+from task_model import Checkpoint, FailureReason, TaskAttempt, TaskStatus, transition
 from task_dispatcher_utils import (
     load_store as _load_store, save_store as _save_store,
     load_store, save_store,
@@ -232,6 +232,57 @@ def latest_checkpoint(task_id: str) -> Optional:
             checkpoints = task.get("checkpoints") or []
             return dict(checkpoints[-1]) if checkpoints else None
     return None
+
+
+def begin_task_attempt(task_id: str) -> Optional:
+    """Create and persist a stable attempt before execution starts."""
+    store = _load_store()
+    for task in store.get("tasks", []):
+        if task["id"] != task_id:
+            continue
+        attempts = task.setdefault("attempts", [])
+        attempt = TaskAttempt(
+            number=len(attempts) + 1,
+            started_at=datetime.now().isoformat(),
+        ).to_dict()
+        attempt["attempt_id"] = f"{task_id}:{attempt['number']}"
+        attempts.append(attempt)
+        task["current_attempt_id"] = attempt["attempt_id"]
+        task["updated_at"] = attempt["started_at"]
+        _save_store(store)
+        _notify("task_attempt_started", task)
+        return dict(attempt)
+    return None
+
+
+def finish_task_attempt(
+    task_id: str,
+    attempt_id: str,
+    *,
+    failure_reason: Optional[FailureReason] = None,
+    error: Optional[str] = None,
+) -> bool:
+    """Finish the matching attempt without changing the task terminal state."""
+    store = _load_store()
+    for task in store.get("tasks", []):
+        if task["id"] != task_id:
+            continue
+        for attempt in task.get("attempts", []):
+            if attempt.get("attempt_id") != attempt_id:
+                continue
+            if attempt.get("finished_at"):
+                return True
+            attempt["finished_at"] = datetime.now().isoformat()
+            attempt["failure_reason"] = (
+                failure_reason.value if failure_reason is not None else None
+            )
+            attempt["error"] = error[:200] if error else None
+            task["current_attempt_id"] = None
+            task["updated_at"] = attempt["finished_at"]
+            _save_store(store)
+            _notify("task_attempt_finished", task)
+            return True
+    return False
 
 
 def recover_orphaned_tasks(*, enable_recovery: bool = False) -> list:

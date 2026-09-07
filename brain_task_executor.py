@@ -16,7 +16,10 @@ from logs import get_logger
 import task_dispatcher as td
 from command_queue import get_command_queue, CommandLane
 from task_decomposer import should_decompose, decompose_task
-from task_execution import ExecutionControl, RetryPolicy, TaskCancelled
+from task_execution import (
+    ExecutionControl, ExecutionPlan, RetryPolicy, TaskCancelled,
+    classify_failure, compare_execution_plans,
+)
 
 logger = get_logger("daemon")
 
@@ -106,6 +109,53 @@ class TaskExecutorMixin:
             self._handle_task_failure(task, f"入队失败: {str(e)[:100]}")
 
     async def _execute_task_inner(self, task: dict):
+        """Route through the fail-closed feature flag and optional pure shadow plan."""
+        plan = self._build_execution_plan(task)
+        if getattr(self, "_safe_pipeline_shadow", False):
+            legacy_plan = self._build_legacy_execution_plan(task).to_dict()
+            safe_plan = plan.to_dict()
+            report = {
+                "task_id": task["id"],
+                "differences": compare_execution_plans(legacy_plan, safe_plan),
+            }
+            reports = getattr(self, "_pipeline_shadow_reports", None)
+            if reports is None:
+                reports = []
+                self._pipeline_shadow_reports = reports
+            reports.append(report)
+            del reports[:-100]
+        if getattr(self, "_safe_pipeline_enabled", False):
+            return await self._execute_task_safe(task, plan)
+        return await self._execute_task_legacy(task, plan)
+
+    def _build_execution_plan(self, task: dict) -> ExecutionPlan:
+        return ExecutionPlan(
+            task_id=task["id"],
+            timeout_s=float(task.get("timeout_s", 120)),
+            max_attempts=MAX_INLINE_RETRIES + 1,
+            tool_scope=self._get_tool_scope(task),
+            use_local_model=self._should_use_local(task),
+        )
+
+    def _build_legacy_execution_plan(self, task: dict) -> ExecutionPlan:
+        """Describe legacy decisions independently, without executing side effects."""
+        return ExecutionPlan(
+            task_id=task["id"],
+            timeout_s=float(task.get("timeout_s", 120)),
+            max_attempts=MAX_INLINE_RETRIES + 1,
+            tool_scope=self._get_tool_scope(task),
+            use_local_model=self._should_use_local(task),
+        )
+
+    async def _execute_task_legacy(self, task: dict, plan: ExecutionPlan):
+        return await self._execute_task_core(task, plan, persist_attempt=False)
+
+    async def _execute_task_safe(self, task: dict, plan: ExecutionPlan):
+        return await self._execute_task_core(task, plan, persist_attempt=True)
+
+    async def _execute_task_core(
+        self, task: dict, plan: ExecutionPlan, *, persist_attempt: bool
+    ):
         """内部执行逻辑：while-true 内联重试循环。
 
         对标 OpenClaw run.ts while(true) 循环：
@@ -117,13 +167,13 @@ class TaskExecutorMixin:
         tid = task["id"]
         content = task["content"]
         task_type = task.get("type", "task")
-        timeout_s = float(task.get("timeout_s", 120))
+        timeout_s = plan.timeout_s
         control = ExecutionControl(
             deadline_monotonic=time.monotonic() + timeout_s,
             is_cancel_requested=lambda: td.is_cancel_requested(tid),
         )
         retry_policy = RetryPolicy(
-            max_attempts=MAX_INLINE_RETRIES + 1,
+            max_attempts=plan.max_attempts,
             base_delay_s=INLINE_RETRY_DELAY_S,
         )
         # 创建广播 stream，让任务执行结果推送到前端对话页面
@@ -144,7 +194,7 @@ class TaskExecutorMixin:
         # 智能分流：低复杂度任务用本地模型
         # 用 ContextVar 任务级覆盖，不再全局替换 brain.llm/brain.tools
         # （全局替换会让并发运行的用户对话被切到本地模型/受限工具集）
-        use_local = self._should_use_local(task)
+        use_local = plan.use_local_model
         original_llm = self._brain.llm
         llm_token = None
         if use_local and hasattr(original_llm, '_fallbacks') and original_llm._fallbacks:
@@ -152,7 +202,7 @@ class TaskExecutorMixin:
             llm_token = self._brain.set_llm_override(local_adapter)
             logger.info(f"🏠 本地模型分流: {tid} ({task.get('source','?')}/{task_type})")
         # 工具分组：按场景限制可用工具（任务逻辑.md §6.6）
-        scope = self._get_tool_scope(task)
+        scope = plan.tool_scope
         original_tools = self._brain.tools
         tools_token = None
         if scope != "task" and original_tools and hasattr(original_tools, 'list_tools_for_scope'):
@@ -166,6 +216,7 @@ class TaskExecutorMixin:
             # === OpenClaw 风格 while-true 内联重试 ===
             while attempt <= MAX_INLINE_RETRIES:
                 attempt += 1
+                attempt_record = td.begin_task_attempt(tid) if persist_attempt else None
                 try:
                     control.checkpoint()
                     # 推送中间状态
@@ -196,6 +247,12 @@ class TaskExecutorMixin:
                                 last_error = "空回复:LLM未总结工具结果"
                             else:
                                 last_error = "空承诺:工具未执行"
+                            if attempt_record:
+                                td.finish_task_attempt(
+                                    tid, attempt_record["attempt_id"],
+                                    failure_reason=classify_failure(RuntimeError(last_error)),
+                                    error=last_error,
+                                )
                             if attempt <= MAX_INLINE_RETRIES:
                                 delay = retry_policy.delay(attempt)
                                 logger.warning(
@@ -210,11 +267,19 @@ class TaskExecutorMixin:
                                 break
                     # 成功完成
                     self._brain._sessions.pop(sid, None)
+                    if attempt_record:
+                        td.finish_task_attempt(tid, attempt_record["attempt_id"])
                     td.complete_task(tid)
                     logger.info(f"✅ 任务完成: {tid} (attempt={attempt})")
                     return
                 except asyncio.TimeoutError:
                     last_error = f"执行超时(attempt={attempt})"
+                    if attempt_record:
+                        td.finish_task_attempt(
+                            tid, attempt_record["attempt_id"],
+                            failure_reason=classify_failure(TimeoutError()),
+                            error=last_error,
+                        )
                     if attempt <= MAX_INLINE_RETRIES:
                         logger.warning(f"🔄 内联重试(超时) {tid}: attempt={attempt}")
                         await asyncio.sleep(retry_policy.delay(attempt))
@@ -223,11 +288,21 @@ class TaskExecutorMixin:
                     break
                 except TaskCancelled as e:
                     self._brain._sessions.pop(sid, None)
+                    if attempt_record:
+                        td.finish_task_attempt(
+                            tid, attempt_record["attempt_id"],
+                            failure_reason=classify_failure(e), error=str(e),
+                        )
                     td.cancel_task(tid, str(e))
                     logger.info(f"⏹️ 任务已协作式取消: {tid}")
                     return
                 except Exception as e:
                     last_error = str(e)[:200]
+                    if attempt_record:
+                        td.finish_task_attempt(
+                            tid, attempt_record["attempt_id"],
+                            failure_reason=classify_failure(e), error=last_error,
+                        )
                     break  # 硬异常不内联重试，交给外部 fail_task
             # 所有内联重试耗尽
             self._brain._sessions.pop(sid, None)

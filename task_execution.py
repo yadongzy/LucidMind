@@ -5,13 +5,46 @@
 
 from dataclasses import dataclass
 import time
-from typing import Callable
+from typing import Any, Callable, Mapping
 
 from task_model import FailureReason
 
 
 class TaskCancelled(RuntimeError):
     """任务在安全点观察到协作式取消。"""
+
+
+@dataclass(frozen=True)
+class ExecutionPlan:
+    """Pure execution decision used for routing and side-effect-free shadowing."""
+
+    task_id: str
+    timeout_s: float
+    max_attempts: int
+    tool_scope: str
+    use_local_model: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "task_id": self.task_id,
+            "timeout_s": self.timeout_s,
+            "max_attempts": self.max_attempts,
+            "tool_scope": self.tool_scope,
+            "use_local_model": self.use_local_model,
+        }
+
+
+def compare_execution_plans(
+    legacy: Mapping[str, Any], safe: Mapping[str, Any]
+) -> dict[str, dict[str, Any]]:
+    """Return structured semantic differences without running either plan."""
+
+    keys = set(legacy) | set(safe)
+    return {
+        key: {"legacy": legacy.get(key), "safe": safe.get(key)}
+        for key in sorted(keys)
+        if legacy.get(key) != safe.get(key)
+    }
 
 
 @dataclass(frozen=True)

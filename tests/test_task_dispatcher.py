@@ -156,6 +156,23 @@ def test_checkpoint_round_trip_is_atomic_and_returns_latest():
     assert stored_task(task["id"])["checkpoints"] == [first, second]
 
 
+def test_attempt_lifecycle_persists_stable_id_and_failure_reason():
+    import task_dispatcher as dispatcher
+    from task_model import FailureReason
+
+    task = dispatcher.enqueue("attempt task")
+    dispatcher.dequeue()
+    attempt = dispatcher.begin_task_attempt(task["id"])
+    assert attempt["attempt_id"] == f"{task['id']}:1"
+    assert dispatcher.finish_task_attempt(
+        task["id"], attempt["attempt_id"],
+        failure_reason=FailureReason.TIMEOUT, error="deadline",
+    )
+    saved = stored_task(task["id"])
+    assert saved["current_attempt_id"] is None
+    assert saved["attempts"][0]["failure_reason"] == "timeout"
+
+
 def test_orphan_scan_is_report_only_by_default():
     import task_dispatcher as dispatcher
 
