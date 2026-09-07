@@ -14,6 +14,7 @@ import json
 import re
 import pathlib
 import time
+from atomic_persistence import append_jsonl
 from typing import Any
 
 from logs import get_logger
@@ -214,8 +215,7 @@ def _persist_scan_result(plugin_name: str, result: dict) -> None:
             "info": result["info"],
             "summary": result["summary"],
         }
-        with open(_SCAN_HISTORY_PATH, "a", encoding="utf-8") as f:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        append_jsonl(_SCAN_HISTORY_PATH, record)
     except Exception as e:
         logger.warning(f"扫描历史持久化失败: {e}")
 

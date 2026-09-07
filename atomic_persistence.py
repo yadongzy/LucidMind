@@ -67,3 +67,15 @@ def atomic_write_json(path: Path | str, data: Any) -> None:
     atomic_write_text(
         path, json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
     )
+
+
+def append_jsonl(path: Path | str, record: Any) -> None:
+    """Repair an incomplete tail, then durably append one JSON record."""
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    repair_jsonl_tail(destination)
+    payload = json.dumps(record, ensure_ascii=False) + "\n"
+    with destination.open("a", encoding="utf-8") as handle:
+        handle.write(payload)
+        handle.flush()
+        os.fsync(handle.fileno())

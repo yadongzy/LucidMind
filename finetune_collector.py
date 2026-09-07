@@ -10,6 +10,7 @@ from pathlib import Path
 from datetime import datetime
 
 from logs import get_logger
+from atomic_persistence import append_jsonl, atomic_write_text
 
 logger = get_logger("finetune")
 _DATA = Path(__file__).parent / "data"
@@ -51,8 +52,7 @@ def collect(messages: list[dict], response: dict, model: str):
 
     _DATA.mkdir(exist_ok=True)
     try:
-        with open(_PAIRS_FILE, "a", encoding="utf-8") as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        append_jsonl(_PAIRS_FILE, entry)
         _trim_if_needed()
         logger.debug(f"收集微调数据: {len(clean)}条消息, 模型={model}")
     except Exception as e:
@@ -67,7 +67,7 @@ def _trim_if_needed():
         lines = _PAIRS_FILE.read_text("utf-8").splitlines()
         if len(lines) > _MAX_PAIRS:
             keep = lines[-_MAX_PAIRS:]
-            _PAIRS_FILE.write_text("\n".join(keep) + "\n", "utf-8")
+            atomic_write_text(_PAIRS_FILE, "\n".join(keep) + "\n")
             logger.info(f"微调数据淘汰: {len(lines)}→{len(keep)}")
     except Exception:
         pass
@@ -99,7 +99,7 @@ def export_for_finetune(output_path: str | None = None) -> str:
                 exported.append(json.dumps({"messages": entry["messages"]}, ensure_ascii=False))
             except Exception:
                 continue
-        out.write_text("\n".join(exported) + "\n", "utf-8")
+        atomic_write_text(out, "\n".join(exported) + "\n")
         return f"导出 {len(exported)} 条到 {out}"
     except Exception as e:
         return f"导出失败: {e}"

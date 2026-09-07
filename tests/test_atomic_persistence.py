@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from atomic_persistence import atomic_write_json, atomic_write_text, repair_jsonl_tail
+from atomic_persistence import append_jsonl, atomic_write_json, atomic_write_text, repair_jsonl_tail
 
 
 def test_atomic_json_replaces_destination_and_leaves_no_temporary_file(tmp_path):
@@ -50,3 +50,13 @@ def test_repair_jsonl_tail_rejects_middle_corruption(tmp_path):
     with pytest.raises(ValueError, match="corruption before final record"):
         repair_jsonl_tail(destination)
     assert destination.read_bytes() == original
+
+
+def test_append_jsonl_repairs_incomplete_tail_and_appends_durably(tmp_path):
+    destination = tmp_path / "events.jsonl"
+    destination.write_bytes(b'{"id": 1}\n{"id":')
+
+    append_jsonl(destination, {"id": 2, "value": "安全"})
+
+    records = [json.loads(line) for line in destination.read_text(encoding="utf-8").splitlines()]
+    assert records == [{"id": 1}, {"id": 2, "value": "安全"}]
