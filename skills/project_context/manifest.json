@@ -1,0 +1,11 @@
+{
+  "name": "project_context",
+  "version": "1.0.0",
+  "description": "扫描项目目录结构，提供代码库上下文和技术栈信息",
+  "author": "LucidMind",
+  "entry": "main.py",
+  "tools": ["scan_project"],
+  "platform": [],
+  "dependencies": [],
+  "enabled": true
+}

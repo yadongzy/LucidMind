@@ -1,0 +1,11 @@
+{
+  "name": "docker_ops",
+  "version": "1.0.0",
+  "description": "Docker 容器管理：列表、日志、重启",
+  "author": "LucidMind",
+  "entry": "main.py",
+  "tools": ["docker_ps", "docker_logs", "docker_restart"],
+  "platform": [],
+  "dependencies": [],
+  "enabled": true
+}

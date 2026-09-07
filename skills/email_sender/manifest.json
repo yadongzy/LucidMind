@@ -1,0 +1,11 @@
+{
+  "name": "email_sender",
+  "version": "1.0.0",
+  "description": "邮件发送：通过 SMTP 发送邮件",
+  "author": "LucidMind",
+  "entry": "main.py",
+  "tools": ["send_email"],
+  "platform": [],
+  "dependencies": [],
+  "enabled": true
+}

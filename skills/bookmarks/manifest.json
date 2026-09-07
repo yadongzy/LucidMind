@@ -1,0 +1,11 @@
+{
+  "name": "bookmarks",
+  "version": "1.0.0",
+  "description": "网址收藏夹：保存、搜索、分类网址",
+  "author": "LucidMind",
+  "entry": "main.py",
+  "tools": ["add_bookmark", "search_bookmarks", "list_bookmarks"],
+  "platform": [],
+  "dependencies": [],
+  "enabled": true
+}

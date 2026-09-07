@@ -1,0 +1,145 @@
+{
+  "_comment": "LucidMind 模型目录 — 云端 + 本地模型注册表",
+  "cloud_providers": {
+    "deepseek": {
+      "name": "DeepSeek",
+      "api_type": "openai",
+      "base_url": "https://api.deepseek.com/v1",
+      "env_key": "DEEPSEEK_API_KEY",
+      "models": [
+        {"id": "deepseek-chat", "name": "DeepSeek V3", "context_window": 64000, "reasoning": false, "tool_support": true, "pricing": {"input": 0.27, "output": 1.10}},
+        {"id": "deepseek-reasoner", "name": "DeepSeek R1", "context_window": 64000, "reasoning": true, "tool_support": true, "pricing": {"input": 0.55, "output": 2.19}}
+      ]
+    },
+    "minimax": {
+      "name": "MiniMax",
+      "api_type": "anthropic",
+      "base_url": "https://api.minimax.io/anthropic",
+      "env_key": "MINIMAX_API_KEY",
+      "models": [
+        {"id": "MiniMax-M1", "name": "MiniMax M1", "context_window": 1000000, "reasoning": false, "tool_support": true, "pricing": {"input": 0.20, "output": 0.80}},
+        {"id": "MiniMax-M2.5", "name": "MiniMax M2.5", "context_window": 1000000, "reasoning": true, "tool_support": true, "pricing": {"input": 0.50, "output": 2.00}}
+      ]
+    },
+    "openai": {
+      "name": "OpenAI",
+      "api_type": "openai",
+      "base_url": "https://api.openai.com/v1",
+      "env_key": "OPENAI_API_KEY",
+      "models": [
+        {"id": "gpt-4o", "name": "GPT-4o", "context_window": 128000, "reasoning": false, "tool_support": true, "pricing": {"input": 2.50, "output": 10.00}},
+        {"id": "gpt-4o-mini", "name": "GPT-4o Mini", "context_window": 128000, "reasoning": false, "tool_support": true, "pricing": {"input": 0.15, "output": 0.60}},
+        {"id": "o1", "name": "OpenAI o1", "context_window": 200000, "reasoning": true, "tool_support": true, "pricing": {"input": 15.00, "output": 60.00}},
+        {"id": "o3-mini", "name": "OpenAI o3-mini", "context_window": 200000, "reasoning": true, "tool_support": true, "pricing": {"input": 1.10, "output": 4.40}}
+      ]
+    },
+    "anthropic": {
+      "name": "Anthropic",
+      "api_type": "anthropic",
+      "base_url": "https://api.anthropic.com",
+      "env_key": "ANTHROPIC_API_KEY",
+      "models": [
+        {"id": "claude-sonnet-4-5", "name": "Claude Sonnet 4.5", "context_window": 200000, "reasoning": true, "tool_support": true, "pricing": {"input": 3.00, "output": 15.00}},
+        {"id": "claude-haiku-3-5", "name": "Claude Haiku 3.5", "context_window": 200000, "reasoning": false, "tool_support": true, "pricing": {"input": 0.80, "output": 4.00}}
+      ]
+    },
+    "google": {
+      "name": "Google Gemini",
+      "api_type": "openai",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+      "env_key": "GEMINI_API_KEY",
+      "models": [
+        {"id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash", "context_window": 1000000, "reasoning": false, "tool_support": true, "pricing": {"input": 0.10, "output": 0.40}},
+        {"id": "gemini-2.0-pro", "name": "Gemini 2.0 Pro", "context_window": 1000000, "reasoning": false, "tool_support": true, "pricing": {"input": 1.25, "output": 5.00}}
+      ]
+    },
+    "groq": {
+      "name": "Groq",
+      "api_type": "openai",
+      "base_url": "https://api.groq.com/openai/v1",
+      "env_key": "GROQ_API_KEY",
+      "models": [
+        {"id": "llama-3.3-70b-versatile", "name": "Llama 3.3 70B", "context_window": 128000, "reasoning": false, "tool_support": true, "pricing": {"input": 0.59, "output": 0.79}},
+        {"id": "llama-3.1-8b-instant", "name": "Llama 3.1 8B", "context_window": 128000, "reasoning": false, "tool_support": true, "pricing": {"input": 0.05, "output": 0.08}}
+      ]
+    },
+    "moonshot": {
+      "name": "Moonshot (Kimi)",
+      "api_type": "openai",
+      "base_url": "https://api.moonshot.cn/v1",
+      "env_key": "MOONSHOT_API_KEY",
+      "models": [
+        {"id": "moonshot-v1-128k", "name": "Kimi 128K", "context_window": 128000, "reasoning": false, "tool_support": true, "pricing": {"input": 0.84, "output": 0.84}},
+        {"id": "kimi-k2", "name": "Kimi K2", "context_window": 128000, "reasoning": true, "tool_support": true, "pricing": {"input": 2.00, "output": 8.00}}
+      ]
+    },
+    "volcengine": {
+      "name": "火山引擎 (豆包)",
+      "api_type": "openai",
+      "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+      "env_key": "VOLCENGINE_API_KEY",
+      "models": [
+        {"id": "doubao-seed-1-8-251228", "name": "豆包 Seed 1.8", "context_window": 128000, "reasoning": false, "tool_support": true, "pricing": {"input": 0.30, "output": 0.90}},
+        {"id": "deepseek-v3-250324", "name": "DeepSeek V3 (豆包)", "context_window": 64000, "reasoning": false, "tool_support": true, "pricing": {"input": 0.20, "output": 0.80}}
+      ]
+    },
+    "zhipu": {
+      "name": "智谱 (GLM)",
+      "api_type": "openai",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "env_key": "ZHIPU_API_KEY",
+      "models": [
+        {"id": "glm-4-plus", "name": "GLM-4 Plus", "context_window": 128000, "reasoning": false, "tool_support": true, "pricing": {"input": 0.50, "output": 0.50}},
+        {"id": "glm-4-flash", "name": "GLM-4 Flash", "context_window": 128000, "reasoning": false, "tool_support": true, "pricing": {"input": 0.00, "output": 0.00}}
+      ]
+    },
+    "xai": {
+      "name": "xAI (Grok)",
+      "api_type": "openai",
+      "base_url": "https://api.x.ai/v1",
+      "env_key": "XAI_API_KEY",
+      "models": [
+        {"id": "grok-2", "name": "Grok 2", "context_window": 131072, "reasoning": false, "tool_support": true, "pricing": {"input": 2.00, "output": 10.00}}
+      ]
+    },
+    "mistral": {
+      "name": "Mistral",
+      "api_type": "openai",
+      "base_url": "https://api.mistral.ai/v1",
+      "env_key": "MISTRAL_API_KEY",
+      "models": [
+        {"id": "mistral-large-latest", "name": "Mistral Large", "context_window": 128000, "reasoning": false, "tool_support": true, "pricing": {"input": 2.00, "output": 6.00}},
+        {"id": "mistral-small-latest", "name": "Mistral Small", "context_window": 128000, "reasoning": false, "tool_support": true, "pricing": {"input": 0.10, "output": 0.30}}
+      ]
+    },
+    "antigravity": {
+      "name": "Antigravity (本地代理)",
+      "api_type": "openai",
+      "base_url": "http://127.0.0.1:8045/v1",
+      "env_key": "ANTIGRAVITY_API_KEY",
+      "models": [
+        {"id": "gemini-3-flash", "name": "Gemini 3 Flash", "context_window": 1000000, "reasoning": false, "tool_support": true, "pricing": {"input": 0, "output": 0}},
+        {"id": "gemini-3-pro", "name": "Gemini 3 Pro", "context_window": 1000000, "reasoning": false, "tool_support": true, "pricing": {"input": 0, "output": 0}},
+        {"id": "gemini-2.5-flash", "name": "Gemini 2.5 Flash", "context_window": 1000000, "reasoning": false, "tool_support": true, "pricing": {"input": 0, "output": 0}},
+        {"id": "claude-sonnet-4-5", "name": "Claude Sonnet 4.5", "context_window": 200000, "reasoning": true, "tool_support": true, "pricing": {"input": 0, "output": 0}},
+        {"id": "claude-opus-4-6", "name": "Claude Opus 4.6", "context_window": 200000, "reasoning": true, "tool_support": true, "pricing": {"input": 0, "output": 0}},
+        {"id": "gpt-4o", "name": "GPT-4o", "context_window": 128000, "reasoning": false, "tool_support": true, "pricing": {"input": 0, "output": 0}},
+        {"id": "gpt-4o-mini", "name": "GPT-4o Mini", "context_window": 128000, "reasoning": false, "tool_support": true, "pricing": {"input": 0, "output": 0}}
+      ]
+    }
+  },
+  "local_model_recommendations": [
+    {"name": "qwen3:0.6b",  "vram_gb": 0.5, "ram_gb": 2,  "params_b": 0.6, "chinese": 0.9, "tool_support": false, "desc": "超轻量，中文优秀，适合2GB显存或纯CPU"},
+    {"name": "gemma3:1b",    "vram_gb": 1.0, "ram_gb": 3,  "params_b": 1.0, "chinese": 0.5, "tool_support": false, "desc": "轻量，中文较弱"},
+    {"name": "qwen3:1.7b",   "vram_gb": 1.5, "ram_gb": 4,  "params_b": 1.7, "chinese": 0.95, "tool_support": false, "desc": "小型，中文优秀，性价比最高"},
+    {"name": "qwen3:4b",     "vram_gb": 3.0, "ram_gb": 6,  "params_b": 4.0, "chinese": 0.95, "tool_support": true, "desc": "中型，中文优秀，支持工具调用"},
+    {"name": "qwen3:8b",     "vram_gb": 5.0, "ram_gb": 8,  "params_b": 8.0, "chinese": 0.98, "tool_support": true, "desc": "中大型，中文极佳"},
+    {"name": "qwen3:14b",    "vram_gb": 9.0, "ram_gb": 16, "params_b": 14.0, "chinese": 0.99, "tool_support": true, "desc": "大型，适合12GB+显存"},
+    {"name": "qwen3:30b",    "vram_gb": 18,  "ram_gb": 32, "params_b": 30.0, "chinese": 1.0, "tool_support": true, "desc": "超大型，适合24GB+显存"},
+    {"name": "llama3.3:latest", "vram_gb": 5.0, "ram_gb": 8, "params_b": 8.0, "chinese": 0.6, "tool_support": true, "desc": "Meta Llama 3.3，英文强"},
+    {"name": "deepseek-r1:7b", "vram_gb": 5.0, "ram_gb": 8, "params_b": 7.0, "chinese": 0.95, "tool_support": false, "desc": "推理模型，中文优秀"},
+    {"name": "deepseek-r1:14b", "vram_gb": 9.0, "ram_gb": 16, "params_b": 14.0, "chinese": 0.98, "tool_support": false, "desc": "推理模型大型"},
+    {"name": "mistral:7b",   "vram_gb": 5.0, "ram_gb": 8, "params_b": 7.0, "chinese": 0.5, "tool_support": true, "desc": "Mistral 7B，英文强，支持工具"},
+    {"name": "gemma3:4b",    "vram_gb": 3.0, "ram_gb": 6, "params_b": 4.0, "chinese": 0.6, "tool_support": false, "desc": "Google Gemma3，英文强"}
+  ]
+}
