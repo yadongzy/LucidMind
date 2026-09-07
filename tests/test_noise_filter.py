@@ -6,6 +6,7 @@ import tempfile
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
@@ -182,6 +183,15 @@ class TestBackupJsonl(unittest.TestCase):
         with open(path) as f:
             lines = f.readlines()
         self.assertEqual(len(lines), 0)
+
+    def test_backup_failure_leaves_no_partial_destination(self):
+        self.store.add("lessons", "使用工具前应检查参数类型是否正确")
+        backup_dir = self.tmp / "backups"
+        with patch("atomic_persistence.os.replace", side_effect=OSError("replace failed")):
+            path = self.store.backup_jsonl(backup_dir)
+        self.assertIsNone(path)
+        self.assertEqual(list(backup_dir.glob("memory_backup_*.jsonl")), [])
+        self.assertEqual(list(backup_dir.glob(".*.tmp")), [])
 
 
 if __name__ == "__main__":

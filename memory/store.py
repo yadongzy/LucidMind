@@ -18,6 +18,7 @@ from typing import Any, Callable
 
 from memory.types import MemoryResult
 from logs import get_logger
+from atomic_persistence import atomic_write_text
 
 logger = get_logger("memory.store")
 
@@ -808,17 +809,21 @@ class MemoryStore:
                 "SELECT id, collection, content, metadata_json, created_at, updated_at FROM memories"
             ).fetchall()
 
-            with open(backup_file, "w", encoding="utf-8") as f:
-                for row in rows:
-                    record = {
-                        "id": row["id"],
-                        "collection": row["collection"],
-                        "content": row["content"],
-                        "metadata": json.loads(row["metadata_json"]),
-                        "created_at": row["created_at"],
-                        "updated_at": row["updated_at"],
-                    }
-                    f.write(json.dumps(record, ensure_ascii=False) + "\n")
+            records = []
+            for row in rows:
+                record = {
+                    "id": row["id"],
+                    "collection": row["collection"],
+                    "content": row["content"],
+                    "metadata": json.loads(row["metadata_json"]),
+                    "created_at": row["created_at"],
+                    "updated_at": row["updated_at"],
+                }
+                records.append(json.dumps(record, ensure_ascii=False))
+            payload = "\n".join(records)
+            if records:
+                payload += "\n"
+            atomic_write_text(backup_file, payload)
 
             logger.info(f"备份完成: {backup_file} ({len(rows)} 条记忆)")
 
