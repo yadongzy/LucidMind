@@ -50,6 +50,7 @@ def enqueue(
     parent_id: Optional[str] = None,
     timeout_s: int = 120,
     max_retries: int = 3,
+    idempotency_key: Optional[str] = None,
 ) -> dict:
     """将一个任务/学习项入队。
 
@@ -67,10 +68,19 @@ def enqueue(
     store = _load_store()
     tasks = store.get("tasks", [])
 
-    # 去重：相同内容的ready任务不重复入队（防积压）
+    # 显式幂等键优先；旧调用方继续使用内容去重，保持迁移兼容。
     content_key = content[:200]
     for t in tasks:
-        if t["status"] == "ready" and t["content"][:200] == content_key:
+        same_explicit_key = (
+            idempotency_key is not None
+            and t.get("idempotency_key") == idempotency_key
+        )
+        same_legacy_content = (
+            idempotency_key is None
+            and t["status"] == "ready"
+            and t["content"][:200] == content_key
+        )
+        if same_explicit_key or same_legacy_content:
             logger.debug(f"⏭️ 跳过重复入队: {content_key[:40]}")
             return t
 
@@ -95,6 +105,13 @@ def enqueue(
         "max_retries": max_retries,
         "last_error": None,
         "timeout_s": timeout_s,
+        "version": 0,
+        "idempotency_key": idempotency_key,
+        "lease_owner": None,
+        "lease_expires_at": None,
+        "attempts": [],
+        "checkpoints": [],
+        "failure_reason": None,
     }
 
     tasks.append(task)

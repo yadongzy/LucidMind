@@ -42,6 +42,26 @@ def test_duplicate_ready_task_is_idempotent():
     assert len(dispatcher._load_store()["tasks"]) == 1
 
 
+def test_explicit_idempotency_key_deduplicates_across_state_and_payload():
+    import task_dispatcher as dispatcher
+
+    first = dispatcher.enqueue("原始任务", idempotency_key="request-42")
+    dispatcher.dequeue()
+    second = dispatcher.enqueue("重放但内容不同", idempotency_key="request-42")
+    assert second["id"] == first["id"]
+    assert len(dispatcher._load_store()["tasks"]) == 1
+
+
+def test_new_task_contains_migration_safe_execution_metadata():
+    import task_dispatcher as dispatcher
+
+    task = dispatcher.enqueue("任务", idempotency_key="request-1")
+    assert task["version"] == 0
+    assert task["lease_owner"] is None
+    assert task["attempts"] == []
+    assert task["checkpoints"] == []
+
+
 def test_complete_clears_running_timestamp():
     import task_dispatcher as dispatcher
 

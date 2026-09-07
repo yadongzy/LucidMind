@@ -9,9 +9,13 @@ from task_model import (
     FailureReason,
     TaskAttempt,
     TaskStatus,
+    LeaseConflict,
+    VersionConflict,
+    acquire_lease,
     can_transition,
     parse_status,
     transition,
+    release_lease,
 )
 
 
@@ -81,6 +85,39 @@ def test_illegal_transition_does_not_mutate_task():
     with pytest.raises(ValueError, match="非法任务状态转换"):
         transition(task, "running")
     assert task == {"status": "completed", "version": 1}
+
+
+def test_transition_rejects_stale_optimistic_version_without_mutation():
+    task = {"status": "ready", "version": 3}
+    with pytest.raises(VersionConflict):
+        transition(task, "running", expected_version=2)
+    assert task == {"status": "ready", "version": 3}
+
+
+def test_active_lease_prevents_concurrent_owner_and_expired_lease_can_recover():
+    instant = datetime.fromisoformat("2026-09-07T12:00:00")
+    task = {"status": "running", "version": 0}
+    acquire_lease(task, "worker-a", 30, now=instant)
+    with pytest.raises(LeaseConflict):
+        acquire_lease(task, "worker-b", 30, now=instant)
+    acquire_lease(
+        task,
+        "worker-b",
+        30,
+        now=datetime.fromisoformat("2026-09-07T12:00:31"),
+    )
+    assert task["lease_owner"] == "worker-b"
+
+
+def test_lease_release_is_owner_checked_and_idempotent():
+    task = {"status": "running", "version": 0}
+    acquire_lease(task, "worker-a", 30)
+    with pytest.raises(LeaseConflict):
+        release_lease(task, "worker-b")
+    release_lease(task, "worker-a")
+    version = task["version"]
+    release_lease(task, "worker-a")
+    assert task["version"] == version
 
 
 def test_attempt_serializes_failure_reason_as_string():

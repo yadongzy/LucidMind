@@ -5,7 +5,7 @@
 """
 
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Mapping, Optional
 
@@ -33,6 +33,17 @@ class FailureReason(str, Enum):
     PERMISSION = "permission"
     DEPENDENCY = "dependency"
     CANCELLED = "cancelled"
+    BUSINESS = "business"
+    INFRASTRUCTURE = "infrastructure"
+    SYSTEM_INTERRUPTED = "system_interrupted"
+
+
+class VersionConflict(RuntimeError):
+    """调用方基于过期版本写入任务。"""
+
+
+class LeaseConflict(RuntimeError):
+    """任务已被另一个仍有效的执行者租用。"""
 
 
 TERMINAL_STATUSES = frozenset(
@@ -95,9 +106,19 @@ def can_transition(current: TaskStatus | str, target: TaskStatus | str) -> bool:
     return source == destination or destination in _TRANSITIONS[source]
 
 
-def transition(task: dict[str, Any], target: TaskStatus | str) -> dict[str, Any]:
+def transition(
+    task: dict[str, Any],
+    target: TaskStatus | str,
+    *,
+    expected_version: Optional[int] = None,
+) -> dict[str, Any]:
     """原地执行已校验的状态转换，并递增乐观版本号。"""
 
+    current_version = int(task.get("version", 0))
+    if expected_version is not None and current_version != expected_version:
+        raise VersionConflict(
+            f"任务版本冲突: expected={expected_version}, actual={current_version}"
+        )
     source = parse_status(task.get("status", TaskStatus.READY.value))
     destination = parse_status(target)
     if not can_transition(source, destination):
@@ -106,6 +127,54 @@ def transition(task: dict[str, Any], target: TaskStatus | str) -> dict[str, Any]
         task["status"] = destination.value
         task["version"] = int(task.get("version", 0)) + 1
         task["updated_at"] = datetime.now().isoformat()
+    return task
+
+
+def acquire_lease(
+    task: dict[str, Any],
+    owner: str,
+    ttl_s: int,
+    *,
+    now: Optional[datetime] = None,
+    expected_version: Optional[int] = None,
+) -> dict[str, Any]:
+    """获取或续期任务租约；有效租约只允许同一执行者续期。"""
+
+    if not owner or ttl_s <= 0:
+        raise ValueError("租约 owner 非空且 ttl_s 必须大于 0")
+    current_version = int(task.get("version", 0))
+    if expected_version is not None and current_version != expected_version:
+        raise VersionConflict(
+            f"任务版本冲突: expected={expected_version}, actual={current_version}"
+        )
+    instant = now or datetime.now()
+    lease_owner = task.get("lease_owner")
+    lease_expires_at = task.get("lease_expires_at")
+    if lease_owner and lease_owner != owner and lease_expires_at:
+        try:
+            if datetime.fromisoformat(lease_expires_at) > instant:
+                raise LeaseConflict(f"任务租约由 {lease_owner!r} 持有")
+        except ValueError:
+            pass
+    task["lease_owner"] = owner
+    task["lease_expires_at"] = (instant + timedelta(seconds=ttl_s)).isoformat()
+    task["version"] = current_version + 1
+    task["updated_at"] = instant.isoformat()
+    return task
+
+
+def release_lease(task: dict[str, Any], owner: str) -> dict[str, Any]:
+    """释放自己持有的租约；重复释放保持幂等。"""
+
+    lease_owner = task.get("lease_owner")
+    if lease_owner is None:
+        return task
+    if lease_owner != owner:
+        raise LeaseConflict(f"任务租约由 {lease_owner!r} 持有")
+    task["lease_owner"] = None
+    task["lease_expires_at"] = None
+    task["version"] = int(task.get("version", 0)) + 1
+    task["updated_at"] = datetime.now().isoformat()
     return task
 
 
