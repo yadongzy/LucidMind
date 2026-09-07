@@ -112,6 +112,7 @@ def enqueue(
         "attempts": [],
         "checkpoints": [],
         "failure_reason": None,
+        "cancel_requested": False,
     }
 
     tasks.append(task)
@@ -196,6 +197,50 @@ def update_task_progress(task_id: str, progress: str):
             _notify("task_progress", t)
             return
     logger.debug(f"⚠️ 更新进度失败: 任务 {task_id} 不存在")
+
+
+def is_cancel_requested(task_id: str) -> bool:
+    """读取协作式取消标记；任务不存在时按未取消处理。"""
+    store = _load_store()
+    return any(
+        t["id"] == task_id and bool(t.get("cancel_requested"))
+        for t in store.get("tasks", [])
+    )
+
+
+def request_task_cancel(task_id: str) -> bool:
+    """请求在下一个安全点取消任务，不强杀正在进行的外部副作用。"""
+    store = _load_store()
+    for t in store.get("tasks", []):
+        if t["id"] != task_id:
+            continue
+        if t["status"] in ("completed", "failed", "escalated", "cancelled"):
+            return False
+        t["cancel_requested"] = True
+        t["updated_at"] = datetime.now().isoformat()
+        _save_store(store)
+        _notify("task_cancel_requested", t)
+        return True
+    return False
+
+
+def cancel_task(task_id: str, reason: str = "任务已取消") -> bool:
+    """在执行安全点落盘最终取消状态。"""
+    store = _load_store()
+    for t in store.get("tasks", []):
+        if t["id"] != task_id:
+            continue
+        if t["status"] == "cancelled":
+            return True
+        transition(t, TaskStatus.CANCELLED)
+        t["running_at"] = None
+        t["completed_at"] = datetime.now().isoformat()
+        t["failure_reason"] = "cancelled"
+        t["last_error"] = reason[:200]
+        _save_store(store)
+        _notify("task_cancelled", t)
+        return True
+    return False
 
 
 def complete_task(task_id: str):

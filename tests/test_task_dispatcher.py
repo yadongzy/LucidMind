@@ -60,6 +60,20 @@ def test_new_task_contains_migration_safe_execution_metadata():
     assert task["lease_owner"] is None
     assert task["attempts"] == []
     assert task["checkpoints"] == []
+    assert task["cancel_requested"] is False
+
+
+def test_task_cancel_request_and_safe_point_completion():
+    import task_dispatcher as dispatcher
+
+    task = dispatcher.enqueue("可取消任务")
+    dispatcher.dequeue()
+    assert dispatcher.request_task_cancel(task["id"]) is True
+    assert dispatcher.is_cancel_requested(task["id"]) is True
+    assert dispatcher.cancel_task(task["id"], "安全点取消") is True
+    stored = dispatcher._load_store()["tasks"][0]
+    assert stored["status"] == "cancelled"
+    assert stored["failure_reason"] == "cancelled"
 
 
 def test_complete_clears_running_timestamp():

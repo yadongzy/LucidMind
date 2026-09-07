@@ -494,6 +494,30 @@ async def test_task_executor_hard_failure_no_inline_retry():
         assert "API key invalid" in args[1]
 
 
+@pytest.mark.asyncio
+async def test_task_executor_honors_cooperative_cancel_before_side_effect():
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from brain_task_executor import TaskExecutorMixin
+
+    brain = MagicMock()
+    brain.process = AsyncMock()
+    brain.llm = MagicMock()
+    brain._sessions = {}
+    executor = TaskExecutorMixin()
+    executor._brain = brain
+    task = {
+        "id": "cancel_test", "type": "task", "content": "测试",
+        "source": "user", "timeout_s": 30, "retries": 0,
+    }
+
+    with patch("task_dispatcher.is_cancel_requested", return_value=True), \
+         patch("task_dispatcher.cancel_task") as mock_cancel:
+        await executor._execute_task_inner(task)
+
+    brain.process.assert_not_awaited()
+    mock_cancel.assert_called_once_with("cancel_test", "任务已请求取消")
+
+
 # ═══════════════════════════════════════════════
 # task_decomposer 任务分解器
 # ═══════════════════════════════════════════════

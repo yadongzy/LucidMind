@@ -10,11 +10,13 @@
 """
 import asyncio
 import re
+import time
 
 from logs import get_logger
 import task_dispatcher as td
 from command_queue import get_command_queue, CommandLane
 from task_decomposer import should_decompose, decompose_task
+from task_execution import ExecutionControl, RetryPolicy, TaskCancelled
 
 logger = get_logger("daemon")
 
@@ -115,6 +117,15 @@ class TaskExecutorMixin:
         tid = task["id"]
         content = task["content"]
         task_type = task.get("type", "task")
+        timeout_s = float(task.get("timeout_s", 120))
+        control = ExecutionControl(
+            deadline_monotonic=time.monotonic() + timeout_s,
+            is_cancel_requested=lambda: td.is_cancel_requested(tid),
+        )
+        retry_policy = RetryPolicy(
+            max_attempts=MAX_INLINE_RETRIES + 1,
+            base_delay_s=INLINE_RETRY_DELAY_S,
+        )
         # 创建广播 stream，让任务执行结果推送到前端对话页面
         task_stream = None
         try:
@@ -156,12 +167,13 @@ class TaskExecutorMixin:
             while attempt <= MAX_INLINE_RETRIES:
                 attempt += 1
                 try:
+                    control.checkpoint()
                     # 推送中间状态
                     td.update_task_progress(tid, f"执行中(第{attempt}次尝试)")
                     result = await asyncio.wait_for(
                         self._brain.process(sid, f"[执行任务] {content}",
                                             stream=task_stream),
-                        timeout=task.get("timeout_s", 120)
+                        timeout=control.remaining_timeout(timeout_s)
                     )
                     # === 软失败检测（对标 OpenClaw attempt 结果检查）===
                     if isinstance(result, dict):
@@ -185,12 +197,13 @@ class TaskExecutorMixin:
                             else:
                                 last_error = "空承诺:工具未执行"
                             if attempt <= MAX_INLINE_RETRIES:
-                                delay = INLINE_RETRY_DELAY_S * (2 ** (attempt - 1))
+                                delay = retry_policy.delay(attempt)
                                 logger.warning(
                                     f"🔄 内联重试 {tid}: attempt={attempt} "
                                     f"reason={last_error} delay={delay:.1f}s"
                                 )
                                 await asyncio.sleep(delay)
+                                control.checkpoint()
                                 continue
                             else:
                                 # 所有内联重试耗尽且仍是软失败 → 不标记完成
@@ -204,9 +217,15 @@ class TaskExecutorMixin:
                     last_error = f"执行超时(attempt={attempt})"
                     if attempt <= MAX_INLINE_RETRIES:
                         logger.warning(f"🔄 内联重试(超时) {tid}: attempt={attempt}")
-                        await asyncio.sleep(INLINE_RETRY_DELAY_S)
+                        await asyncio.sleep(retry_policy.delay(attempt))
+                        control.checkpoint()
                         continue
                     break
+                except TaskCancelled as e:
+                    self._brain._sessions.pop(sid, None)
+                    td.cancel_task(tid, str(e))
+                    logger.info(f"⏹️ 任务已协作式取消: {tid}")
+                    return
                 except Exception as e:
                     last_error = str(e)[:200]
                     break  # 硬异常不内联重试，交给外部 fail_task
