@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Optional
 
 from logs import get_logger
-from task_model import TaskStatus, transition
+from task_model import Checkpoint, FailureReason, TaskStatus, transition
 from task_dispatcher_utils import (
     load_store as _load_store, save_store as _save_store,
     load_store, save_store,
@@ -197,6 +197,84 @@ def update_task_progress(task_id: str, progress: str):
             _notify("task_progress", t)
             return
     logger.debug(f"⚠️ 更新进度失败: 任务 {task_id} 不存在")
+
+
+def write_checkpoint(
+    task_id: str,
+    name: str,
+    payload: Optional[dict] = None,
+) -> Optional:
+    """在阶段边界原子追加检查点，并返回序列化结果。"""
+    if not name or not name.strip():
+        raise ValueError("检查点名称不能为空")
+    store = _load_store()
+    for task in store.get("tasks", []):
+        if task["id"] != task_id:
+            continue
+        checkpoint = Checkpoint(
+            name=name.strip(),
+            created_at=datetime.now().isoformat(),
+            payload=payload or {},
+        ).to_dict()
+        task.setdefault("checkpoints", []).append(checkpoint)
+        task["updated_at"] = checkpoint["created_at"]
+        _save_store(store)
+        _notify("task_checkpoint", task)
+        return checkpoint
+    return None
+
+
+def latest_checkpoint(task_id: str) -> Optional:
+    """读取最后一个有效检查点，不修改持久化状态。"""
+    store = _load_store()
+    for task in store.get("tasks", []):
+        if task["id"] == task_id:
+            checkpoints = task.get("checkpoints") or []
+            return dict(checkpoints[-1]) if checkpoints else None
+    return None
+
+
+def recover_orphaned_tasks(*, enable_recovery: bool = False) -> list:
+    """扫描失效租约的 running 任务；默认只报告，显式开启后才恢复。
+
+    有检查点的任务回到 ready 等待新 attempt；无检查点的任务进入 blocked，
+    避免未知外部副作用被自动重复执行。
+    """
+    store = _load_store()
+    now = datetime.now()
+    findings = []
+    changed = False
+    for task in store.get("tasks", []):
+        if task.get("status") != TaskStatus.RUNNING.value:
+            continue
+        expires_at = task.get("lease_expires_at")
+        lease_expired = not expires_at
+        if expires_at:
+            try:
+                lease_expired = datetime.fromisoformat(expires_at) <= now
+            except (TypeError, ValueError):
+                lease_expired = True
+        if not lease_expired:
+            continue
+        has_checkpoint = bool(task.get("checkpoints"))
+        action = "resume" if has_checkpoint else "manual_review"
+        findings.append({"task_id": task["id"], "action": action})
+        if not enable_recovery:
+            continue
+        transition(task, TaskStatus.READY if has_checkpoint else TaskStatus.BLOCKED)
+        task["running_at"] = None
+        task["lease_owner"] = None
+        task["lease_expires_at"] = None
+        task["failure_reason"] = FailureReason.SYSTEM_INTERRUPTED.value
+        task["last_error"] = (
+            "检测到孤儿任务，已从最后检查点等待恢复"
+            if has_checkpoint
+            else "检测到孤儿任务且无检查点，需要人工确认副作用"
+        )
+        changed = True
+    if changed:
+        _save_store(store)
+    return findings
 
 
 def is_cancel_requested(task_id: str) -> bool:

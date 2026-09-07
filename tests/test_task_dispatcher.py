@@ -142,3 +142,50 @@ def test_atomic_storage_remains_valid_json():
     parsed = json.loads(storage._QUEUE_FILE.read_text("utf-8"))
     assert parsed["version"] == 1
     assert len(parsed["tasks"]) == 3
+
+
+def test_checkpoint_round_trip_is_atomic_and_returns_latest():
+    import task_dispatcher as dispatcher
+
+    task = dispatcher.enqueue("可恢复任务")
+    dispatcher.dequeue()
+    first = dispatcher.write_checkpoint(task["id"], "planned", {"step": 1})
+    second = dispatcher.write_checkpoint(task["id"], "executed", {"step": 2})
+    assert first["version"] == 1
+    assert dispatcher.latest_checkpoint(task["id"]) == second
+    assert stored_task(task["id"])["checkpoints"] == [first, second]
+
+
+def test_orphan_scan_is_report_only_by_default():
+    import task_dispatcher as dispatcher
+
+    task = dispatcher.enqueue("孤儿任务")
+    dispatcher.dequeue()
+    findings = dispatcher.recover_orphaned_tasks()
+    assert findings == [{"task_id": task["id"], "action": "manual_review"}]
+    assert stored_task(task["id"])["status"] == "running"
+
+
+def test_orphan_with_checkpoint_can_be_requeued_explicitly():
+    import task_dispatcher as dispatcher
+
+    task = dispatcher.enqueue("可恢复孤儿任务")
+    dispatcher.dequeue()
+    dispatcher.write_checkpoint(task["id"], "after-plan", {"next": "execute"})
+    findings = dispatcher.recover_orphaned_tasks(enable_recovery=True)
+    assert findings == [{"task_id": task["id"], "action": "resume"}]
+    saved = stored_task(task["id"])
+    assert saved["status"] == "ready"
+    assert saved["failure_reason"] == "system_interrupted"
+    assert saved["running_at"] is None
+
+
+def test_orphan_without_checkpoint_requires_manual_review():
+    import task_dispatcher as dispatcher
+
+    task = dispatcher.enqueue("未知副作用任务")
+    dispatcher.dequeue()
+    dispatcher.recover_orphaned_tasks(enable_recovery=True)
+    saved = stored_task(task["id"])
+    assert saved["status"] == "blocked"
+    assert saved["failure_reason"] == "system_interrupted"
