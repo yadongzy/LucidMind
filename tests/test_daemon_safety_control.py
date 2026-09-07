@@ -57,6 +57,8 @@ def test_status_exposes_fail_safe_control_state():
         "pipeline_enabled", "shadow",
         "orphan_recovery_enabled", "orphan_findings", "shadow_reports",
     }
+    assert "metrics" in daemon.get_status()
+    assert "queue_depth" in daemon.get_status()["metrics"]
 
 
 @pytest.mark.asyncio

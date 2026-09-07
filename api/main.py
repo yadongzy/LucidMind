@@ -32,6 +32,7 @@ from api.token_api import router as token_router
 from api.identity_api import router as identity_router
 from brain import Brain
 from logs import get_logger
+from task_observability import build_readiness
 
 logger = get_logger("api")
 
@@ -83,6 +84,20 @@ async def health():
         return {"status": "ok", "version": "0.1.0", "llm_available": False, "initialized": False}
     available = await startup.llm_adapter.is_available()
     return {"status": "ok", "version": "0.1.0", "llm_available": available}
+
+@app.get("/api/readiness")
+async def readiness():
+    initialized = startup.llm_adapter is not None
+    llm_available = await startup.llm_adapter.is_available() if initialized else False
+    daemon_status = (
+        brain_init.daemon.get_status()
+        if brain_init.daemon else None
+    )
+    return build_readiness(
+        initialized=initialized,
+        llm_available=llm_available,
+        daemon_status=daemon_status,
+    )
 
 @app.get("/api/status")
 async def status():

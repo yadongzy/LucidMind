@@ -26,6 +26,7 @@ from brain_config import (
     SAFE_PIPELINE_ENABLED,
     SAFE_PIPELINE_SHADOW,
 )
+from task_observability import build_task_metrics
 
 logger = get_logger("daemon")
 
@@ -212,6 +213,8 @@ class BrainDaemon(DaemonObserveMixin, TaskExecutorMixin):
 
     def get_status(self) -> dict[str, Any]:
         cq = get_command_queue()
+        queue_status = td.get_queue_status()
+        metrics = build_task_metrics({"tasks": queue_status.get("tasks", [])})
         return {"running": self._running, "awake": self._brain._awake,
             "paused": self._paused, "pending_plan": self._pending_plan,
             "safe_control": {
@@ -224,7 +227,8 @@ class BrainDaemon(DaemonObserveMixin, TaskExecutorMixin):
             "interval": self._interval,
             "auto_ask": getattr(self._teacher, '_auto_ask_enabled', True) if self._teacher else True,
             "last_think": self._last_think_time, "disconnected": self._was_disconnected,
-            "queue": td.get_queue_status(), "command_queue": cq.get_all_status(),
+            "queue": queue_status, "command_queue": cq.get_all_status(),
+            "metrics": metrics,
             "recent_thoughts": self._thought_log[-3:],
             "teaching": self._teacher.get_status() if self._teacher else {},
             "boot_diag": getattr(self, '_boot_diag', None)}
