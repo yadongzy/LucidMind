@@ -93,6 +93,7 @@ async def list_models():
         cloud.append({
             "id": pid,
             "name": pinfo.get("name", pid),
+            "base_url": pinfo.get("base_url", ""),
             "api_type": pinfo.get("api_type", "openai"),
             "configured": has_key,
             "active": False,
@@ -200,6 +201,15 @@ class AddProviderRequest(BaseModel):
     models: list[dict[str, Any]] = []
 
 
+class UpdateProviderRequest(BaseModel):
+    name: str
+    base_url: str
+    api_key: str | None = None
+    env_key: str | None = None
+    api_type: str = "openai"
+    models: list[dict[str, Any]] = []
+
+
 @router.post("/api/models/add-provider")
 async def add_provider(req: AddProviderRequest):
     """添加自定义 provider（持久化到 data/custom_providers.json）。"""
@@ -217,14 +227,52 @@ async def add_provider(req: AddProviderRequest):
     return {"status": "ok", "id": req.id}
 
 
+@router.put("/api/models/provider/{provider_id}")
+async def update_provider(provider_id: str, req: UpdateProviderRequest):
+    """编辑自定义 provider；API Key 留空时保留原值。"""
+    custom = _load_custom_providers()
+    if provider_id not in custom:
+        raise HTTPException(status_code=404, detail="Not a custom provider")
+
+    previous = custom[provider_id]
+    custom[provider_id] = {
+        "name": req.name,
+        "base_url": req.base_url,
+        "api_key": req.api_key if req.api_key else previous.get("api_key", ""),
+        "env_key": req.env_key if req.env_key is not None else previous.get("env_key", ""),
+        "api_type": req.api_type,
+        "models": req.models,
+    }
+    _save_custom_providers(custom)
+
+    adapter = startup.provider_adapter_map.get(provider_id)
+    if adapter:
+        adapter.base_url = req.base_url
+        if req.api_key:
+            adapter.api_key = req.api_key
+        if req.models:
+            adapter.model = req.models[0].get("id", adapter.model)
+        adapter.provider_name = provider_id
+
+    logger.info(f"自定义 provider 已更新: {provider_id} ({req.name})")
+    return {"status": "ok", "id": provider_id}
+
+
 @router.delete("/api/models/provider/{provider_id}")
 async def remove_provider(provider_id: str):
     """删除自定义 provider。"""
     custom = _load_custom_providers()
     if provider_id not in custom:
         raise HTTPException(status_code=404, detail="Not a custom provider")
+    if startup.llm_adapter and getattr(startup.llm_adapter, "provider_name", None) == provider_id:
+        raise HTTPException(status_code=409, detail="当前正在使用此模型，请先切换到其他模型")
     del custom[provider_id]
     _save_custom_providers(custom)
+    adapter = startup.provider_adapter_map.pop(provider_id, None)
+    if adapter and startup.llm_adapter:
+        startup.llm_adapter._all = [item for item in startup.llm_adapter._all if item is not adapter]
+        startup.llm_adapter._fallbacks = [item for item in startup.llm_adapter._fallbacks if item is not adapter]
+    logger.info(f"自定义 provider 已删除: {provider_id}")
     return {"status": "ok"}
 
 

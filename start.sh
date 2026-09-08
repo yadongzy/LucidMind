@@ -6,7 +6,7 @@
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$PROJECT_DIR"
 
-PORT=8000
+PORT=8001
 URL="http://localhost:$PORT"
 
 # 出错时暂停，防止双击闪退
@@ -119,7 +119,7 @@ echo "  🛑 按 Ctrl+C 停止"
 echo "  ════════════════════════════════"
 echo ""
 
-python3 -m uvicorn api.main:app --host 0.0.0.0 --port $PORT
+python -m uvicorn api.main:app --host 0.0.0.0 --port $PORT
 
 # 正常退出也暂停（双击运行时防止窗口消失）
 echo ""

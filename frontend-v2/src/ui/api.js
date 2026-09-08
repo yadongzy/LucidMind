@@ -153,6 +153,20 @@ export async function addProvider(data) {
   });
 }
 
+export async function updateProvider(providerId, data) {
+  return request(`/api/models/provider/${encodeURIComponent(providerId)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteProvider(providerId) {
+  return request(`/api/models/provider/${encodeURIComponent(providerId)}`, {
+    method: "DELETE",
+  });
+}
+
 export async function installLocalModel(model) {
   return request("/api/models/install", {
     method: "POST",

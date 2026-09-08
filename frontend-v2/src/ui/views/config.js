@@ -16,6 +16,46 @@ let _switchStatus = "";
 let _expandedProvider = null;
 let _localModelsCollapsed = false;
 let _proxyCollapsed = true;
+let _editingProvider = null;
+
+function _refreshModels(app) {
+  _modelData = null;
+  _loadModels(app);
+  app._refreshStatus();
+  app.requestUpdate();
+}
+
+function _startProviderEdit(app, provider) {
+  const model = (provider.models || [])[0] || {};
+  _editingProvider = provider.id;
+  _proxyCollapsed = false;
+  app.requestUpdate();
+  requestAnimationFrame(() => {
+    document.getElementById("proxy-base-url").value = provider.base_url || "";
+    document.getElementById("proxy-api-key").value = "";
+    document.getElementById("proxy-model").value = model.id || "";
+    document.getElementById("proxy-name").value = provider.name || provider.id;
+    const statusEl = document.getElementById("proxy-status");
+    statusEl.textContent = "正在编辑；API Key 留空将保留原值";
+    statusEl.style.color = "var(--accent)";
+  });
+}
+
+async function _deleteCustomProvider(app, provider) {
+  if (!confirm(`确定删除自定义模型配置“${provider.name}”吗？`)) return;
+  _switchStatus = `正在删除 ${provider.name}...`;
+  app.requestUpdate();
+  try {
+    await api.deleteProvider(provider.id);
+    if (_editingProvider === provider.id) _editingProvider = null;
+    _expandedProvider = null;
+    _switchStatus = `已删除: ${provider.name}`;
+    _refreshModels(app);
+  } catch (e) {
+    _switchStatus = `删除失败: ${e.message || e}`;
+    app.requestUpdate();
+  }
+}
 
 function _loadModels(app) {
   if (_modelLoading) return;
@@ -97,6 +137,12 @@ function _renderCloudProviders(app) {
               <div style="display:flex;align-items:center;gap:6px;">
                 <span style="font-size:10px;color:var(--text-dim);">${(p.models||[]).length} 模型</span>
                 <span style="font-size:10px;color:var(--text-dim);">${p.api_type}</span>
+                ${p.custom ? html`
+                  <button class="btn" style="font-size:10px;padding:2px 7px;" title="编辑配置"
+                    @click=${(e) => { e.stopPropagation(); _startProviderEdit(app, p); }}>编辑</button>
+                  <button class="btn btn--danger" style="font-size:10px;padding:2px 7px;" title="删除配置"
+                    @click=${(e) => { e.stopPropagation(); _deleteCustomProvider(app, p); }}>删除</button>
+                ` : nothing}
               </div>
             </div>
             <!-- 展开内容 -->
@@ -278,7 +324,7 @@ export function renderConfig(app) {
         <span style="font-size:12px;color:var(--text-dim);transition:transform .2s;display:inline-block;transform:rotate(${_proxyCollapsed ? '0deg' : '90deg'});">&#9654;</span>
       </div>
       ${_proxyCollapsed ? nothing : html`
-      <div class="form-hint" style="margin-bottom:10px;">粘贴 OpenAI 兼容 API 的连接信息，自动配置并切换使用</div>
+      <div class="form-hint" style="margin-bottom:10px;">${_editingProvider ? "编辑自定义模型配置；API Key 留空将保留原值" : "粘贴 OpenAI 兼容 API 的连接信息，自动配置并切换使用"}</div>
       <div style="display:flex;flex-direction:column;gap:8px;">
         <div style="display:flex;gap:6px;align-items:center;">
           <label style="font-size:12px;font-weight:600;min-width:70px;color:var(--text);">Base URL</label>
@@ -326,18 +372,30 @@ export function renderConfig(app) {
             statusEl.textContent = "配置中...";
             statusEl.style.color = "var(--warn)";
             try {
-              const pid = name.toLowerCase().replace(/[^a-z0-9]+/g, '_');
-              await api.addProvider({ id: pid, name, base_url: baseUrl, api_key: apiKey || "none", api_type: "openai", models: [{ id: model, name: model }] });
+              const pid = _editingProvider || name.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+              const payload = { name, base_url: baseUrl, api_key: apiKey, api_type: "openai", models: [{ id: model, name: model }] };
+              const wasEditing = Boolean(_editingProvider);
+              if (wasEditing) await api.updateProvider(pid, payload);
+              else await api.addProvider({ id: pid, ...payload, api_key: apiKey || "none" });
               await api.switchModel(pid, model);
-              statusEl.textContent = "已配置并切换到 " + model;
+              statusEl.textContent = (wasEditing ? "已更新并切换到 " : "已配置并切换到 ") + model;
               statusEl.style.color = "var(--ok)";
-              _modelData = null; _loadModels(app);
-              app._refreshStatus();
+              _editingProvider = null;
+              _refreshModels(app);
             } catch (e) {
               statusEl.textContent = "失败: " + (e.message || e);
               statusEl.style.color = "var(--danger)";
             }
-          }}>保存并切换</button>
+          }}>${_editingProvider ? "更新并切换" : "保存并切换"}</button>
+          ${_editingProvider ? html`
+            <button class="btn" style="font-size:12px;" @click=${() => {
+              _editingProvider = null;
+              for (const id of ["proxy-base-url", "proxy-api-key", "proxy-model"]) document.getElementById(id).value = "";
+              document.getElementById("proxy-name").value = "Antigravity";
+              document.getElementById("proxy-status").textContent = "";
+              app.requestUpdate();
+            }}>取消编辑</button>
+          ` : nothing}
           <span id="proxy-status" class="mono" style="font-size:11px;"></span>
         </div>
       </div>

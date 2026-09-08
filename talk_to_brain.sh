@@ -3,14 +3,14 @@
 # 用法: ./talk_to_brain.sh "你的消息"
 # 或直接运行进入交互模式
 
-BASE="http://localhost:8000"
+BASE="http://localhost:8001"
 
 # 检查服务器是否运行
 check_server() {
     if ! curl -s "$BASE/api/health" > /dev/null 2>&1; then
         echo "⚠️  服务器未启动，正在启动..."
         cd "$(dirname "$0")"
-        python -m uvicorn api.main:app --host 0.0.0.0 --port 8000 &
+        venv/bin/python -m uvicorn api.main:app --host 0.0.0.0 --port 8001 &
         sleep 5
         if ! curl -s "$BASE/api/health" > /dev/null 2>&1; then
             echo "❌ 服务器启动失败"; exit 1
